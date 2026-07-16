@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -12,6 +13,7 @@ namespace QuickTranslate
     {
         private AppSettings _settings = null!;
         private OpenAITranslationService _translationService = null!;
+        private bool _isInitializing = true;
 
         public MainWindow()
         {
@@ -34,9 +36,33 @@ namespace QuickTranslate
             // 填充设置区域
             ApiBaseUrlTextBox.Text = _settings.ApiBaseUrl;
             ApiKeyTextBox.Text = _settings.ApiKey;
-            ModelNameTextBox.Text = _settings.ModelName;
 
+            // 填充模型下拉框（已保存的配置组合）
+            RefreshModelComboBox();
+
+            _isInitializing = false;
             UpdateStatus("就绪");
+        }
+
+        /// <summary>
+        /// 刷新模型下拉框（从已保存的配置列表）
+        /// </summary>
+        private void RefreshModelComboBox()
+        {
+            ModelComboBox.Items.Clear();
+
+            foreach (var config in _settings.SavedConfigs)
+            {
+                var item = new ComboBoxItem
+                {
+                    Content = config.DisplayName,
+                    Tag = config
+                };
+                ModelComboBox.Items.Add(item);
+            }
+
+            // 设置当前模型名称
+            ModelComboBox.Text = _settings.ModelName;
         }
 
         private async void TranslateButton_Click(object sender, RoutedEventArgs e)
@@ -62,15 +88,12 @@ namespace QuickTranslate
 
             try
             {
-                // 使用流式翻译，逐字显示结果
                 var result = await _translationService.TranslateStreamingAsync(
                     sourceText,
                     targetLang,
-                    // 回调在后台线程执行，需通过 Dispatcher 切换到 UI 线程
                     chunk => Dispatcher.Invoke(() =>
                     {
                         ResultTextBox.Text = chunk;
-                        // 自动滚动到底部
                         ResultTextBox.ScrollToEnd();
                     }));
 
@@ -94,7 +117,7 @@ namespace QuickTranslate
 
         private void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_settings != null && LanguageComboBox.SelectedItem != null)
+            if (_settings != null && LanguageComboBox.SelectedItem != null && !_isInitializing)
             {
                 _settings.TargetLanguage = LanguageComboBox.SelectedItem?.ToString() ?? _settings.TargetLanguage;
                 ConfigManager.Save(_settings);
@@ -106,15 +129,83 @@ namespace QuickTranslate
             // 可用于实时翻译触发，第一期暂不启用
         }
 
-        private void SaveSettings_Click(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// 模型下拉框选择变化：自动填充对应的 URL 和 Key
+        /// </summary>
+        private void ModelComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            _settings.ApiBaseUrl = ApiBaseUrlTextBox.Text?.Trim() ?? _settings.ApiBaseUrl;
-            _settings.ApiKey = ApiKeyTextBox.Text?.Trim() ?? _settings.ApiKey;
-            _settings.ModelName = ModelNameTextBox.Text?.Trim() ?? _settings.ModelName;
+            if (_isInitializing || _settings == null) return;
+
+            if (ModelComboBox.SelectedItem is ComboBoxItem cbi && cbi.Tag is SavedConfig config)
+            {
+                // 选中已保存的配置，自动填充所有字段
+                _settings.ModelName = config.ModelName;
+                _settings.ApiBaseUrl = config.ApiBaseUrl;
+                _settings.ApiKey = config.ApiKey;
+
+                ApiBaseUrlTextBox.Text = config.ApiBaseUrl;
+                ApiKeyTextBox.Text = config.ApiKey;
+
+                _translationService.UpdateSettings(_settings);
+                ConfigManager.Save(_settings);
+                UpdateStatus($"已切换至 {config.DisplayName}");
+            }
+        }
+
+        /// <summary>
+        /// 保存当前配置到"最近使用"列表
+        /// </summary>
+        private void SaveCurrentConfig()
+        {
+            var model = ModelComboBox.Text?.Trim();
+            var baseUrl = ApiBaseUrlTextBox.Text?.Trim() ?? "";
+            var apiKey = ApiKeyTextBox.Text?.Trim() ?? "";
+
+            if (string.IsNullOrWhiteSpace(model)) return;
+
+            _settings.ModelName = model;
+            _settings.ApiBaseUrl = baseUrl;
+            _settings.ApiKey = apiKey;
+
+            // 生成显示名称：模型名 + URL 域名
+            string domain = "";
+            try
+            {
+                var uri = new Uri(baseUrl);
+                domain = uri.Host.Replace("api.", "").Replace(".com", "").Replace(".cn", "");
+                if (domain.Length > 12) domain = domain.Substring(0, 12);
+            }
+            catch { domain = "unknown"; }
+
+            var displayName = $"{model} @ {domain}";
+
+            // 去重：移除已存在的相同配置
+            _settings.SavedConfigs.RemoveAll(c =>
+                c.ModelName == model && c.ApiBaseUrl == baseUrl && c.ApiKey == apiKey);
+
+            // 插入到最前面
+            _settings.SavedConfigs.Insert(0, new SavedConfig
+            {
+                DisplayName = displayName,
+                ModelName = model,
+                ApiBaseUrl = baseUrl,
+                ApiKey = apiKey
+            });
+
+            // 最多保留 10 个
+            while (_settings.SavedConfigs.Count > 10)
+                _settings.SavedConfigs.RemoveAt(_settings.SavedConfigs.Count - 1);
 
             _translationService.UpdateSettings(_settings);
             ConfigManager.Save(_settings);
 
+            // 刷新下拉框
+            RefreshModelComboBox();
+        }
+
+        private void SaveSettings_Click(object sender, RoutedEventArgs e)
+        {
+            SaveCurrentConfig();
             UpdateStatus("设置已保存");
         }
 

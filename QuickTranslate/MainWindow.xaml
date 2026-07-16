@@ -57,6 +57,15 @@
             <Setter Property="CaretBrush" Value="#E0E0E0"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
+        <Style x:Key="DarkComboBox" TargetType="ComboBox">
+            <Setter Property="Background" Value="#2D2D3F"/>
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="BorderBrush" Value="#444466"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="16">
@@ -150,8 +159,9 @@
                              Style="{StaticResource SettingsTextBox}" Margin="0,0,8,0"/>
 
                     <TextBlock Grid.Row="0" Grid.Column="4" Text="Model:" Foreground="#888899" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBox x:Name="ModelNameTextBox" Grid.Row="0" Grid.Column="5" Width="120"
-                             Style="{StaticResource SettingsTextBox}"/>
+                    <ComboBox x:Name="ModelComboBox" Grid.Row="0" Grid.Column="5" Width="200"
+                              IsEditable="True" Style="{StaticResource DarkComboBox}"
+                              SelectionChanged="ModelComboBox_SelectionChanged"/>
 
                     <Button Grid.Row="2" Grid.Column="5" Content="保存设置" 
                             Style="{StaticResource PrimaryButton}" FontSize="12" Padding="12,4"
