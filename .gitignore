@@ -1,0 +1,35 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.exe
+*.pdb
+
+## Visual Studio
+.vs/
+*.sln.docstates
+
+## Rider
+.idea/
+
+## VS Code
+.vscode/
+
+## Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+## macOS
+.DS_Store
+.AppleDouble
+._*
+
+## App data (contains user API keys)
+**/settings.json
+
+## Private docs
+PLAN.md
