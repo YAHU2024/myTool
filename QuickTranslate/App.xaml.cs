@@ -221,9 +221,10 @@ public partial class App : Application
         if (location != null && location.IsValid)
             return location.EndPoint;
 
-        // 降级为当前鼠标位置
+        // 降级为当前鼠标位置（GetCursorPos 返回物理像素，转 DIP）
         Win32Api.GetCursorPos(out var cursorPoint);
-        return new System.Windows.Point(cursorPoint.X, cursorPoint.Y);
+        return DpiHelper.PhysicalToLogical(
+            new System.Windows.Point(cursorPoint.X, cursorPoint.Y));
     }
 
     /// <summary>

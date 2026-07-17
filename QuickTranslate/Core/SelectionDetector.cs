@@ -101,7 +101,9 @@ namespace QuickTranslate.Core
                     return Win32Api.CallNextHookEx(_mouseHookId, nCode, wParam, ref lParam);
                 }
 
-                var pos = new System.Windows.Point(lParam.pt.X, lParam.pt.Y);
+                // 鼠标钩子返回物理像素，转换为 WPF 逻辑像素(DIP)
+                var pos = DpiHelper.PhysicalToLogical(
+                    new System.Windows.Point(lParam.pt.X, lParam.pt.Y));
 
                 if (wParam == (IntPtr)Win32Api.WM_LBUTTONDOWN)
                 {

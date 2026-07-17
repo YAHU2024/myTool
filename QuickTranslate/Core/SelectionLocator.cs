@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Automation;
+using QuickTranslate.Helpers;
 
 namespace QuickTranslate.Core
 {
@@ -112,9 +113,12 @@ namespace QuickTranslate.Core
                 }
 
                 // 最后一行末端右上角外侧坐标（右上角上方）
-                var endPoint = new Point(lastLineRect.Value.Right, lastLineRect.Value.Y);
+                // UIA 返回物理像素，转换为 WPF 逻辑像素(DIP)
+                var endPoint = DpiHelper.PhysicalToLogical(
+                    new Point(lastLineRect.Value.Right, lastLineRect.Value.Y));
 
-                var bounds = new Rect(minX, minY, maxX - minX, maxY - minY);
+                var bounds = DpiHelper.PhysicalToLogical(
+                    new Rect(minX, minY, maxX - minX, maxY - minY));
 
                 Debug.WriteLine($"[SelectionLocator] UIA 定位成功: EndPoint=({endPoint.X:F0},{endPoint.Y:F0}), Bounds={bounds}");
 

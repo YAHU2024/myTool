@@ -124,17 +124,22 @@ namespace QuickTranslate.Helpers
         public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
         /// <summary>
-        /// 获取指定屏幕坐标所在显示器的工作区矩形
+        /// 获取指定屏幕坐标所在显示器的工作区矩形。
+        /// 输入为 WPF 逻辑像素(DIP)，内部转为物理像素调用 API，返回值为 DIP。
         /// </summary>
         public static Rect GetWorkAreaAtPoint(Point screenPoint)
         {
-            var pt = new POINT { X = (int)screenPoint.X, Y = (int)screenPoint.Y };
+            // DIP → 物理像素
+            var physical = DpiHelper.LogicalToPhysical(screenPoint);
+            var pt = new POINT { X = (int)physical.X, Y = (int)physical.Y };
             var hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
             var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
             GetMonitorInfo(hMon, ref mi);
-            return new Rect(mi.rcWork.Left, mi.rcWork.Top,
-                mi.rcWork.Right - mi.rcWork.Left,
-                mi.rcWork.Bottom - mi.rcWork.Top);
+            // 物理像素 → DIP
+            return DpiHelper.PhysicalToLogical(
+                new Rect(mi.rcWork.Left, mi.rcWork.Top,
+                    mi.rcWork.Right - mi.rcWork.Left,
+                    mi.rcWork.Bottom - mi.rcWork.Top));
         }
     }
 }
