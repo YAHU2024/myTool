@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Windows;
 
 namespace QuickTranslate.Helpers
 {
@@ -48,6 +49,24 @@ namespace QuickTranslate.Helpers
         }
 
         [StructLayout(LayoutKind.Sequential)]
+        public struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MONITORINFO
+        {
+            public int cbSize;
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public uint dwFlags;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
         public struct MSLLHOOKSTRUCT
         {
             public POINT pt;
@@ -93,5 +112,29 @@ namespace QuickTranslate.Helpers
         // 按键状态检测
         [DllImport("user32.dll")]
         public static extern short GetAsyncKeyState(int vKey);
+
+        // ── 多显示器支持 ──
+        public const uint MONITOR_DEFAULTTONEAREST = 2;
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+        /// <summary>
+        /// 获取指定屏幕坐标所在显示器的工作区矩形
+        /// </summary>
+        public static Rect GetWorkAreaAtPoint(Point screenPoint)
+        {
+            var pt = new POINT { X = (int)screenPoint.X, Y = (int)screenPoint.Y };
+            var hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+            var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+            GetMonitorInfo(hMon, ref mi);
+            return new Rect(mi.rcWork.Left, mi.rcWork.Top,
+                mi.rcWork.Right - mi.rcWork.Left,
+                mi.rcWork.Bottom - mi.rcWork.Top);
+        }
     }
 }

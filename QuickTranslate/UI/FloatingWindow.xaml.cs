@@ -59,15 +59,15 @@ namespace QuickTranslate.UI
         /// <summary>
         /// 显示翻译结果
         /// </summary>
-        public void ShowTranslation(string source, string translation, Point cursorPosition)
+        public void ShowTranslation(string source, string translation, Point anchorPosition)
         {
             SourceTextBlock.Text = source;
             TranslationTextBlock.Text = translation;
 
-            // 定位到鼠标右下方
-            PositionNearCursor(cursorPosition);
-
+            // 先 Show 以获取 ActualWidth/ActualHeight，再精确定位
             Show();
+            UpdateLayout();
+            PositionBelowAnchor(anchorPosition);
             Activate();
             ResetAutoHideTimer();
         }
@@ -90,37 +90,34 @@ namespace QuickTranslate.UI
         }
 
         /// <summary>
-        /// 在鼠标附近定位窗口
+        /// 在锚点正下方水平居中定位窗口（锚点通常为红点中心）
+        /// 支持6屏异现及屏幕边缘避让
         /// </summary>
-        private void PositionNearCursor(Point cursorPosition)
+        private void PositionBelowAnchor(Point anchorCenter)
         {
-            double offsetX = 15;
-            double offsetY = 15;
+            double gap = 8;  // 锚点与悬浮窗间距
+            double w = ActualWidth;
+            double h = ActualHeight;
 
-            var screen = SystemParameters.WorkArea;
+            // 水平居中于锚点下方
+            double left = anchorCenter.X - w / 2;
+            double top = anchorCenter.Y + gap;
 
-            // 先估算窗口大小
-            double estimatedWidth = 300;
-            double estimatedHeight = 100;
+            // 获取锚点所在显示器的工作区
+            var workArea = Win32Api.GetWorkAreaAtPoint(anchorCenter);
 
-            double left = cursorPosition.X + offsetX;
-            double top = cursorPosition.Y + offsetY;
-
-            // 避免超出屏幕右侧
-            if (left + estimatedWidth > screen.Right)
-            {
-                left = cursorPosition.X - estimatedWidth - offsetX;
-            }
-
-            // 避免超出屏幕底部
-            if (top + estimatedHeight > screen.Bottom)
-            {
-                top = cursorPosition.Y - estimatedHeight - offsetY;
-            }
-
-            // 确保不超出左边界和上边界
-            if (left < screen.Left) left = screen.Left;
-            if (top < screen.Top) top = screen.Top;
+            // 右边界避让
+            if (left + w > workArea.Right)
+                left = workArea.Right - w;
+            // 左边界避让
+            if (left < workArea.Left)
+                left = workArea.Left;
+            // 底部边界：不够空间则显示在锚点上方
+            if (top + h > workArea.Bottom)
+                top = anchorCenter.Y - gap - h;
+            // 顶部边界
+            if (top < workArea.Top)
+                top = workArea.Top;
 
             Left = left;
             Top = top;

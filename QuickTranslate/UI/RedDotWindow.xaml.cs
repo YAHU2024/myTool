@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
+using QuickTranslate.Core;
 
 namespace QuickTranslate.UI
 {
@@ -51,15 +52,16 @@ namespace QuickTranslate.UI
         }
 
         /// <summary>
-        /// 在指定位置显示红点（以鼠标释放位置为锚点，偏移到左上方）
+        /// 根据选中文本位置显示红点
+        /// UIA 成功时红点中心对齐选中文本末端坐标；降级时使用估算坐标
         /// </summary>
-        public void ShowAt(System.Windows.Point position)
+        public void ShowAt(SelectionLocation location)
         {
-            // 偏移策略：红点出现在释放点左上方
-            // X: 释放点左侧 5px（选中文本末端上方）
-            // Y: 释放点上方 25px（约一行文本高度，避开光标）
-            Left = position.X - 5;
-            Top = position.Y - 25;
+            var anchor = location.IsValid ? location.EndPoint : location.FallbackPoint;
+
+            // 红点窗口 16x16，中心偏移 = 8
+            Left = anchor.X - 8;
+            Top = anchor.Y - 8;
 
             // 记录红点中心点坐标（用于悬浮窗定位）
             DotScreenPosition = new System.Windows.Point(Left + 8, Top + 8);

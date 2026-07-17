@@ -32,9 +32,9 @@ namespace QuickTranslate.Core
         public bool IsRedDotVisible { get; set; }
 
         /// <summary>
-        /// 检测到文本选择完成时触发（参数为鼠标释放位置坐标）
+        /// 检测到文本选择完成时触发（参数1=拖拽起点，参数2=拖拽终点）
         /// </summary>
-        public event Action<System.Windows.Point>? SelectionCompleted;
+        public event Action<System.Windows.Point, System.Windows.Point>? SelectionCompleted;
 
         /// <summary>
         /// 红点可见时用户点击其他位置触发（取消红点）
@@ -138,10 +138,12 @@ namespace QuickTranslate.Core
                 {
                     if (_isDragging)
                     {
-                        // 拖拽选择完成，传递鼠标释放位置作为红点定位锚点
+                        // 拖拽选择完成，传递起点和终点用于红点定位
+                        var startPos = _mouseDownPos;
+                        var endPos = pos;
                         Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
                         {
-                            SelectionCompleted?.Invoke(pos);
+                            SelectionCompleted?.Invoke(startPos, endPos);
                         }));
                         _clickCount = 0;
                     }
@@ -185,7 +187,8 @@ namespace QuickTranslate.Core
                                 if (!string.IsNullOrWhiteSpace(selectedText) && !token.IsCancellationRequested && !_isDragging)
                                 {
                                     Debug.WriteLine($"双击/三击选词检测到 (clicks={clickCount})");
-                                    SelectionCompleted?.Invoke(clickPos);
+                                    // 双击/三击选词：起点=终点=点击位置
+                                    SelectionCompleted?.Invoke(clickPos, clickPos);
                                 }
                                 _clickCount = 0;
                             };

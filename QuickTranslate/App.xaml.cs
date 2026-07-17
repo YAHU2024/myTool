@@ -69,14 +69,13 @@ public partial class App : Application
 
         try
         {
-            // 获取鼠标位置
-            Win32Api.GetCursorPos(out var cursorPoint);
-            var cursorPosition = new System.Windows.Point(cursorPoint.X, cursorPoint.Y);
+            // 尝试 UIA 获取选中文本位置，降级为鼠标位置
+            var anchorPosition = GetSelectionAnchorPosition();
 
             // 先显示悬浮窗，提示正在翻译
             _floatingWindow.SetSource("正在获取...");
             _floatingWindow.UpdateTranslation("翻译中...");
-            _floatingWindow.ShowTranslation("正在获取...", "翻译中...", cursorPosition);
+            _floatingWindow.ShowTranslation("正在获取...", "翻译中...", anchorPosition);
 
             // 获取选中文本
             var selectedText = await ClipboardHelper.GetSelectedTextAsync();
@@ -121,7 +120,7 @@ public partial class App : Application
     /// <summary>
     /// 文本选择完成事件处理 - 显示红点
     /// </summary>
-    private async void OnSelectionCompleted(System.Windows.Point releasePos)
+    private async void OnSelectionCompleted(System.Windows.Point startPos, System.Windows.Point endPos)
     {
         if (_redDotWindow == null) return;
 
@@ -138,8 +137,23 @@ public partial class App : Application
         // 保存待翻译文本
         _pendingText = selectedText;
 
+        // 尝试 UIA 精确定位
+        var location = SelectionLocator.TryGetSelectionBounds();
+        if (location == null || !location.IsValid)
+        {
+            // 降级：拖拽中点 + 偏移(+4, -8)
+            var mid = new System.Windows.Point(
+                (startPos.X + endPos.X) / 2 + 4,
+                (startPos.Y + endPos.Y) / 2 - 8);
+            location = new SelectionLocation
+            {
+                IsValid = false,
+                FallbackPoint = mid
+            };
+        }
+
         // 显示红点
-        _redDotWindow.ShowAt(releasePos);
+        _redDotWindow.ShowAt(location);
         _selectionDetector!.IsRedDotVisible = true;
     }
 
@@ -196,6 +210,20 @@ public partial class App : Application
         {
             _isTranslating = false;
         }
+    }
+
+    /// <summary>
+    /// 获取选中文本锚点位置（优先 UIA，降级为鼠标位置）
+    /// </summary>
+    private System.Windows.Point GetSelectionAnchorPosition()
+    {
+        var location = SelectionLocator.TryGetSelectionBounds();
+        if (location != null && location.IsValid)
+            return location.EndPoint;
+
+        // 降级为当前鼠标位置
+        Win32Api.GetCursorPos(out var cursorPoint);
+        return new System.Windows.Point(cursorPoint.X, cursorPoint.Y);
     }
 
     /// <summary>
