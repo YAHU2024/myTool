@@ -88,5 +88,37 @@ namespace QuickTranslate.Models
         /// 已保存的配置组合列表（最近使用）
         /// </summary>
         public List<SavedConfig> SavedConfigs { get; set; } = new();
+
+        // ==================== 第四期：体验优化 ====================
+
+        /// <summary>
+        /// 快捷键虚拟键码（默认 Q = 0x51）
+        /// </summary>
+        public byte HotKeyVK { get; set; } = 0x51;
+
+        /// <summary>
+        /// 快捷键是否需要 Alt 修饰键
+        /// </summary>
+        public bool HotKeyRequireAlt { get; set; } = true;
+
+        /// <summary>
+        /// 快捷键是否需要 Ctrl 修饰键
+        /// </summary>
+        public bool HotKeyRequireCtrl { get; set; } = false;
+
+        /// <summary>
+        /// 快捷键是否需要 Shift 修饰键
+        /// </summary>
+        public bool HotKeyRequireShift { get; set; } = false;
+
+        /// <summary>
+        /// 是否启用语言自动检测（根据源语言自动决定翻译方向）
+        /// </summary>
+        public bool AutoDetectLanguage { get; set; } = true;
+
+        /// <summary>
+        /// 自定义翻译提示词（留空使用默认，支持 {targetLang} 占位符）
+        /// </summary>
+        public string CustomSystemPrompt { get; set; } = string.Empty;
     }
 }

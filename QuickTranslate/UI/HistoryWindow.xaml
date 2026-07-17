@@ -1,0 +1,207 @@
+<Window x:Class="QuickTranslate.UI.HistoryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="翻译历史" Height="700" Width="900"
+        WindowStartupLocation="CenterScreen"
+        Background="#1E1E2E">
+    <Window.Resources>
+        <Style x:Key="LabelStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#A0A0C0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+        </Style>
+        <Style x:Key="InputTextBox" TargetType="TextBox">
+            <Setter Property="Background" Value="#2D2D3F"/>
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="BorderBrush" Value="#444466"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
+            <Setter Property="CaretBrush" Value="#E0E0E0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="DarkComboBox" TargetType="ComboBox">
+            <Setter Property="Background" Value="#2D2D3F"/>
+            <Setter Property="Foreground" Value="#000000"/>
+            <Setter Property="BorderBrush" Value="#444466"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#7C3AED"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#6D28D9"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="SecondaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#2D2D3F"/>
+            <Setter Property="Foreground" Value="#A0A0C0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#444466"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#3D3D5F"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="DarkDataGrid" TargetType="DataGrid">
+            <Setter Property="Background" Value="#252537"/>
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="BorderBrush" Value="#444466"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="RowBackground" Value="#252537"/>
+            <Setter Property="AlternatingRowBackground" Value="#2A2A3F"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#333355"/>
+            <Setter Property="VerticalGridLinesBrush" Value="#333355"/>
+            <Setter Property="HeadersVisibility" Value="Column"/>
+            <Setter Property="SelectionMode" Value="Single"/>
+            <Setter Property="AutoGenerateColumns" Value="False"/>
+            <Setter Property="CanUserAddRows" Value="False"/>
+            <Setter Property="CanUserDeleteRows" Value="False"/>
+            <Setter Property="IsReadOnly" Value="True"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 搜索区域 -->
+        <Border Grid.Row="0" Background="#252537" CornerRadius="8" Padding="16">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- 搜索框 -->
+                <TextBox x:Name="SearchTextBox" Grid.Row="0" Grid.Column="0"
+                         Style="{StaticResource InputTextBox}"
+                         ToolTip="搜索原文或译文"/>
+
+                <!-- 语言筛选 -->
+                <ComboBox x:Name="LanguageFilterComboBox" Grid.Row="0" Grid.Column="2"
+                          Style="{StaticResource DarkComboBox}" Width="140"
+                          ToolTip="按语言筛选"/>
+
+                <!-- 时间范围筛选 -->
+                <ComboBox x:Name="TimeRangeComboBox" Grid.Row="0" Grid.Column="4"
+                          Style="{StaticResource DarkComboBox}" Width="120"
+                          ToolTip="按时间范围筛选"/>
+
+                <!-- 搜索按钮 -->
+                <Button x:Name="SearchButton" Grid.Row="2" Grid.Column="0"
+                        Style="{StaticResource PrimaryButton}" Content="搜 索"
+                        Click="SearchButton_Click" HorizontalAlignment="Left"/>
+
+                <!-- 重置按钮 -->
+                <Button x:Name="ResetButton" Grid.Row="2" Grid.Column="2"
+                        Style="{StaticResource SecondaryButton}" Content="重 置"
+                        Click="ResetButton_Click" Grid.ColumnSpan="3" HorizontalAlignment="Right"/>
+            </Grid>
+        </Border>
+
+        <!-- 数据表格 -->
+        <DataGrid x:Name="HistoryDataGrid" Grid.Row="2"
+                  Style="{StaticResource DarkDataGrid}"
+                  MouseDoubleClick="HistoryDataGrid_MouseDoubleClick">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="时间" Binding="{Binding TranslatedAt, StringFormat=yyyy-MM-dd HH:mm:ss}" Width="160"/>
+                <DataGridTextColumn Header="原文" Binding="{Binding SourceText}" Width="*"/>
+                <DataGridTextColumn Header="译文" Binding="{Binding Translation}" Width="*"/>
+                <DataGridTextColumn Header="语言对" Binding="{Binding TargetLanguage}" Width="100"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- 分页控制 -->
+        <Border Grid.Row="4" Background="#252537" CornerRadius="8" Padding="16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- 统计信息 -->
+                <TextBlock x:Name="StatsTextBlock" Grid.Column="0"
+                           Foreground="#A0A0C0" FontSize="13"
+                           VerticalAlignment="Center"/>
+
+                <!-- 分页按钮 -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button x:Name="FirstPageButton" Style="{StaticResource SecondaryButton}"
+                            Content="首页" Margin="0,0,8,0" Click="FirstPageButton_Click"/>
+                    <Button x:Name="PrevPageButton" Style="{StaticResource SecondaryButton}"
+                            Content="上一页" Margin="0,0,8,0" Click="PrevPageButton_Click"/>
+                    <TextBlock x:Name="PageInfoTextBlock" Foreground="#E0E0E0" FontSize="13"
+                               VerticalAlignment="Center" Margin="8,0"/>
+                    <Button x:Name="NextPageButton" Style="{StaticResource SecondaryButton}"
+                            Content="下一页" Margin="8,0,8,0" Click="NextPageButton_Click"/>
+                    <Button x:Name="LastPageButton" Style="{StaticResource SecondaryButton}"
+                            Content="末页" Click="LastPageButton_Click"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 导出按钮 -->
+        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="ExportButton" Style="{StaticResource PrimaryButton}"
+                    Content="导出为 Anki 格式" Click="ExportButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

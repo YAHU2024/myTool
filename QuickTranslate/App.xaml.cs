@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Windows;
 using QuickTranslate.Core;
+using QuickTranslate.Database;
 using QuickTranslate.Helpers;
 using QuickTranslate.Models;
 using QuickTranslate.Services;
@@ -22,6 +23,8 @@ public partial class App : Application
     private RedDotWindow? _redDotWindow;
     private TrayIconManager? _trayIcon;
     private SettingsWindow? _settingsWindow;
+    private HistoryWindow? _historyWindow;
+    private TranslationDbContext? _dbContext;
     private bool _isTranslating;
     private string? _pendingText; // 待翻译文本（红点悬停时使用）
 
@@ -31,6 +34,10 @@ public partial class App : Application
 
         // 加载配置
         _settings = ConfigManager.Load();
+
+        // 初始化数据库
+        _dbContext = new TranslationDbContext();
+        _dbContext.EnsureDatabaseCreated();
 
         // 初始化翻译服务
         _translationService = new OpenAITranslationService(_settings);
@@ -45,6 +52,10 @@ public partial class App : Application
 
         // 启动全局键盘钩子
         _keyboardHook = new GlobalKeyboardHook();
+        _keyboardHook.HotKey = _settings.HotKeyVK;
+        _keyboardHook.RequireAlt = _settings.HotKeyRequireAlt;
+        _keyboardHook.RequireCtrl = _settings.HotKeyRequireCtrl;
+        _keyboardHook.RequireShift = _settings.HotKeyRequireShift;
         _keyboardHook.HotKeyPressed += OnHotKeyPressed;
         _keyboardHook.Start();
 
@@ -57,6 +68,7 @@ public partial class App : Application
         // 初始化系统托盘图标
         _trayIcon = new TrayIconManager();
         _trayIcon.SettingsRequested += OnSettingsRequested;
+        _trayIcon.HistoryRequested += OnHistoryRequested;
         _trayIcon.PauseToggled += OnPauseToggled;
         _trayIcon.ExitRequested += OnExitRequested;
 
@@ -116,6 +128,9 @@ public partial class App : Application
                 {
                     _floatingWindow.UpdateTranslation(chunk);
                 }));
+
+            // 保存翻译历史
+            SaveTranslationHistory(selectedText, result, targetLang);
 
             Debug.WriteLine($"翻译完成: {result.Length} 字");
         }
@@ -214,6 +229,9 @@ public partial class App : Application
                     _floatingWindow.UpdateTranslation(chunk);
                 }));
 
+            // 保存翻译历史
+            SaveTranslationHistory(textToTranslate, result, targetLang);
+
             Debug.WriteLine($"翻译完成: {result.Length} 字");
         }
         catch (Exception ex)
@@ -282,7 +300,38 @@ public partial class App : Application
     private void OnSettingsSaved(AppSettings settings)
     {
         _translationService?.UpdateSettings(settings);
+
+        // 更新快捷键配置
+        if (_keyboardHook != null)
+        {
+            _keyboardHook.Stop();
+            _keyboardHook.HotKey = settings.HotKeyVK;
+            _keyboardHook.RequireAlt = settings.HotKeyRequireAlt;
+            _keyboardHook.RequireCtrl = settings.HotKeyRequireCtrl;
+            _keyboardHook.RequireShift = settings.HotKeyRequireShift;
+            _keyboardHook.Start();
+        }
+
         UpdateTrayToolTip();
+    }
+
+    /// <summary>
+    /// 打开翻译历史窗口
+    /// </summary>
+    private void OnHistoryRequested()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_historyWindow != null)
+            {
+                _historyWindow.Activate();
+                return;
+            }
+
+            _historyWindow = new HistoryWindow();
+            _historyWindow.Closed += (s, e) => _historyWindow = null;
+            _historyWindow.Show();
+        });
     }
 
     /// <summary>
@@ -313,12 +362,42 @@ public partial class App : Application
         _trayIcon.UpdateToolTip($"QuickTranslate - {status}");
     }
 
+    /// <summary>
+    /// 保存翻译历史记录
+    /// </summary>
+    private void SaveTranslationHistory(string sourceText, string translation, string targetLang)
+    {
+        if (_dbContext == null || string.IsNullOrWhiteSpace(sourceText) || string.IsNullOrWhiteSpace(translation))
+            return;
+
+        try
+        {
+            var record = new TranslationRecord
+            {
+                SourceText = sourceText.Trim(),
+                Translation = translation.Trim(),
+                SourceLanguage = "auto",
+                TargetLanguage = targetLang,
+                TranslatedAt = DateTime.Now
+            };
+
+            _dbContext.TranslationRecords.Add(record);
+            _dbContext.SaveChanges();
+            Debug.WriteLine($"翻译历史已保存: {record.Id}");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"保存翻译历史失败: {ex.Message}");
+        }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         // 清理资源
         _keyboardHook?.Dispose();
         _selectionDetector?.Dispose();
         _trayIcon?.Dispose();
+        _dbContext?.Dispose();
         base.OnExit(e);
     }
 }

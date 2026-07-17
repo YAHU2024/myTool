@@ -23,6 +23,15 @@ namespace QuickTranslate.UI
         private string _origTargetLanguage = string.Empty;
         private bool _origTranslationEnabled = true;
         private bool _origAutoStart = false;
+        private bool _origAutoDetectLanguage = true;
+        private string _origCustomSystemPrompt = string.Empty;
+        private byte _origHotKeyVK = 0x51;
+        private bool _origHotKeyRequireAlt = true;
+        private bool _origHotKeyRequireCtrl = false;
+        private bool _origHotKeyRequireShift = false;
+
+        // 快捷键录入状态
+        private bool _isCapturingHotKey = false;
 
         public SettingsWindow(AppSettings settings, Action<AppSettings>? onSettingsSaved = null)
         {
@@ -45,6 +54,12 @@ namespace QuickTranslate.UI
             _origTargetLanguage = _settings.TargetLanguage;
             _origTranslationEnabled = _settings.TranslationEnabled;
             _origAutoStart = _settings.AutoStart;
+            _origAutoDetectLanguage = _settings.AutoDetectLanguage;
+            _origCustomSystemPrompt = _settings.CustomSystemPrompt;
+            _origHotKeyVK = _settings.HotKeyVK;
+            _origHotKeyRequireAlt = _settings.HotKeyRequireAlt;
+            _origHotKeyRequireCtrl = _settings.HotKeyRequireCtrl;
+            _origHotKeyRequireShift = _settings.HotKeyRequireShift;
         }
 
         private void LoadSettings()
@@ -64,8 +79,45 @@ namespace QuickTranslate.UI
             // 翻译开关
             TranslationEnabledCheckBox.IsChecked = _settings.TranslationEnabled;
 
+            // 语言自动检测
+            AutoDetectLanguageCheckBox.IsChecked = _settings.AutoDetectLanguage;
+
+            // 自定义提示词
+            CustomSystemPromptTextBox.Text = _settings.CustomSystemPrompt;
+
             // 开机自启
             AutoStartCheckBox.IsChecked = _settings.AutoStart;
+
+            // 快捷键显示
+            UpdateHotKeyDisplay();
+        }
+
+        /// <summary>
+        /// 更新快捷键显示文本
+        /// </summary>
+        private void UpdateHotKeyDisplay()
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            if (_settings.HotKeyRequireCtrl) parts.Add("Ctrl");
+            if (_settings.HotKeyRequireAlt) parts.Add("Alt");
+            if (_settings.HotKeyRequireShift) parts.Add("Shift");
+            parts.Add(GetKeyName(_settings.HotKeyVK));
+            HotKeyDisplayText.Text = string.Join("+", parts);
+        }
+
+        /// <summary>
+        /// 获取按键名称
+        /// </summary>
+        private static string GetKeyName(byte vk)
+        {
+            return vk switch
+            {
+                0x51 => "Q",
+                0x41 => "A",
+                0x5A => "Z",
+                0x20 => "Space",
+                _ => $"VK_{vk:X2}"
+            };
         }
 
         private void RefreshModelComboBox()
@@ -308,6 +360,10 @@ namespace QuickTranslate.UI
 
             _settings.TranslationEnabled = TranslationEnabledCheckBox.IsChecked ?? true;
 
+            _settings.AutoDetectLanguage = AutoDetectLanguageCheckBox.IsChecked ?? true;
+
+            _settings.CustomSystemPrompt = CustomSystemPromptTextBox.Text?.Trim() ?? string.Empty;
+
             var autoStart = AutoStartCheckBox.IsChecked ?? false;
             if (autoStart != _origAutoStart)
             {
@@ -334,6 +390,86 @@ namespace QuickTranslate.UI
                 while (_settings.SavedConfigs.Count > 10)
                     _settings.SavedConfigs.RemoveAt(_settings.SavedConfigs.Count - 1);
             }
+        }
+
+        // ==================== 快捷键录入 ====================
+
+        /// <summary>
+        /// 修改快捷键按钮点击
+        /// </summary>
+        private void ChangeHotKeyButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isCapturingHotKey)
+            {
+                // 取消录入
+                StopHotKeyCapture();
+                return;
+            }
+
+            // 开始录入
+            _isCapturingHotKey = true;
+            ChangeHotKeyButton.Content = "取消";
+            HotKeyCaptureHint.Visibility = Visibility.Visible;
+            HotKeyDisplayText.Foreground = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0xFF, 0xA5, 0x00)); // 橙色
+
+            // 捕获键盘事件
+            this.PreviewKeyDown += HotKeyCapture_KeyDown;
+        }
+
+        /// <summary>
+        /// 快捷键录入键盘事件
+        /// </summary>
+        private void HotKeyCapture_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (!_isCapturingHotKey) return;
+
+            // 忽略单独的修饰键
+            if (e.Key == System.Windows.Input.Key.LeftCtrl || e.Key == System.Windows.Input.Key.RightCtrl ||
+                e.Key == System.Windows.Input.Key.LeftAlt || e.Key == System.Windows.Input.Key.RightAlt ||
+                e.Key == System.Windows.Input.Key.LeftShift || e.Key == System.Windows.Input.Key.RightShift)
+            {
+                return;
+            }
+
+            // 获取按键组合
+            var vk = (byte)System.Windows.Input.KeyInterop.VirtualKeyFromKey(e.Key);
+            var requireAlt = System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Alt);
+            var requireCtrl = System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Control);
+            var requireShift = System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Shift);
+
+            // 至少需要一个修饰键
+            if (!requireAlt && !requireCtrl && !requireShift)
+            {
+                MessageBox.Show("快捷键必须包含至少一个修饰键（Ctrl/Alt/Shift）", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // 应用新快捷键
+            _settings.HotKeyVK = vk;
+            _settings.HotKeyRequireAlt = requireAlt;
+            _settings.HotKeyRequireCtrl = requireCtrl;
+            _settings.HotKeyRequireShift = requireShift;
+
+            UpdateHotKeyDisplay();
+            StopHotKeyCapture();
+            _isDirty = true;
+
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// 停止快捷键录入
+        /// </summary>
+        private void StopHotKeyCapture()
+        {
+            _isCapturingHotKey = false;
+            ChangeHotKeyButton.Content = "修改";
+            HotKeyCaptureHint.Visibility = Visibility.Collapsed;
+            HotKeyDisplayText.Foreground = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0xE0, 0xE0, 0xE0)); // 白色
+
+            this.PreviewKeyDown -= HotKeyCapture_KeyDown;
         }
 
         /// <summary>

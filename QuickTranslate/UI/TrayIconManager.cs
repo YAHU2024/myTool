@@ -21,6 +21,11 @@ namespace QuickTranslate.UI
         public event Action? SettingsRequested;
 
         /// <summary>
+        /// 用户点击"翻译历史"
+        /// </summary>
+        public event Action? HistoryRequested;
+
+        /// <summary>
         /// 用户点击"暂停/恢复翻译"
         /// </summary>
         public event Action<bool>? PauseToggled;
@@ -46,10 +51,14 @@ namespace QuickTranslate.UI
             var settingsItem = new ToolStripMenuItem("设置");
             settingsItem.Click += (s, e) => SettingsRequested?.Invoke();
 
+            var historyItem = new ToolStripMenuItem("翻译历史");
+            historyItem.Click += (s, e) => HistoryRequested?.Invoke();
+
             var exitItem = new ToolStripMenuItem("退出");
             exitItem.Click += (s, e) => ExitRequested?.Invoke();
 
             _contextMenu.Items.Add(settingsItem);
+            _contextMenu.Items.Add(historyItem);
             _contextMenu.Items.Add(new ToolStripSeparator());
             _contextMenu.Items.Add(_pauseResumeItem);
             _contextMenu.Items.Add(new ToolStripSeparator());

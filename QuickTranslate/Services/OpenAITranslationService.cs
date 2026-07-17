@@ -65,12 +65,15 @@ namespace QuickTranslate.Services
         /// </summary>
         private Dictionary<string, object> BuildRequestBody(string text, string targetLang, bool stream)
         {
+            // 构建 system prompt
+            var systemPrompt = BuildSystemPrompt(targetLang);
+
             var body = new Dictionary<string, object>
             {
                 ["model"] = _settings.ModelName,
                 ["messages"] = new[]
                 {
-                    new { role = "system", content = $"Translate to {targetLang}. If already in {targetLang}, translate to English. Output only the translation." },
+                    new { role = "system", content = systemPrompt },
                     new { role = "user", content = text }
                 },
                 ["temperature"] = 0.3,
@@ -89,6 +92,30 @@ namespace QuickTranslate.Services
             }
 
             return body;
+        }
+
+        /// <summary>
+        /// 构建 system prompt（支持自定义和语言自动检测）
+        /// </summary>
+        private string BuildSystemPrompt(string targetLang)
+        {
+            // 用户自定义 prompt（支持 {targetLang} 占位符）
+            if (!string.IsNullOrWhiteSpace(_settings.CustomSystemPrompt))
+            {
+                return _settings.CustomSystemPrompt.Replace("{targetLang}", targetLang);
+            }
+
+            // 默认 prompt
+            if (_settings.AutoDetectLanguage)
+            {
+                // 语言自动检测：根据源语言自动决定翻译方向
+                return $"Detect the language of the given text. If it is Chinese, translate to English. If it is not Chinese, translate to {targetLang}. Output only the translation.";
+            }
+            else
+            {
+                // 固定翻译方向
+                return $"Translate to {targetLang}. If already in {targetLang}, translate to English. Output only the translation.";
+            }
         }
 
         /// <summary>

@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="QuickTranslate 设置" Height="560" Width="520"
+        Title="QuickTranslate 设置" Height="620" Width="520"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanMinimize"
         Background="#1E1E2E">
@@ -126,16 +126,23 @@
 
     <Grid Margin="24">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="16"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="16"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="16"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="16"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+                <Grid Margin="0,0,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="16"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="16"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="16"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
         <!-- API 配置 -->
         <Border Grid.Row="0" Background="#252537" CornerRadius="8" Padding="16">
@@ -207,6 +214,12 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="10"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="80"/>
@@ -229,6 +242,25 @@
                               Content="启用划词翻译和热键翻译"
                               Grid.ColumnSpan="2"
                               Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="语言检测:" Style="{StaticResource LabelStyle}"/>
+                    <CheckBox x:Name="AutoDetectLanguageCheckBox" Grid.Row="4" Grid.Column="1"
+                              Style="{StaticResource DarkCheckBox}"
+                              Content="自动检测语言方向（中文→英文，其他→中文）"
+                              Grid.ColumnSpan="2"
+                              Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+
+                    <TextBlock Grid.Row="6" Grid.Column="0" Text="自定义提示词:" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,4,12,0"/>
+                    <TextBox x:Name="CustomSystemPromptTextBox" Grid.Row="6" Grid.Column="1"
+                             Style="{StaticResource InputTextBox}"
+                             Height="60" TextWrapping="Wrap" AcceptsReturn="True"
+                             VerticalScrollBarVisibility="Auto"
+                             ToolTip="自定义翻译提示词，留空使用默认。支持 {targetLang} 占位符"
+                             Grid.ColumnSpan="2"
+                             TextChanged="Input_LostFocus"/>
+                    <TextBlock Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2"
+                               Text="提示：留空使用默认提示词。支持 {targetLang} 占位符，运行时替换为目标语言。"
+                               Foreground="#666688" FontSize="11" Margin="0,2,0,0"/>
                 </Grid>
             </StackPanel>
         </Border>
@@ -237,9 +269,37 @@
         <Border Grid.Row="4" Background="#252537" CornerRadius="8" Padding="16">
             <StackPanel>
                 <TextBlock Text="系统设置" Foreground="#E0E0E0" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                <CheckBox x:Name="AutoStartCheckBox" Style="{StaticResource DarkCheckBox}"
-                          Content="开机自动启动"
-                          Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="开机自启:" Style="{StaticResource LabelStyle}"/>
+                    <CheckBox x:Name="AutoStartCheckBox" Grid.Row="0" Grid.Column="1"
+                              Style="{StaticResource DarkCheckBox}"
+                              Content="开机自动启动"
+                              Grid.ColumnSpan="2"
+                              Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="快捷键:" Style="{StaticResource LabelStyle}"/>
+                    <StackPanel Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
+                        <TextBlock x:Name="HotKeyDisplayText" Foreground="#E0E0E0" FontSize="13"
+                                   VerticalAlignment="Center" Text="Alt+Q"/>
+                        <Button x:Name="ChangeHotKeyButton" Style="{StaticResource SecondaryButton}"
+                                Content="修改" Margin="12,0,0,0" Padding="12,6"
+                                Click="ChangeHotKeyButton_Click"/>
+                        <TextBlock x:Name="HotKeyCaptureHint" Foreground="#FFA500" FontSize="12"
+                                   VerticalAlignment="Center" Margin="12,0,0,0"
+                                   Visibility="Collapsed" Text="请按新的快捷键..."/>
+                    </StackPanel>
+                </Grid>
             </StackPanel>
         </Border>
 
@@ -256,8 +316,12 @@
             </StackPanel>
         </Border>
 
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+
         <!-- 底部按钮 -->
-        <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right">
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="取 消" Style="{StaticResource SecondaryButton}" Margin="0,0,10,0"
                     Click="CancelButton_Click"/>
             <Button Content="保 存" Style="{StaticResource PrimaryButton}"
