@@ -195,13 +195,16 @@ namespace QuickTranslate.UI
         }
 
         /// <summary>
-        /// 模型选择变化 - 自动填充 URL 和 Key，显示反馈
+        /// 模型选择变化 - 自动填充 URL 和 Key，同步删除按钮状态
         /// </summary>
         private void ModelComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            // 同步删除按钮状态：仅当选中已保存的配置时启用
+            DeleteConfigButton.IsEnabled = ModelComboBox.SelectedItem is ComboBoxItem cbi && cbi.Tag is SavedConfig;
+
             if (_isInitializing || _settings == null) return;
 
-            if (ModelComboBox.SelectedItem is ComboBoxItem cbi && cbi.Tag is SavedConfig config)
+            if (ModelComboBox.SelectedItem is ComboBoxItem cbi2 && cbi2.Tag is SavedConfig config)
             {
                 ApiBaseUrlTextBox.Text = config.ApiBaseUrl;
                 ApiKeyPasswordBox.Password = config.ApiKey;
@@ -237,35 +240,39 @@ namespace QuickTranslate.UI
         }
 
         /// <summary>
-        /// 已保存配置列表选择 - 自动填充
+        /// 删除选中的已保存配置（从模型下拉框中移除）
         /// </summary>
-        private void SavedConfigsListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void DeleteConfigButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_isInitializing) return;
+            if (ModelComboBox.SelectedItem is not ComboBoxItem cbi || cbi.Tag is not SavedConfig config)
+                return;
 
-            if (SavedConfigsListBox.SelectedItem is SavedConfig config)
+            var modelName = config.ModelName;
+            _settings.SavedConfigs.Remove(config);
+            DeleteConfigButton.IsEnabled = false;
+            _isDirty = true;
+
+            // 刷新模型下拉框
+            RefreshModelComboBox();
+
+            // 清空输入框
+            ApiBaseUrlTextBox.Text = string.Empty;
+            ApiKeyPasswordBox.Password = string.Empty;
+            ApiKeyVisibleTextBox.Text = string.Empty;
+
+            // 显示反馈
+            ModelFeedbackText.Text = $"✓ 已删除 {modelName}";
+            ModelFeedbackText.Visibility = Visibility.Visible;
+            var timer = new System.Windows.Threading.DispatcherTimer
             {
-                ApiBaseUrlTextBox.Text = config.ApiBaseUrl;
-                ApiKeyPasswordBox.Password = config.ApiKey;
-                ApiKeyVisibleTextBox.Text = config.ApiKey;
-                ModelComboBox.Text = config.ModelName;
-
-                // 显示反馈
-                ModelFeedbackText.Text = $"✓ 已从列表填充 {config.ModelName}";
-                ModelFeedbackText.Visibility = Visibility.Visible;
-                _isDirty = true;
-
-                var timer = new System.Windows.Threading.DispatcherTimer
-                {
-                    Interval = TimeSpan.FromSeconds(3)
-                };
-                timer.Tick += (s, args) =>
-                {
-                    ModelFeedbackText.Visibility = Visibility.Collapsed;
-                    timer.Stop();
-                };
-                timer.Start();
-            }
+                Interval = TimeSpan.FromSeconds(3)
+            };
+            timer.Tick += (s, args) =>
+            {
+                ModelFeedbackText.Visibility = Visibility.Collapsed;
+                timer.Stop();
+            };
+            timer.Start();
         }
 
         /// <summary>

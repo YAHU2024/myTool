@@ -161,15 +161,16 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="80"/>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Base URL:" Style="{StaticResource LabelStyle}"/>
-                    <TextBox x:Name="ApiBaseUrlTextBox" Grid.Row="0" Grid.Column="1" 
+                    <TextBox x:Name="ApiBaseUrlTextBox" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
                              Style="{StaticResource InputTextBox}"
                              LostFocus="Input_LostFocus"/>
 
                     <TextBlock Grid.Row="2" Grid.Column="0" Text="API Key:" Style="{StaticResource LabelStyle}"/>
-                    <Grid Grid.Row="2" Grid.Column="1">
+                    <Grid Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -196,6 +197,42 @@
                               IsEditable="True" Style="{StaticResource DarkComboBox}"
                               SelectionChanged="ModelComboBox_SelectionChanged"
                               LostFocus="Input_LostFocus"/>
+                    <Button x:Name="DeleteConfigButton" Grid.Row="4" Grid.Column="2"
+                            Content="删除" Padding="10,4" FontSize="12" Margin="8,0,0,0"
+                            IsEnabled="False"
+                            Click="DeleteConfigButton_Click">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="#2D2D3F"/>
+                                <Setter Property="Foreground" Value="#A0A0C0"/>
+                                <Setter Property="BorderThickness" Value="1"/>
+                                <Setter Property="BorderBrush" Value="#444466"/>
+                                <Setter Property="Cursor" Value="Hand"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}" 
+                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                    CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="#FF4444"/>
+                                                    <Setter Property="Foreground" Value="White"/>
+                                                    <Setter Property="BorderBrush" Value="#FF4444"/>
+                                                </Trigger>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter Property="Foreground" Value="#555566"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </Button.Style>
+                    </Button>
 
                     <!-- 模型切换反馈 -->
                     <TextBlock x:Name="ModelFeedbackText" Grid.Row="6" Grid.Column="1"
@@ -300,19 +337,6 @@
                                    Visibility="Collapsed" Text="请按新的快捷键..."/>
                     </StackPanel>
                 </Grid>
-            </StackPanel>
-        </Border>
-
-        <!-- 已保存配置组合 -->
-        <Border Grid.Row="6" Background="#252537" CornerRadius="8" Padding="16">
-            <StackPanel>
-                <TextBlock Text="已保存配置（点击自动填充）" Foreground="#E0E0E0" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                <ListBox x:Name="SavedConfigsListBox" 
-                         Background="#2D2D3F" Foreground="#E0E0E0"
-                         BorderBrush="#444466" BorderThickness="1"
-                         FontSize="12" FontFamily="Microsoft YaHei UI"
-                         MaxHeight="80"
-                         SelectionChanged="SavedConfigsListBox_SelectionChanged"/>
             </StackPanel>
         </Border>
 
