@@ -14,4 +14,8 @@
     <Using Remove="System.Drawing" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.*" />
+  </ItemGroup>
+
 </Project>
