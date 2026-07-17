@@ -111,8 +111,8 @@ namespace QuickTranslate.Core
                     return null;
                 }
 
-                // 最后一行末端右侧坐标
-                var endPoint = new Point(lastLineRect.Value.Right, lastLineRect.Value.Y + lastLineRect.Value.Height / 2);
+                // 最后一行末端右上角外侧坐标（右上角上方）
+                var endPoint = new Point(lastLineRect.Value.Right, lastLineRect.Value.Y);
 
                 var bounds = new Rect(minX, minY, maxX - minX, maxY - minY);
 
