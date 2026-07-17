@@ -45,20 +45,54 @@ namespace QuickTranslate
         }
 
         /// <summary>
-        /// 刷新模型下拉框（从已保存的配置列表）
+        /// 从 URL 提取域名简称
+        /// </summary>
+        private static string ExtractDomainShortName(string baseUrl)
+        {
+            try
+            {
+                var uri = new Uri(baseUrl);
+                var host = uri.Host.Replace("api.", "").Replace(".com", "").Replace(".cn", "");
+                return host.Length > 12 ? host.Substring(0, 12) : host;
+            }
+            catch { return "unknown"; }
+        }
+
+        /// <summary>
+        /// 刷新模型下拉框（按域名分组显示）
         /// </summary>
         private void RefreshModelComboBox()
         {
             ModelComboBox.Items.Clear();
 
-            foreach (var config in _settings.SavedConfigs)
+            // 按域名分组
+            var groups = _settings.SavedConfigs
+                .GroupBy(c => ExtractDomainShortName(c.ApiBaseUrl))
+                .OrderBy(g => g.Key);
+
+            foreach (var group in groups)
             {
-                var item = new ComboBoxItem
+                // 分组标题（不可选中）
+                var separator = new ComboBoxItem
                 {
-                    Content = config.DisplayName,
-                    Tag = config
+                    Content = $"── {group.Key} ──",
+                    IsEnabled = false,
+                    Foreground = new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(0x88, 0x88, 0x99)),
+                    FontSize = 11
                 };
-                ModelComboBox.Items.Add(item);
+                ModelComboBox.Items.Add(separator);
+
+                // 该分组下的模型（仅显示模型名称）
+                foreach (var config in group)
+                {
+                    var item = new ComboBoxItem
+                    {
+                        Content = config.ModelName,
+                        Tag = config
+                    };
+                    ModelComboBox.Items.Add(item);
+                }
             }
 
             // 设置当前模型名称
@@ -146,9 +180,12 @@ namespace QuickTranslate
                 ApiBaseUrlTextBox.Text = config.ApiBaseUrl;
                 ApiKeyTextBox.Text = config.ApiKey;
 
+                // 确保 ComboBox 文本显示为纯模型名称
+                ModelComboBox.Text = config.ModelName;
+
                 _translationService.UpdateSettings(_settings);
                 ConfigManager.Save(_settings);
-                UpdateStatus($"已切换至 {config.DisplayName}");
+                UpdateStatus($"已切换至 {config.ModelName}");
             }
         }
 
@@ -167,18 +204,6 @@ namespace QuickTranslate
             _settings.ApiBaseUrl = baseUrl;
             _settings.ApiKey = apiKey;
 
-            // 生成显示名称：模型名 + URL 域名
-            string domain = "";
-            try
-            {
-                var uri = new Uri(baseUrl);
-                domain = uri.Host.Replace("api.", "").Replace(".com", "").Replace(".cn", "");
-                if (domain.Length > 12) domain = domain.Substring(0, 12);
-            }
-            catch { domain = "unknown"; }
-
-            var displayName = $"{model} @ {domain}";
-
             // 去重：移除已存在的相同配置
             _settings.SavedConfigs.RemoveAll(c =>
                 c.ModelName == model && c.ApiBaseUrl == baseUrl && c.ApiKey == apiKey);
@@ -186,7 +211,7 @@ namespace QuickTranslate
             // 插入到最前面
             _settings.SavedConfigs.Insert(0, new SavedConfig
             {
-                DisplayName = displayName,
+                DisplayName = model,
                 ModelName = model,
                 ApiBaseUrl = baseUrl,
                 ApiKey = apiKey
