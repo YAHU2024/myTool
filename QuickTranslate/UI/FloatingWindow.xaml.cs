@@ -59,9 +59,8 @@ namespace QuickTranslate.UI
         /// <summary>
         /// 显示翻译结果
         /// </summary>
-        public void ShowTranslation(string source, string translation, Point anchorPosition)
+        public void ShowTranslation(string translation, Point anchorPosition)
         {
-            SourceTextBlock.Text = source;
             TranslationTextBlock.Text = translation;
 
             // 先 Show 以获取 ActualWidth/ActualHeight，再精确定位
@@ -79,14 +78,6 @@ namespace QuickTranslate.UI
         {
             TranslationTextBlock.Text = translation;
             ResetAutoHideTimer();
-        }
-
-        /// <summary>
-        /// 设置原文
-        /// </summary>
-        public void SetSource(string source)
-        {
-            SourceTextBlock.Text = source;
         }
 
         /// <summary>

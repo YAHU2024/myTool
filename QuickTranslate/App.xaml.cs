@@ -101,22 +101,18 @@ public partial class App : Application
             var anchorPosition = GetSelectionAnchorPosition();
 
             // 先显示悬浮窗，提示正在翻译
-            _floatingWindow.SetSource("正在获取...");
-            _floatingWindow.UpdateTranslation("翻译中...");
-            _floatingWindow.ShowTranslation("正在获取...", "翻译中...", anchorPosition);
+            _floatingWindow.ShowTranslation("翻译中...", anchorPosition);
 
             // 获取选中文本
             var selectedText = await ClipboardHelper.GetSelectedTextAsync();
 
             if (string.IsNullOrWhiteSpace(selectedText))
             {
-                _floatingWindow.SetSource("未检测到选中文本");
                 _floatingWindow.UpdateTranslation("请先选中要翻译的文本");
                 return;
             }
 
-            // 更新悬浮窗显示原文
-            _floatingWindow.SetSource(selectedText);
+            // 更新悬浮窗提示
             _floatingWindow.UpdateTranslation("翻译中...");
 
             // 流式翻译
@@ -215,9 +211,7 @@ public partial class App : Application
                 ?? new System.Windows.Point(0, 0);
 
             // 显示悬浮窗
-            _floatingWindow.SetSource(textToTranslate);
-            _floatingWindow.UpdateTranslation("翻译中...");
-            _floatingWindow.ShowTranslation(textToTranslate, "翻译中...", dotPosition);
+            _floatingWindow.ShowTranslation("翻译中...", dotPosition);
 
             // 流式翻译
             var targetLang = _settings.TargetLanguage;

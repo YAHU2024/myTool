@@ -12,33 +12,15 @@
         AllowsTransparency="True"
         Background="Transparent"
         SizeToContent="WidthAndHeight"
-        MaxWidth="420"
-        MinHeight="60">
+        MaxWidth="420">
 
     <Border Background="#E81E1E2E" CornerRadius="8" Padding="14,10" Margin="4">
         <Border.Effect>
             <DropShadowEffect Color="Black" BlurRadius="12" ShadowDepth="2" Opacity="0.5"/>
         </Border.Effect>
         <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="6"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-
-            <!-- 原文（灰色小字） -->
-            <TextBlock x:Name="SourceTextBlock"
-                       Grid.Row="0"
-                       Foreground="#888899"
-                       FontSize="12"
-                       FontFamily="Microsoft YaHei UI"
-                       TextWrapping="Wrap"
-                       MaxWidth="390"
-                       Text=""/>
-
             <!-- 译文（白色大字，支持点击复制） -->
             <TextBlock x:Name="TranslationTextBlock"
-                       Grid.Row="2"
                        Foreground="#F0F0F0"
                        FontSize="16"
                        FontFamily="Microsoft YaHei UI"
