@@ -75,6 +75,16 @@ namespace QuickTranslate.Models
         };
 
         /// <summary>
+        /// 是否启用翻译功能
+        /// </summary>
+        public bool TranslationEnabled { get; set; } = true;
+
+        /// <summary>
+        /// 是否开机自启
+        /// </summary>
+        public bool AutoStart { get; set; } = false;
+
+        /// <summary>
         /// 已保存的配置组合列表（最近使用）
         /// </summary>
         public List<SavedConfig> SavedConfigs { get; set; } = new();
