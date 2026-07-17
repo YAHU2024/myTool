@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="QuickTranslate 设置" Height="520" Width="500"
+        Title="QuickTranslate 设置" Height="560" Width="520"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanMinimize"
         Background="#1E1E2E">
@@ -28,12 +28,21 @@
         </Style>
         <Style x:Key="DarkComboBox" TargetType="ComboBox">
             <Setter Property="Background" Value="#2D2D3F"/>
-            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="Foreground" Value="#000000"/>
             <Setter Property="BorderBrush" Value="#444466"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="8,6"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Foreground" Value="#1E1E2E"/>
+                        <Setter Property="FontSize" Value="13"/>
+                        <Setter Property="Padding" Value="8,4"/>
+                    </Style>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="PrimaryButton" TargetType="Button">
             <Setter Property="Background" Value="#7C3AED"/>
@@ -85,6 +94,28 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="EyeButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#888899"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="#E0E0E0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style x:Key="DarkCheckBox" TargetType="CheckBox">
             <Setter Property="Foreground" Value="#E0E0E0"/>
             <Setter Property="FontSize" Value="13"/>
@@ -96,11 +127,11 @@
     <Grid Margin="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="20"/>
+            <RowDefinition Height="16"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="20"/>
+            <RowDefinition Height="16"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="20"/>
+            <RowDefinition Height="16"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
@@ -117,6 +148,8 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="10"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="6"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="80"/>
@@ -124,19 +157,43 @@
                     </Grid.ColumnDefinitions>
 
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Base URL:" Style="{StaticResource LabelStyle}"/>
-                    <TextBox x:Name="ApiBaseUrlTextBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource InputTextBox}"/>
+                    <TextBox x:Name="ApiBaseUrlTextBox" Grid.Row="0" Grid.Column="1" 
+                             Style="{StaticResource InputTextBox}"
+                             LostFocus="Input_LostFocus"/>
 
                     <TextBlock Grid.Row="2" Grid.Column="0" Text="API Key:" Style="{StaticResource LabelStyle}"/>
-                    <PasswordBox x:Name="ApiKeyPasswordBox" Grid.Row="2" Grid.Column="1"
-                                 Background="#2D2D3F" Foreground="#E0E0E0"
-                                 BorderBrush="#444466" BorderThickness="1"
-                                 Padding="8,6" FontSize="13" FontFamily="Microsoft YaHei UI"
-                                 CaretBrush="#E0E0E0"
-                                 PasswordChar="●"/>
+                    <Grid Grid.Row="2" Grid.Column="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <PasswordBox x:Name="ApiKeyPasswordBox" Grid.Column="0"
+                                     Background="#2D2D3F" Foreground="#E0E0E0"
+                                     BorderBrush="#444466" BorderThickness="1"
+                                     Padding="8,6" FontSize="13" FontFamily="Microsoft YaHei UI"
+                                     CaretBrush="#E0E0E0"
+                                     PasswordChar="●"
+                                     LostFocus="Input_LostFocus"/>
+                        <TextBox x:Name="ApiKeyVisibleTextBox" Grid.Column="0"
+                                 Style="{StaticResource InputTextBox}"
+                                 Visibility="Collapsed"
+                                 LostFocus="Input_LostFocus"/>
+                        <Button x:Name="EyeButton" Grid.Column="1" 
+                                Style="{StaticResource EyeButton}"
+                                Content="👁" ToolTip="显示/隐藏 API Key"
+                                Click="EyeButton_Click" Margin="4,0,0,0"/>
+                    </Grid>
 
                     <TextBlock Grid.Row="4" Grid.Column="0" Text="模型:" Style="{StaticResource LabelStyle}"/>
                     <ComboBox x:Name="ModelComboBox" Grid.Row="4" Grid.Column="1"
-                              IsEditable="True" Style="{StaticResource DarkComboBox}"/>
+                              IsEditable="True" Style="{StaticResource DarkComboBox}"
+                              SelectionChanged="ModelComboBox_SelectionChanged"
+                              LostFocus="Input_LostFocus"/>
+
+                    <!-- 模型切换反馈 -->
+                    <TextBlock x:Name="ModelFeedbackText" Grid.Row="6" Grid.Column="1"
+                               Foreground="#6EE7A0" FontSize="11" Margin="0,2,0,0"
+                               Visibility="Collapsed"/>
                 </Grid>
             </StackPanel>
         </Border>
@@ -159,7 +216,8 @@
 
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="目标语言:" Style="{StaticResource LabelStyle}"/>
                     <ComboBox x:Name="LanguageComboBox" Grid.Row="0" Grid.Column="1" 
-                              Style="{StaticResource DarkComboBox}"/>
+                              Style="{StaticResource DarkComboBox}"
+                              SelectionChanged="LanguageComboBox_SelectionChanged"/>
                     <TextBox x:Name="CustomLanguageTextBox" Grid.Row="0" Grid.Column="2" 
                              Width="100" Margin="8,0,0,0"
                              Style="{StaticResource InputTextBox}"
@@ -169,7 +227,8 @@
                     <CheckBox x:Name="TranslationEnabledCheckBox" Grid.Row="2" Grid.Column="1"
                               Style="{StaticResource DarkCheckBox}"
                               Content="启用划词翻译和热键翻译"
-                              Grid.ColumnSpan="2"/>
+                              Grid.ColumnSpan="2"
+                              Checked="Setting_Changed" Unchecked="Setting_Changed"/>
                 </Grid>
             </StackPanel>
         </Border>
@@ -179,14 +238,15 @@
             <StackPanel>
                 <TextBlock Text="系统设置" Foreground="#E0E0E0" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
                 <CheckBox x:Name="AutoStartCheckBox" Style="{StaticResource DarkCheckBox}"
-                          Content="开机自动启动"/>
+                          Content="开机自动启动"
+                          Checked="Setting_Changed" Unchecked="Setting_Changed"/>
             </StackPanel>
         </Border>
 
         <!-- 已保存配置组合 -->
         <Border Grid.Row="6" Background="#252537" CornerRadius="8" Padding="16">
             <StackPanel>
-                <TextBlock Text="已保存配置" Foreground="#E0E0E0" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <TextBlock Text="已保存配置（点击自动填充）" Foreground="#E0E0E0" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
                 <ListBox x:Name="SavedConfigsListBox" 
                          Background="#2D2D3F" Foreground="#E0E0E0"
                          BorderBrush="#444466" BorderThickness="1"
@@ -200,7 +260,7 @@
         <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="取 消" Style="{StaticResource SecondaryButton}" Margin="0,0,10,0"
                     Click="CancelButton_Click"/>
-            <Button Content="保存并关闭" Style="{StaticResource PrimaryButton}"
+            <Button Content="保 存" Style="{StaticResource PrimaryButton}"
                     Click="SaveButton_Click"/>
         </StackPanel>
     </Grid>
