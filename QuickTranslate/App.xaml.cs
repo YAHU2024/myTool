@@ -20,6 +20,8 @@ public partial class App : Application
     private AppSettings? _settings;
     private FloatingWindow? _floatingWindow;
     private RedDotWindow? _redDotWindow;
+    private TrayIconManager? _trayIcon;
+    private SettingsWindow? _settingsWindow;
     private bool _isTranslating;
     private string? _pendingText; // 待翻译文本（红点悬停时使用）
 
@@ -52,16 +54,30 @@ public partial class App : Application
         _selectionDetector.ClickedOutside += OnSelectionCancelled;
         _selectionDetector.Start();
 
-        // 显示主窗口
-        var mainWindow = new MainWindow();
-        mainWindow.Show();
+        // 初始化系统托盘图标
+        _trayIcon = new TrayIconManager();
+        _trayIcon.SettingsRequested += OnSettingsRequested;
+        _trayIcon.PauseToggled += OnPauseToggled;
+        _trayIcon.ExitRequested += OnExitRequested;
+
+        // 根据配置更新托盘提示
+        UpdateTrayToolTip();
+
+        // 启动后直接最小化到托盘，不显示主窗口
+        // MainWindow 不创建、不显示
     }
+
+    /// <summary>
+    /// 检查翻译功能是否启用
+    /// </summary>
+    private bool IsTranslationEnabled => _settings?.TranslationEnabled ?? true;
 
     /// <summary>
     /// 热键事件处理（默认 Alt+Q）
     /// </summary>
     private async void OnHotKeyPressed()
     {
+        if (!IsTranslationEnabled) return;
         if (_isTranslating || _translationService == null || _settings == null || _floatingWindow == null)
             return;
 
@@ -122,6 +138,7 @@ public partial class App : Application
     /// </summary>
     private async void OnSelectionCompleted(System.Windows.Point startPos, System.Windows.Point endPos)
     {
+        if (!IsTranslationEnabled) return;
         if (_redDotWindow == null) return;
 
         // 尝试获取选中文本
@@ -162,6 +179,7 @@ public partial class App : Application
     /// </summary>
     private async void OnRedDotHovered()
     {
+        if (!IsTranslationEnabled) return;
         if (_isTranslating || _translationService == null || _settings == null || _floatingWindow == null)
             return;
 
@@ -237,11 +255,70 @@ public partial class App : Application
         _pendingText = null;
     }
 
+    // ==================== 第三期：托盘 + 设置 ====================
+
+    /// <summary>
+    /// 打开设置窗口
+    /// </summary>
+    private void OnSettingsRequested()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_settingsWindow != null)
+            {
+                _settingsWindow.Activate();
+                return;
+            }
+
+            _settingsWindow = new SettingsWindow(_settings!, OnSettingsSaved);
+            _settingsWindow.Closed += (s, e) => _settingsWindow = null;
+            _settingsWindow.Show();
+        });
+    }
+
+    /// <summary>
+    /// 设置保存回调 - 更新翻译服务和状态
+    /// </summary>
+    private void OnSettingsSaved(AppSettings settings)
+    {
+        _translationService?.UpdateSettings(settings);
+        UpdateTrayToolTip();
+    }
+
+    /// <summary>
+    /// 暂停/恢复翻译
+    /// </summary>
+    private void OnPauseToggled(bool isPaused)
+    {
+        _settings!.TranslationEnabled = !isPaused;
+        ConfigManager.Save(_settings);
+        UpdateTrayToolTip();
+    }
+
+    /// <summary>
+    /// 退出应用
+    /// </summary>
+    private void OnExitRequested()
+    {
+        Shutdown();
+    }
+
+    /// <summary>
+    /// 更新托盘提示文本（显示当前状态）
+    /// </summary>
+    private void UpdateTrayToolTip()
+    {
+        if (_trayIcon == null || _settings == null) return;
+        var status = _settings.TranslationEnabled ? "翻译已启用" : "翻译已暂停";
+        _trayIcon.UpdateToolTip($"QuickTranslate - {status}");
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
-        // 清理钩子资源
+        // 清理资源
         _keyboardHook?.Dispose();
         _selectionDetector?.Dispose();
+        _trayIcon?.Dispose();
         base.OnExit(e);
     }
 }

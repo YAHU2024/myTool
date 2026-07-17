@@ -1,0 +1,207 @@
+<Window x:Class="QuickTranslate.UI.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="QuickTranslate 设置" Height="520" Width="500"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanMinimize"
+        Background="#1E1E2E">
+    <Window.Resources>
+        <Style x:Key="LabelStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#A0A0C0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,12,0"/>
+        </Style>
+        <Style x:Key="InputTextBox" TargetType="TextBox">
+            <Setter Property="Background" Value="#2D2D3F"/>
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="BorderBrush" Value="#444466"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
+            <Setter Property="CaretBrush" Value="#E0E0E0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="DarkComboBox" TargetType="ComboBox">
+            <Setter Property="Background" Value="#2D2D3F"/>
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="BorderBrush" Value="#444466"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#7C3AED"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="20,8"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#6D28D9"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="SecondaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#2D2D3F"/>
+            <Setter Property="Foreground" Value="#A0A0C0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="20,8"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#444466"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#3D3D5F"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="DarkCheckBox" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#E0E0E0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="20"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="20"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="20"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- API 配置 -->
+        <Border Grid.Row="0" Background="#252537" CornerRadius="8" Padding="16">
+            <StackPanel>
+                <TextBlock Text="API 配置" Foreground="#E0E0E0" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Base URL:" Style="{StaticResource LabelStyle}"/>
+                    <TextBox x:Name="ApiBaseUrlTextBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource InputTextBox}"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="API Key:" Style="{StaticResource LabelStyle}"/>
+                    <PasswordBox x:Name="ApiKeyPasswordBox" Grid.Row="2" Grid.Column="1"
+                                 Background="#2D2D3F" Foreground="#E0E0E0"
+                                 BorderBrush="#444466" BorderThickness="1"
+                                 Padding="8,6" FontSize="13" FontFamily="Microsoft YaHei UI"
+                                 CaretBrush="#E0E0E0"
+                                 PasswordChar="●"/>
+
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="模型:" Style="{StaticResource LabelStyle}"/>
+                    <ComboBox x:Name="ModelComboBox" Grid.Row="4" Grid.Column="1"
+                              IsEditable="True" Style="{StaticResource DarkComboBox}"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- 翻译设置 -->
+        <Border Grid.Row="2" Background="#252537" CornerRadius="8" Padding="16">
+            <StackPanel>
+                <TextBlock Text="翻译设置" Foreground="#E0E0E0" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="目标语言:" Style="{StaticResource LabelStyle}"/>
+                    <ComboBox x:Name="LanguageComboBox" Grid.Row="0" Grid.Column="1" 
+                              Style="{StaticResource DarkComboBox}"/>
+                    <TextBox x:Name="CustomLanguageTextBox" Grid.Row="0" Grid.Column="2" 
+                             Width="100" Margin="8,0,0,0"
+                             Style="{StaticResource InputTextBox}"
+                             Visibility="Collapsed"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="翻译开关:" Style="{StaticResource LabelStyle}"/>
+                    <CheckBox x:Name="TranslationEnabledCheckBox" Grid.Row="2" Grid.Column="1"
+                              Style="{StaticResource DarkCheckBox}"
+                              Content="启用划词翻译和热键翻译"
+                              Grid.ColumnSpan="2"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- 系统设置 -->
+        <Border Grid.Row="4" Background="#252537" CornerRadius="8" Padding="16">
+            <StackPanel>
+                <TextBlock Text="系统设置" Foreground="#E0E0E0" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                <CheckBox x:Name="AutoStartCheckBox" Style="{StaticResource DarkCheckBox}"
+                          Content="开机自动启动"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 已保存配置组合 -->
+        <Border Grid.Row="6" Background="#252537" CornerRadius="8" Padding="16">
+            <StackPanel>
+                <TextBlock Text="已保存配置" Foreground="#E0E0E0" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                <ListBox x:Name="SavedConfigsListBox" 
+                         Background="#2D2D3F" Foreground="#E0E0E0"
+                         BorderBrush="#444466" BorderThickness="1"
+                         FontSize="12" FontFamily="Microsoft YaHei UI"
+                         MaxHeight="80"
+                         SelectionChanged="SavedConfigsListBox_SelectionChanged"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 底部按钮 -->
+        <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="取 消" Style="{StaticResource SecondaryButton}" Margin="0,0,10,0"
+                    Click="CancelButton_Click"/>
+            <Button Content="保存并关闭" Style="{StaticResource PrimaryButton}"
+                    Click="SaveButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
