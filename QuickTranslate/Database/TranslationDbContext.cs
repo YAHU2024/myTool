@@ -52,6 +52,7 @@ namespace QuickTranslate.Database
                 entity.Property(e => e.TargetLanguage).HasMaxLength(50);
                 entity.Property(e => e.SourceApp).HasMaxLength(100);
                 entity.Property(e => e.ModelName).HasMaxLength(100);
+                entity.Property(e => e.ContentType).HasMaxLength(50);
 
                 // 索引：按时间倒序查询优化
                 entity.HasIndex(e => e.TranslatedAt);
@@ -77,14 +78,15 @@ namespace QuickTranslate.Database
                     connection.Open();
 
                 var hasModelName = false;
+                var hasContentType = false;
                 using var reader = command.ExecuteReader();
                 while (reader.Read())
                 {
-                    if (reader.GetString(1) == "ModelName")
-                    {
+                    var colName = reader.GetString(1);
+                    if (colName == "ModelName")
                         hasModelName = true;
-                        break;
-                    }
+                    if (colName == "ContentType")
+                        hasContentType = true;
                 }
                 reader.Close();
 
@@ -92,6 +94,13 @@ namespace QuickTranslate.Database
                 {
                     using var alterCmd = connection.CreateCommand();
                     alterCmd.CommandText = "ALTER TABLE TranslationRecords ADD COLUMN ModelName TEXT DEFAULT ''";
+                    alterCmd.ExecuteNonQuery();
+                }
+
+                if (!hasContentType)
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE TranslationRecords ADD COLUMN ContentType TEXT DEFAULT ''";
                     alterCmd.ExecuteNonQuery();
                 }
             }
