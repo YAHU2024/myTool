@@ -11,25 +11,31 @@
         ShowInTaskbar="False"
         AllowsTransparency="True"
         Background="Transparent"
-        SizeToContent="WidthAndHeight"
-        MaxWidth="420">
+        SizeToContent="Manual"
+        MaxWidth="420"
+        Width="420"
+        Height="80">
 
     <Border Background="#E81E1E2E" CornerRadius="8" Padding="14,10" Margin="4">
         <Border.Effect>
             <DropShadowEffect Color="Black" BlurRadius="12" ShadowDepth="2" Opacity="0.5"/>
         </Border.Effect>
         <Grid>
-            <!-- 译文（白色大字，支持点击复制） -->
-            <TextBlock x:Name="TranslationTextBlock"
-                       Foreground="#F0F0F0"
-                       FontSize="16"
-                       FontFamily="Microsoft YaHei UI"
-                       TextWrapping="Wrap"
-                       MaxWidth="390"
-                       Cursor="Hand"
-                       ToolTip="点击复制译文"
-                       MouseLeftButtonDown="TranslationTextBlock_MouseLeftButtonDown"
-                       Text=""/>
+            <!-- 译文（ScrollViewer 包裹，超出工作区高度时内部滚动） -->
+            <ScrollViewer x:Name="TranslationScroller"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          MaxWidth="390">
+                <TextBlock x:Name="TranslationTextBlock"
+                           Foreground="#F0F0F0"
+                           FontSize="16"
+                           FontFamily="Microsoft YaHei UI"
+                           TextWrapping="Wrap"
+                           Cursor="Hand"
+                           ToolTip="点击复制译文"
+                           MouseLeftButtonDown="TranslationTextBlock_MouseLeftButtonDown"
+                           Text=""/>
+            </ScrollViewer>
         </Grid>
     </Border>
 </Window>
