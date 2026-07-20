@@ -30,6 +30,8 @@ namespace QuickTranslate.UI
         private bool _origHotKeyRequireCtrl = false;
         private bool _origHotKeyRequireShift = false;
         private bool _origHotKeyEnabled = true;
+        private bool _origEnableInBrowser = true;
+        private string _origCustomBrowserProcesses = string.Empty;
 
         // 快捷键录入状态
         private bool _isCapturingHotKey = false;
@@ -62,6 +64,8 @@ namespace QuickTranslate.UI
             _origHotKeyRequireCtrl = _settings.HotKeyRequireCtrl;
             _origHotKeyRequireShift = _settings.HotKeyRequireShift;
             _origHotKeyEnabled = _settings.HotKeyEnabled;
+            _origEnableInBrowser = _settings.EnableInBrowser;
+            _origCustomBrowserProcesses = _settings.CustomBrowserProcesses;
         }
 
         private void LoadSettings()
@@ -93,6 +97,10 @@ namespace QuickTranslate.UI
             // 快捷键显示
             HotKeyEnabledCheckBox.IsChecked = _settings.HotKeyEnabled;
             UpdateHotKeyDisplay();
+
+            // 浏览器翻译开关
+            EnableInBrowserCheckBox.IsChecked = _settings.EnableInBrowser;
+            CustomBrowserProcessesTextBox.Text = _settings.CustomBrowserProcesses;
         }
 
         /// <summary>
@@ -385,6 +393,9 @@ namespace QuickTranslate.UI
             _settings.CustomSystemPrompt = CustomSystemPromptTextBox.Text?.Trim() ?? string.Empty;
 
             _settings.HotKeyEnabled = HotKeyEnabledCheckBox.IsChecked ?? true;
+
+            _settings.EnableInBrowser = EnableInBrowserCheckBox.IsChecked ?? true;
+            _settings.CustomBrowserProcesses = CustomBrowserProcessesTextBox.Text?.Trim() ?? string.Empty;
 
             var autoStart = AutoStartCheckBox.IsChecked ?? false;
             if (autoStart != _origAutoStart)

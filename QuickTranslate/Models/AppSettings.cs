@@ -126,6 +126,16 @@ namespace QuickTranslate.Models
         /// </summary>
         public string CustomSystemPrompt { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 是否在浏览器中启用翻译（关闭后避免与浏览器翻译插件冲突）
+        /// </summary>
+        public bool EnableInBrowser { get; set; } = true;
+
+        /// <summary>
+        /// 用户自定义的浏览器进程名（逗号分隔，补充内置列表）
+        /// </summary>
+        public string CustomBrowserProcesses { get; set; } = string.Empty;
+
         // ==================== 日志配置 ====================
 
         /// <summary>

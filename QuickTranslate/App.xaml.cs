@@ -249,6 +249,13 @@ public partial class App : Application
         if (_isTranslating || _translationService == null || _settings == null || _floatingWindow == null)
             return;
 
+        // 浏览器中禁用翻译：避免与浏览器翻译插件冲突
+        if (!_settings.EnableInBrowser && BrowserDetector.IsForegroundBrowser(_settings.CustomBrowserProcesses))
+        {
+            Logger.Debug("App", "热键触发但前台为浏览器，已跳过（浏览器翻译已禁用）");
+            return;
+        }
+
         _isTranslating = true;
 
         try
@@ -315,6 +322,13 @@ public partial class App : Application
         {
             if (!IsTranslationEnabled) return;
             if (_redDotWindow == null) return;
+
+            // 浏览器中禁用翻译：避免与浏览器翻译插件冲突
+            if (_settings != null && !_settings.EnableInBrowser && BrowserDetector.IsForegroundBrowser(_settings.CustomBrowserProcesses))
+            {
+                Logger.Debug("App", "选词触发但前台为浏览器，已跳过（浏览器翻译已禁用）");
+                return;
+            }
 
             // 尝试获取选中文本（UIA 在后台 STA 线程执行，不阻塞 UI 线程）
             var selectedText = await ClipboardHelper.GetSelectedTextAsync();
