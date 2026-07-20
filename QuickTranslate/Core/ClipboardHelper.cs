@@ -8,34 +8,87 @@ using QuickTranslate.Helpers;
 namespace QuickTranslate.Core
 {
     /// <summary>
-    /// 剪贴板操作辅助 - 模拟 Ctrl+C 获取选中文本
+    /// 文本获取辅助 - 三级降级策略获取选中文本
+    /// 第1级：UIA TextPattern 直接获取（不碰剪贴板）
+    /// 第2级：剪贴板轮询模式（Ctrl+C + 轮询直到剪贴板内容变化）
+    /// 第3级：固定等待兜底（兼容极端情况）
     /// </summary>
     public static class ClipboardHelper
     {
         /// <summary>
-        /// 获取当前选中的文本（通过模拟 Ctrl+C）
+        /// 获取当前选中的文本（三级降级策略）
         /// </summary>
-        /// <returns>选中的文本，若无选中文本则返回 null</returns>
         public static async Task<string?> GetSelectedTextAsync()
         {
-            string? originalText = null;
-            string? result = null;
+            // 第1级：UIA TextPattern 异步获取（后台STA线程，不阻塞UI线程）
+            var uiaText = await TryGetTextViaUIAAsync();
+            if (!string.IsNullOrWhiteSpace(uiaText))
+            {
+                Debug.WriteLine("[ClipboardHelper] 第1级成功: UIA TextPattern 获取文本");
+                return uiaText;
+            }
 
-            // 在 STA 线程中操作剪贴板
+            // 第2级：剪贴板轮询模式（复制成功后立即返回，无需等待固定时长）
+            var pollText = await TryGetTextViaClipboardAsync(usePolling: true);
+            if (!string.IsNullOrWhiteSpace(pollText))
+            {
+                Debug.WriteLine("[ClipboardHelper] 第2级成功: 剪贴板轮询模式获取文本");
+                return pollText;
+            }
+
+            // 第3级：固定等待兜底
+            var fallbackText = await TryGetTextViaClipboardAsync(usePolling: false);
+            if (!string.IsNullOrWhiteSpace(fallbackText))
+            {
+                Debug.WriteLine("[ClipboardHelper] 第3级成功: 固定等待兜底获取文本");
+                return fallbackText;
+            }
+
+            Debug.WriteLine("[ClipboardHelper] 三级降级均失败，无选中文本");
+            return null;
+        }
+
+        /// <summary>
+        /// 第1级：通过 UIA TextPattern 异步获取选中文本（后台STA线程，带超时保护）
+        /// </summary>
+        private static async Task<string?> TryGetTextViaUIAAsync()
+        {
+            try
+            {
+                return await SelectionLocator.TryGetSelectedTextAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ClipboardHelper] UIA获取异常: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 第2/3级：剪贴板模式 - 在 STA 线程模拟 Ctrl+C 后读取剪贴板。
+        /// usePolling=true 时轮询直到剪贴板内容发生变化（最多500ms），复制成功即可立即返回；
+        /// usePolling=false 时固定等待300ms（兼容极端情况）。
+        /// 采用唯一哨兵覆盖剪贴板作为基准，避免"新选中文本恰好等于原剪贴板内容"的误判。
+        /// </summary>
+        private static async Task<string?> TryGetTextViaClipboardAsync(bool usePolling)
+        {
             var tcs = new TaskCompletionSource<string?>();
 
             var staThread = new Thread(() =>
             {
+                string? originalText = null;
+                string? result = null;
                 try
                 {
-                    // 1. 保存当前剪贴板内容
+                    // 1. 保存当前剪贴板内容（用于最后恢复）
                     if (Clipboard.ContainsText())
                     {
                         originalText = Clipboard.GetText();
                     }
 
-                    // 2. 清空剪贴板
-                    Clipboard.Clear();
+                    // 2. 用唯一哨兵覆盖剪贴板，作为"Ctrl+C 是否真正写入"的判定基准
+                    var sentinel = Guid.NewGuid().ToString("N");
+                    Clipboard.SetText(sentinel);
 
                     // 3. 模拟 Ctrl+C（按下 Ctrl -> 按下 C -> 释放 C -> 释放 Ctrl）
                     Win32Api.keybd_event((byte)Win32Api.VK_CONTROL, 0, 0, UIntPtr.Zero);
@@ -47,39 +100,49 @@ namespace QuickTranslate.Core
                     Win32Api.keybd_event((byte)Win32Api.VK_CONTROL, 0, Win32Api.KEYEVENTF_KEYUP, UIntPtr.Zero);
 
                     // 4. 等待剪贴板更新
-                    Thread.Sleep(150);
-
-                    // 5. 读取剪贴板
-                    if (Clipboard.ContainsText())
+                    if (usePolling)
                     {
-                        result = Clipboard.GetText();
-                    }
-
-                    // 6. 恢复原始剪贴板内容
-                    if (!string.IsNullOrEmpty(originalText))
-                    {
-                        Clipboard.SetText(originalText);
+                        // 轮询：直到剪贴板内容不再是哨兵（即 Ctrl+C 已写入新文本）
+                        var deadline = DateTime.UtcNow.AddMilliseconds(500);
+                        while (DateTime.UtcNow < deadline)
+                        {
+                            if (Clipboard.ContainsText())
+                            {
+                                var t = Clipboard.GetText();
+                                if (!string.IsNullOrWhiteSpace(t) && t != sentinel)
+                                {
+                                    result = t;
+                                    break;
+                                }
+                            }
+                            Thread.Sleep(20);
+                        }
                     }
                     else
                     {
-                        Clipboard.Clear();
+                        // 固定等待兜底（增加到300ms，对浏览器更友好）
+                        Thread.Sleep(300);
+                        if (Clipboard.ContainsText())
+                        {
+                            result = Clipboard.GetText();
+                        }
+                    }
+
+                    // 5. 校验：若读到的仍是哨兵，说明 Ctrl+C 未生效，视为失败
+                    if (result == sentinel)
+                    {
+                        Debug.WriteLine($"[ClipboardHelper] 剪贴板模式({(usePolling ? "轮询" : "固定等待")}): 检测到哨兵残留，视为失败");
+                        result = null;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"剪贴板操作失败: {ex.Message}");
-                    // 尝试恢复剪贴板
-                    try
-                    {
-                        if (!string.IsNullOrEmpty(originalText))
-                        {
-                            Clipboard.SetText(originalText);
-                        }
-                    }
-                    catch { }
+                    Debug.WriteLine($"[ClipboardHelper] 剪贴板模式({(usePolling ? "轮询" : "固定等待")})异常: {ex.Message}");
                 }
                 finally
                 {
+                    // 无论如何都恢复原始剪贴板
+                    RestoreClipboard(originalText);
                     tcs.SetResult(result);
                 }
             });
@@ -88,6 +151,25 @@ namespace QuickTranslate.Core
             staThread.Start();
 
             return await tcs.Task;
+        }
+
+        /// <summary>
+        /// 恢复剪贴板内容
+        /// </summary>
+        private static void RestoreClipboard(string? originalText)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(originalText))
+                {
+                    Clipboard.SetText(originalText);
+                }
+                else
+                {
+                    Clipboard.Clear();
+                }
+            }
+            catch { }
         }
     }
 }

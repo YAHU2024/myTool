@@ -1,18 +1,25 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using QuickTranslate.Helpers;
 
 namespace QuickTranslate.Core
 {
     /// <summary>
-    /// 全局键盘钩子 - 检测指定热键组合
+    /// 全局键盘钩子 - 检测指定热键组合。
+    /// 钩子安装在拥有独立原生消息循环的专用线程上，与 WPF Dispatcher 完全解耦。
     /// </summary>
     public class GlobalKeyboardHook : IDisposable
     {
+        // 钩子专用线程
+        private Thread? _hookThread;
+        private uint _hookThreadId;
         private IntPtr _hookId = IntPtr.Zero;
         private readonly Win32Api.LowLevelKeyboardProc _proc;
-        private bool _isStarted;
+        private readonly ManualResetEventSlim _threadReady = new(false);
+        private volatile bool _isRunning;
 
         /// <summary>
         /// 热键的虚拟键码（默认 VK_Q = 0x51）
@@ -35,7 +42,7 @@ namespace QuickTranslate.Core
         public bool RequireShift { get; set; } = false;
 
         /// <summary>
-        /// 热键触发时触发
+        /// 热键触发时触发（在 WPF UI 线程上调用）
         /// </summary>
         public event Action? HotKeyPressed;
 
@@ -45,95 +52,136 @@ namespace QuickTranslate.Core
         }
 
         /// <summary>
-        /// 获取热键的显示名称
-        /// </summary>
-        public string GetHotKeyDisplay()
-        {
-            var parts = new System.Collections.Generic.List<string>();
-            if (RequireCtrl) parts.Add("Ctrl");
-            if (RequireAlt) parts.Add("Alt");
-            if (RequireShift) parts.Add("Shift");
-            parts.Add(GetKeyName(HotKey));
-            return string.Join("+", parts);
-        }
-
-        /// <summary>
-        /// 启动键盘钩子
+        /// 启动键盘钩子（创建专用消息循环线程）
         /// </summary>
         public void Start()
         {
-            if (_isStarted) return;
+            if (_isRunning) return;
+            _isRunning = true;
+            _threadReady.Reset();
 
-            var moduleHandle = Win32Api.GetModuleHandle(null);
-            _hookId = Win32Api.SetWindowsHookEx(
-                Win32Api.WH_KEYBOARD_LL,
-                _proc,
-                moduleHandle,
-                0);
-
-            if (_hookId == IntPtr.Zero)
+            _hookThread = new Thread(HookThreadProc)
             {
-                var error = Marshal.GetLastWin32Error();
-                Debug.WriteLine($"设置键盘钩子失败，错误码: {error}");
-                return;
-            }
-
-            _isStarted = true;
-            Debug.WriteLine($"全局键盘钩子已启动，热键: {GetHotKeyDisplay()}");
+                IsBackground = true,
+                Name = "KeyboardHookThread"
+            };
+            _hookThread.Start();
+            _threadReady.Wait(3000);
         }
 
         /// <summary>
-        /// 停止键盘钩子
+        /// 停止键盘钩子（退出消息循环，等待线程结束）
         /// </summary>
         public void Stop()
         {
-            if (!_isStarted) return;
+            if (!_isRunning) return;
+            _isRunning = false;
 
+            if (_hookThreadId != 0)
+            {
+                Win32Api.PostThreadMessage(_hookThreadId, Win32Api.WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+            }
+
+            _hookThread?.Join(2000);
+            _hookThread = null;
+            _hookThreadId = 0;
+            Debug.WriteLine("全局键盘钩子已停止");
+        }
+
+        /// <summary>
+        /// 钩子线程主函数：安装钩子 + 运行原生消息循环
+        /// </summary>
+        private void HookThreadProc()
+        {
+            _hookThreadId = (uint)Environment.CurrentManagedThreadId;
+
+            var moduleHandle = Win32Api.GetModuleHandle(null);
+            _hookId = Win32Api.SetWindowsHookEx(
+                Win32Api.WH_KEYBOARD_LL, _proc, moduleHandle, 0);
+
+            if (_hookId == IntPtr.Zero)
+            {
+                Debug.WriteLine($"键盘钩子安装失败，错误码: {Marshal.GetLastWin32Error()}");
+                _threadReady.Set();
+                return;
+            }
+
+            _threadReady.Set();
+            Debug.WriteLine($"全局键盘钩子已启动（独立消息循环线程），热键: {GetHotKeyDisplay()}");
+
+            // 原生消息循环
+            while (Win32Api.GetMessage(out var msg, IntPtr.Zero, 0, 0))
+            {
+                Win32Api.TranslateMessage(ref msg);
+                Win32Api.DispatchMessage(ref msg);
+            }
+
+            // 消息循环退出，清理钩子
             if (_hookId != IntPtr.Zero)
             {
                 Win32Api.UnhookWindowsHookEx(_hookId);
                 _hookId = IntPtr.Zero;
             }
-
-            _isStarted = false;
-            Debug.WriteLine("全局键盘钩子已停止");
         }
 
         /// <summary>
-        /// 键盘钩子回调
+        /// 键盘钩子回调（在钩子专用线程执行，带 try-catch 保护）
         /// </summary>
         private IntPtr KeyboardHookCallback(int nCode, IntPtr wParam, ref Win32Api.KBDLLHOOKSTRUCT lParam)
         {
-            if (nCode >= 0 && wParam == (IntPtr)Win32Api.WM_KEYDOWN)
+            if (nCode >= 0)
             {
-                // 过滤注入事件（模拟按键），避免 Ctrl+C 模拟触发钩子
-                if ((lParam.flags & Win32Api.LLKHF_INJECTED) != 0)
+                try
                 {
-                    return Win32Api.CallNextHookEx(_hookId, nCode, wParam, ref lParam);
-                }
-
-                // 检查是否按下热键
-                if (lParam.vkCode == HotKey)
-                {
-                    bool altPressed = (Win32Api.GetAsyncKeyState(0x12) & 0x8000) != 0; // VK_MENU = Alt
-                    bool ctrlPressed = (Win32Api.GetAsyncKeyState(Win32Api.VK_CONTROL) & 0x8000) != 0;
-                    bool shiftPressed = (Win32Api.GetAsyncKeyState(0x10) & 0x8000) != 0; // VK_SHIFT
-
-                    bool match = true;
-                    if (RequireAlt && !altPressed) match = false;
-                    if (RequireCtrl && !ctrlPressed) match = false;
-                    if (RequireShift && !shiftPressed) match = false;
-
-                    if (match)
+                    if (wParam == (IntPtr)Win32Api.WM_KEYDOWN)
                     {
-                        // 在 UI 线程触发事件
-                        System.Windows.Application.Current?.Dispatcher.BeginInvoke(
-                            new Action(() => HotKeyPressed?.Invoke()));
+                        // 过滤注入事件（模拟按键），避免 Ctrl+C 模拟触发钩子
+                        if ((lParam.flags & Win32Api.LLKHF_INJECTED) != 0)
+                        {
+                            return Win32Api.CallNextHookEx(_hookId, nCode, wParam, ref lParam);
+                        }
+
+                        // 检查是否按下热键
+                        if (lParam.vkCode == HotKey)
+                        {
+                            bool altPressed = (Win32Api.GetAsyncKeyState(0x12) & 0x8000) != 0;
+                            bool ctrlPressed = (Win32Api.GetAsyncKeyState(Win32Api.VK_CONTROL) & 0x8000) != 0;
+                            bool shiftPressed = (Win32Api.GetAsyncKeyState(0x10) & 0x8000) != 0;
+
+                            bool match = true;
+                            if (RequireAlt && !altPressed) match = false;
+                            if (RequireCtrl && !ctrlPressed) match = false;
+                            if (RequireShift && !shiftPressed) match = false;
+
+                            if (match)
+                            {
+                                // 异步投递到 WPF UI 线程
+                                System.Windows.Application.Current?.Dispatcher.BeginInvoke(
+                                    new Action(() => HotKeyPressed?.Invoke()));
+                            }
+                        }
                     }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"键盘钩子回调异常: {ex.Message}");
                 }
             }
 
             return Win32Api.CallNextHookEx(_hookId, nCode, wParam, ref lParam);
+        }
+
+        /// <summary>
+        /// 获取热键的显示名称
+        /// </summary>
+        public string GetHotKeyDisplay()
+        {
+            var parts = new List<string>();
+            if (RequireCtrl) parts.Add("Ctrl");
+            if (RequireAlt) parts.Add("Alt");
+            if (RequireShift) parts.Add("Shift");
+            parts.Add(GetKeyName(HotKey));
+            return string.Join("+", parts);
         }
 
         /// <summary>

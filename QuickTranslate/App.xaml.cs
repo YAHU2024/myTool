@@ -32,6 +32,17 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // 全局异常兖底，防止未捕获异常导致闪退
+        DispatcherUnhandledException += (s, args) =>
+        {
+            Debug.WriteLine($"未处理异常(UI线程): {args.Exception.Message}");
+            args.Handled = true;
+        };
+        AppDomain.CurrentDomain.UnhandledException += (s, args) =>
+        {
+            Debug.WriteLine($"未处理异常(AppDomain): {args.ExceptionObject}");
+        };
+
         // 加载配置
         _settings = ConfigManager.Load();
 
@@ -97,8 +108,8 @@ public partial class App : Application
 
         try
         {
-            // 尝试 UIA 获取选中文本位置，降级为鼠标位置
-            var anchorPosition = GetSelectionAnchorPosition();
+            // 尝试 UIA 异步获取选中文本位置，降级为鼠标位置
+            var anchorPosition = await GetSelectionAnchorPositionAsync();
 
             // 先显示悬浮窗，提示正在翻译
             _floatingWindow.ShowTranslation("翻译中...", anchorPosition);
@@ -149,40 +160,47 @@ public partial class App : Application
     /// </summary>
     private async void OnSelectionCompleted(System.Windows.Point startPos, System.Windows.Point endPos)
     {
-        if (!IsTranslationEnabled) return;
-        if (_redDotWindow == null) return;
-
-        // 尝试获取选中文本
-        var selectedText = await ClipboardHelper.GetSelectedTextAsync();
-
-        if (string.IsNullOrWhiteSpace(selectedText))
+        try
         {
-            _redDotWindow.Hide();
-            _selectionDetector!.IsRedDotVisible = false;
-            return;
-        }
+            if (!IsTranslationEnabled) return;
+            if (_redDotWindow == null) return;
 
-        // 保存待翻译文本
-        _pendingText = selectedText;
+            // 尝试获取选中文本（UIA 在后台 STA 线程执行，不阻塞 UI 线程）
+            var selectedText = await ClipboardHelper.GetSelectedTextAsync();
 
-        // 尝试 UIA 精确定位
-        var location = SelectionLocator.TryGetSelectionBounds();
-        if (location == null || !location.IsValid)
-        {
-            // 降级：拖拽中点 + 偏移(+4, -8)
-            var mid = new System.Windows.Point(
-                (startPos.X + endPos.X) / 2 + 4,
-                (startPos.Y + endPos.Y) / 2 - 8);
-            location = new SelectionLocation
+            if (string.IsNullOrWhiteSpace(selectedText))
             {
-                IsValid = false,
-                FallbackPoint = mid
-            };
-        }
+                _redDotWindow.Hide();
+                _selectionDetector!.IsRedDotVisible = false;
+                return;
+            }
 
-        // 显示红点
-        _redDotWindow.ShowAt(location);
-        _selectionDetector!.IsRedDotVisible = true;
+            // 保存待翻译文本
+            _pendingText = selectedText;
+
+            // 尝试 UIA 异步精确定位（不阻塞 UI 线程）
+            var location = await SelectionLocator.TryGetSelectionBoundsAsync();
+            if (location == null || !location.IsValid)
+            {
+                // 降级：拖拽中点 + 偏移(+4, -8)
+                var mid = new System.Windows.Point(
+                    (startPos.X + endPos.X) / 2 + 4,
+                    (startPos.Y + endPos.Y) / 2 - 8);
+                location = new SelectionLocation
+                {
+                    IsValid = false,
+                    FallbackPoint = mid
+                };
+            }
+
+            // 显示红点
+            _redDotWindow.ShowAt(location);
+            _selectionDetector!.IsRedDotVisible = true;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"OnSelectionCompleted 异常: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -243,13 +261,20 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 获取选中文本锚点位置（优先 UIA，降级为鼠标位置）
+    /// 获取选中文本锚点位置（优先 UIA 异步，降级为鼠标位置）
     /// </summary>
-    private System.Windows.Point GetSelectionAnchorPosition()
+    private async Task<System.Windows.Point> GetSelectionAnchorPositionAsync()
     {
-        var location = SelectionLocator.TryGetSelectionBounds();
-        if (location != null && location.IsValid)
-            return location.EndPoint;
+        try
+        {
+            var location = await SelectionLocator.TryGetSelectionBoundsAsync();
+            if (location != null && location.IsValid)
+                return location.EndPoint;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"UIA定位异常: {ex.Message}");
+        }
 
         // 降级为当前鼠标位置（GetCursorPos 返回物理像素，转 DIP）
         Win32Api.GetCursorPos(out var cursorPoint);

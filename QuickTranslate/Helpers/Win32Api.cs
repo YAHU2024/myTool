@@ -26,6 +26,9 @@ namespace QuickTranslate.Helpers
         // 键盘钩子标志（用于过滤模拟按键事件）
         public const uint LLKHF_INJECTED = 0x10;
 
+        // 鼠标钩子标志（用于过滤模拟鼠标事件）
+        public const uint LLMHF_INJECTED = 0x01;
+
         // 委托（必须持有引用，防止 GC 回收）
         public delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, ref KBDLLHOOKSTRUCT lParam);
         public delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, ref MSLLHOOKSTRUCT lParam);
@@ -112,6 +115,40 @@ namespace QuickTranslate.Helpers
         // 按键状态检测
         [DllImport("user32.dll")]
         public static extern short GetAsyncKeyState(int vKey);
+
+        // ── 原生消息循环（钩子专用线程） ──
+        [DllImport("user32.dll")]
+        public static extern bool GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+        [DllImport("user32.dll")]
+        public static extern bool TranslateMessage(ref MSG lpMsg);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr DispatchMessage(ref MSG lpMsg);
+
+        [DllImport("user32.dll")]
+        public static extern void PostThreadMessage(uint idThread, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        // ── 原生定时器（钩子线程内使用） ──
+        public const uint WM_TIMER = 0x0113;
+        public const uint WM_QUIT = 0x0012;
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr SetTimer(IntPtr hWnd, IntPtr nIDEvent, uint uElapse, IntPtr lpTimerFunc);
+
+        [DllImport("user32.dll")]
+        public static extern bool KillTimer(IntPtr hWnd, IntPtr uIDEvent);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MSG
+        {
+            public IntPtr hwnd;
+            public uint message;
+            public IntPtr wParam;
+            public IntPtr lParam;
+            public uint time;
+            public POINT pt;
+        }
 
         // ── 多显示器支持 ──
         public const uint MONITOR_DEFAULTTONEAREST = 2;

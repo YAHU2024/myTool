@@ -108,13 +108,18 @@ namespace QuickTranslate.Services
             // 默认 prompt
             if (_settings.AutoDetectLanguage)
             {
-                // 语言自动检测：根据源语言自动决定翻译方向
-                return $"Detect the language of the given text. If it is Chinese, translate to English. If it is not Chinese, translate to {targetLang}. Output only the translation.";
+                // 语言自动检测：尊重用户在设置中配置的目标语言
+                return "You are a translator. First detect the language of the input text. " +
+                       "If the text is Chinese, translate it to English. " +
+                       $"If the text is NOT Chinese, translate it to {targetLang}. " +
+                       "IMPORTANT: You MUST always translate, even if the text is already in the target language. " +
+                       "Never output the original text unchanged. Output only the translation.";
             }
             else
             {
                 // 固定翻译方向
-                return $"Translate to {targetLang}. If already in {targetLang}, translate to English. Output only the translation.";
+                return $"Translate to {targetLang}. If already in {targetLang}, translate to English. " +
+                       "IMPORTANT: You MUST always translate. Never output the original text unchanged. Output only the translation.";
             }
         }
 

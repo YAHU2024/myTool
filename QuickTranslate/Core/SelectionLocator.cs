@@ -1,5 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using QuickTranslate.Helpers;
@@ -33,10 +35,106 @@ namespace QuickTranslate.Core
     }
 
     /// <summary>
-    /// UI Automation 选区定位器 - 通过 TextPattern 获取选中文本的精确屏幕坐标
+    /// UI Automation 选区定位器 - 通过 TextPattern 获取选中文本的精确屏幕坐标和文本内容
     /// </summary>
     public static class SelectionLocator
     {
+        /// <summary>
+        /// 异步获取选中文本（在后台 STA 线程执行 UIA 调用，带超时保护）
+        /// </summary>
+        public static Task<string?> TryGetSelectedTextAsync(int timeoutMs = 2000)
+        {
+            return RunOnSTAThread(() => TryGetSelectedText(), timeoutMs);
+        }
+
+        /// <summary>
+        /// 异步获取选中文本边界（在后台 STA 线程执行 UIA 调用，带超时保护）
+        /// </summary>
+        public static Task<SelectionLocation?> TryGetSelectionBoundsAsync(int timeoutMs = 2000)
+        {
+            return RunOnSTAThread(() => TryGetSelectionBounds(), timeoutMs);
+        }
+
+        /// <summary>
+        /// 在独立 STA 线程上执行 UIA 操作，避免阻塞 UI 线程。
+        /// 超时后返回 null，防止 UIA 挂起导致鼠标卡顿。
+        /// </summary>
+        private static Task<T?> RunOnSTAThread<T>(Func<T?> func, int timeoutMs) where T : class
+        {
+            var tcs = new TaskCompletionSource<T?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    tcs.TrySetResult(func());
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[SelectionLocator] STA线程UIA异常: {ex.Message}");
+                    tcs.TrySetResult(null);
+                }
+            });
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.IsBackground = true;
+            thread.Name = "UIA_Worker";
+            thread.Start();
+
+            // 超时保护：避免 UIA 跨进程调用挂起
+            Task.Delay(timeoutMs).ContinueWith(_ => tcs.TrySetResult(null));
+
+            return tcs.Task;
+        }
+        /// <summary>
+        /// 尝试通过 UI Automation TextPattern 直接获取选中文本（不依赖剪贴板）。
+        /// 需在 STA 线程上调用。
+        /// 失败时返回 null，由调用方降级到剪贴板方案。
+        /// </summary>
+        public static string? TryGetSelectedText()
+        {
+            try
+            {
+                var focusedElement = AutomationElement.FocusedElement;
+                if (focusedElement == null)
+                {
+                    Debug.WriteLine("[SelectionLocator] UIA文本获取: 无焦点元素");
+                    return null;
+                }
+
+                if (!focusedElement.TryGetCurrentPattern(TextPattern.Pattern, out object patternObj))
+                {
+                    Debug.WriteLine("[SelectionLocator] UIA文本获取: 焦点元素不支持 TextPattern");
+                    return null;
+                }
+
+                var textPattern = patternObj as TextPattern;
+                if (textPattern == null)
+                    return null;
+
+                var selections = textPattern.GetSelection();
+                if (selections == null || selections.Length == 0)
+                {
+                    Debug.WriteLine("[SelectionLocator] UIA文本获取: 无选区");
+                    return null;
+                }
+
+                var text = selections[0].GetText(-1);
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    Debug.WriteLine("[SelectionLocator] UIA文本获取: 选区文本为空");
+                    return null;
+                }
+
+                Debug.WriteLine($"[SelectionLocator] UIA文本获取成功: {text.Length} 字符");
+                return text;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SelectionLocator] UIA文本获取异常: {ex.Message}");
+                return null;
+            }
+        }
+
         /// <summary>
         /// 尝试通过 UI Automation 获取选中文本的精确屏幕坐标。
         /// 需在 STA 线程上调用。
