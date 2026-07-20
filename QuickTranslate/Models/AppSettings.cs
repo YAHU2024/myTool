@@ -92,6 +92,11 @@ namespace QuickTranslate.Models
         // ==================== 第四期：体验优化 ====================
 
         /// <summary>
+        /// 是否启用快捷键
+        /// </summary>
+        public bool HotKeyEnabled { get; set; } = true;
+
+        /// <summary>
         /// 快捷键虚拟键码（默认 Q = 0x51）
         /// </summary>
         public byte HotKeyVK { get; set; } = 0x51;

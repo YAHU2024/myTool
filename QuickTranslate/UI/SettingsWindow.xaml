@@ -311,6 +311,8 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="10"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="80"/>
@@ -325,8 +327,15 @@
                               Grid.ColumnSpan="2"
                               Checked="Setting_Changed" Unchecked="Setting_Changed"/>
 
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="快捷键:" Style="{StaticResource LabelStyle}"/>
-                    <StackPanel Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="快捷键开关:" Style="{StaticResource LabelStyle}"/>
+                    <CheckBox x:Name="HotKeyEnabledCheckBox" Grid.Row="2" Grid.Column="1"
+                              Style="{StaticResource DarkCheckBox}"
+                              Content="启用快捷键"
+                              Grid.ColumnSpan="2"
+                              Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="快捷键:" Style="{StaticResource LabelStyle}"/>
+                    <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
                         <TextBlock x:Name="HotKeyDisplayText" Foreground="#E0E0E0" FontSize="13"
                                    VerticalAlignment="Center" Text="Alt+Q"/>
                         <Button x:Name="ChangeHotKeyButton" Style="{StaticResource SecondaryButton}"

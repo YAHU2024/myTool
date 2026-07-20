@@ -29,6 +29,7 @@ namespace QuickTranslate.UI
         private bool _origHotKeyRequireAlt = true;
         private bool _origHotKeyRequireCtrl = false;
         private bool _origHotKeyRequireShift = false;
+        private bool _origHotKeyEnabled = true;
 
         // 快捷键录入状态
         private bool _isCapturingHotKey = false;
@@ -60,6 +61,7 @@ namespace QuickTranslate.UI
             _origHotKeyRequireAlt = _settings.HotKeyRequireAlt;
             _origHotKeyRequireCtrl = _settings.HotKeyRequireCtrl;
             _origHotKeyRequireShift = _settings.HotKeyRequireShift;
+            _origHotKeyEnabled = _settings.HotKeyEnabled;
         }
 
         private void LoadSettings()
@@ -89,6 +91,7 @@ namespace QuickTranslate.UI
             AutoStartCheckBox.IsChecked = _settings.AutoStart;
 
             // 快捷键显示
+            HotKeyEnabledCheckBox.IsChecked = _settings.HotKeyEnabled;
             UpdateHotKeyDisplay();
         }
 
@@ -380,6 +383,8 @@ namespace QuickTranslate.UI
             _settings.AutoDetectLanguage = AutoDetectLanguageCheckBox.IsChecked ?? true;
 
             _settings.CustomSystemPrompt = CustomSystemPromptTextBox.Text?.Trim() ?? string.Empty;
+
+            _settings.HotKeyEnabled = HotKeyEnabledCheckBox.IsChecked ?? true;
 
             var autoStart = AutoStartCheckBox.IsChecked ?? false;
             if (autoStart != _origAutoStart)

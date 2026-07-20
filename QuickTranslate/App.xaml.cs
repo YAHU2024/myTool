@@ -140,7 +140,10 @@ public partial class App : Application
         _keyboardHook.RequireCtrl = _settings.HotKeyRequireCtrl;
         _keyboardHook.RequireShift = _settings.HotKeyRequireShift;
         _keyboardHook.HotKeyPressed += OnHotKeyPressed;
-        _keyboardHook.Start();
+        if (_settings.HotKeyEnabled)
+        {
+            _keyboardHook.Start();
+        }
 
         // 启动文本选择检测器
         _selectionDetector = new SelectionDetector();
@@ -153,7 +156,11 @@ public partial class App : Application
         _trayIcon.SettingsRequested += OnSettingsRequested;
         _trayIcon.HistoryRequested += OnHistoryRequested;
         _trayIcon.PauseToggled += OnPauseToggled;
+        _trayIcon.HotKeyToggled += OnHotKeyToggled;
         _trayIcon.ExitRequested += OnExitRequested;
+
+        // 根据配置初始化快捷键开关状态
+        _trayIcon.SetHotKeyEnabled(_settings.HotKeyEnabled);
 
         // 根据配置更新托盘提示
         UpdateTrayToolTip();
@@ -477,8 +484,14 @@ public partial class App : Application
             _keyboardHook.RequireAlt = settings.HotKeyRequireAlt;
             _keyboardHook.RequireCtrl = settings.HotKeyRequireCtrl;
             _keyboardHook.RequireShift = settings.HotKeyRequireShift;
-            _keyboardHook.Start();
+            if (settings.HotKeyEnabled)
+            {
+                _keyboardHook.Start();
+            }
         }
+
+        // 同步托盘菜单快捷键开关状态
+        _trayIcon?.SetHotKeyEnabled(settings.HotKeyEnabled);
 
         UpdateTrayToolTip();
     }
@@ -500,6 +513,29 @@ public partial class App : Application
             _historyWindow.Closed += (s, e) => _historyWindow = null;
             _historyWindow.Show();
         });
+    }
+
+    /// <summary>
+    /// 快捷键开关切换
+    /// </summary>
+    private void OnHotKeyToggled(bool enabled)
+    {
+        _settings!.HotKeyEnabled = enabled;
+        ConfigManager.Save(_settings);
+
+        if (_keyboardHook != null)
+        {
+            if (enabled)
+            {
+                _keyboardHook.Start();
+                Logger.Info("App", "快捷键已启用");
+            }
+            else
+            {
+                _keyboardHook.Stop();
+                Logger.Info("App", "快捷键已禁用");
+            }
+        }
     }
 
     /// <summary>

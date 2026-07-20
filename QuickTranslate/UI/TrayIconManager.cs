@@ -13,7 +13,9 @@ namespace QuickTranslate.UI
         private readonly NotifyIcon _notifyIcon;
         private readonly ContextMenuStrip _contextMenu;
         private readonly ToolStripMenuItem _pauseResumeItem;
+        private readonly ToolStripMenuItem _hotKeyToggleItem;
         private bool _isPaused;
+        private bool _isHotKeyEnabled = true;
 
         /// <summary>
         /// 用户点击"设置"
@@ -29,6 +31,11 @@ namespace QuickTranslate.UI
         /// 用户点击"暂停/恢复翻译"
         /// </summary>
         public event Action<bool>? PauseToggled;
+
+        /// <summary>
+        /// 用户点击"启用/禁用快捷键"
+        /// </summary>
+        public event Action<bool>? HotKeyToggled;
 
         /// <summary>
         /// 用户点击"退出"
@@ -48,6 +55,16 @@ namespace QuickTranslate.UI
                 PauseToggled?.Invoke(_isPaused);
             };
 
+            _hotKeyToggleItem = new ToolStripMenuItem("启用快捷键");
+            _hotKeyToggleItem.CheckOnClick = true;
+            _hotKeyToggleItem.Checked = true;
+            _hotKeyToggleItem.Click += (s, e) =>
+            {
+                _isHotKeyEnabled = _hotKeyToggleItem.Checked;
+                _hotKeyToggleItem.Text = _isHotKeyEnabled ? "启用快捷键" : "禁用快捷键";
+                HotKeyToggled?.Invoke(_isHotKeyEnabled);
+            };
+
             var settingsItem = new ToolStripMenuItem("设置");
             settingsItem.Click += (s, e) => SettingsRequested?.Invoke();
 
@@ -60,6 +77,7 @@ namespace QuickTranslate.UI
             _contextMenu.Items.Add(settingsItem);
             _contextMenu.Items.Add(historyItem);
             _contextMenu.Items.Add(new ToolStripSeparator());
+            _contextMenu.Items.Add(_hotKeyToggleItem);
             _contextMenu.Items.Add(_pauseResumeItem);
             _contextMenu.Items.Add(new ToolStripSeparator());
             _contextMenu.Items.Add(exitItem);
@@ -119,6 +137,16 @@ namespace QuickTranslate.UI
         public void ShowBalloonTip(string title, string message, ToolTipIcon icon = ToolTipIcon.Info, int duration = 3000)
         {
             _notifyIcon.ShowBalloonTip(duration, title, message, icon);
+        }
+
+        /// <summary>
+        /// 设置快捷键开关状态（外部同步）
+        /// </summary>
+        public void SetHotKeyEnabled(bool enabled)
+        {
+            _isHotKeyEnabled = enabled;
+            _hotKeyToggleItem.Checked = enabled;
+            _hotKeyToggleItem.Text = enabled ? "启用快捷键" : "禁用快捷键";
         }
 
         public void Dispose()
