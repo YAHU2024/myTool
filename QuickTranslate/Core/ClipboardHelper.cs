@@ -10,20 +10,24 @@ namespace QuickTranslate.Core
     /// 文本获取辅助 - 剪贴板降级策略获取选中文本。
     /// 核心安全机制：
     /// - 静态信号量防并发（全局同一时刻只有一个剪贴板操作）
-    /// - 单次哨兵（整个 GetSelectedTextAsync 只写一次哨兵，非两次）
-    /// - 重试清理（finally 中带重试的哨兵清除，防止泄漏）
+    /// - 零污染检测：通过 GetClipboardSequenceNumber 检测 Ctrl+C 是否生效，不写任何内容到剪贴板
+    /// - 快速失败：100ms 内序列号未变 → 无选中文本，立即退出
+    /// - 剪贴板恢复增强：5 次重试 x 100ms，最大确保原始内容恢复
     /// 注意：UIA TextPattern.GetText 已移除 —— 该 COM 调用在部分应用中触发
     /// AccessViolationException(0xc0000005) 导致进程不可恢复崩溃。
     /// </summary>
     public static class ClipboardHelper
     {
+        /// <summary>哨兵前缀，用于精准识别哨兵内容</summary>
+        public const string SentinelPrefix = "QT_S_";
+
         // ★ 全局剪贴板互斥锁：防止并发操作互相锁死剪贴板
         private static readonly SemaphoreSlim _clipboardLock = new(1, 1);
 
         /// <summary>
         /// 获取当前选中的文本。
         /// 全局互斥：如果已有操作进行中，直接返回 null（不排队等待）。
-        /// 整个操作只写一次哨兵，在 finally 中带重试清理。
+        /// 通过序列号检测 Ctrl+C 是否生效，不写任何内容到剪贴板。
         /// </summary>
         public static async Task<string?> GetSelectedTextAsync()
         {
@@ -46,36 +50,35 @@ namespace QuickTranslate.Core
 
         /// <summary>
         /// 剪贴板模式 - 在 STA 线程模拟 Ctrl+C 后读取剪贴板。
-        /// 整个操作只写一次哨兵。先轮询 500ms，若仍为哨兵则再固定等待 300ms。
-        /// finally 中带重试清理哨兵（最多重试 5 次，间隔 50ms），确保不泄漏。
+        /// ★ 不写哨兵，通过 GetClipboardSequenceNumber 检测 Ctrl+C 是否生效。
+        /// 彻底消除哨兵残留可能性。
         /// </summary>
         private static async Task<string?> TryGetTextViaClipboardAsync()
         {
             var tcs = new TaskCompletionSource<string?>();
+            var opStart = DateTime.UtcNow;
 
             var staThread = new Thread(() =>
             {
                 string? originalText = null;
                 string? result = null;
-                string? sentinel = null;
                 try
                 {
                     // 1. 保存当前剪贴板内容（用于最后恢复）
                     if (Clipboard.ContainsText())
                     {
                         originalText = Clipboard.GetText();
-                        // 如果原内容本身就是哨兵格式（上次泄漏残留），不保存
-                        if (originalText != null && originalText.Length == 32
-                            && IsHexString(originalText))
+                        // 如果原内容本身就是旧版哨兵格式（历史残留），不保存
+                        if (originalText != null && IsSentinel(originalText))
                         {
-                            Logger.Debug("ClipboardHelper", "检测到哨兵残留，跳过保存");
+                            Logger.Warn("ClipboardHelper", $"[剪贴板] 检测到历史哨兵残留，跳过保存");
                             originalText = null;
                         }
                     }
 
-                    // 2. 用唯一哨兵覆盖剪贴板（整个操作只写这一次）
-                    sentinel = Guid.NewGuid().ToString("N");
-                    Clipboard.SetText(sentinel);
+                    // 2. 记录剪贴板序列号（★ 不写哨兵，零污染）
+                    var seqBefore = Win32Api.GetClipboardSequenceNumber();
+                    Logger.Debug("ClipboardHelper", $"[剪贴板] 序列号 before={seqBefore}");
 
                     // 3. 模拟 Ctrl+C
                     Win32Api.keybd_event((byte)Win32Api.VK_CONTROL, 0, 0, UIntPtr.Zero);
@@ -86,83 +89,113 @@ namespace QuickTranslate.Core
                     Thread.Sleep(30);
                     Win32Api.keybd_event((byte)Win32Api.VK_CONTROL, 0, Win32Api.KEYEVENTF_KEYUP, UIntPtr.Zero);
 
-                    // 4. 轮询阶段：最多 500ms，等待 Ctrl+C 写入新文本
-                    var deadline = DateTime.UtcNow.AddMilliseconds(500);
+                    // 4. 轮询阶段：最多 500ms，等待剪贴板序列号变化
+                    //    ★ 快速失败：100ms 内序列号未变化 → 无选中文本，立即退出
+                    var pollStart = DateTime.UtcNow;
+                    var deadline = pollStart.AddMilliseconds(500);
+                    var fastFailChecked = false;
+                    var fastFailed = false;
                     while (DateTime.UtcNow < deadline)
                     {
-                        try
+                        var seqNow = Win32Api.GetClipboardSequenceNumber();
+                        if (seqNow != seqBefore)
                         {
-                            if (Clipboard.ContainsText())
+                            // 序列号变化了！等待稳定后读取（防止剪贴板管理器竞态）
+                            Thread.Sleep(30);
+                            try
                             {
-                                var t = Clipboard.GetText();
-                                if (!string.IsNullOrWhiteSpace(t) && t != sentinel)
+                                if (Clipboard.ContainsText())
                                 {
-                                    result = t;
-                                    break;
+                                    var t = Clipboard.GetText();
+                                    if (!string.IsNullOrWhiteSpace(t))
+                                    {
+                                        result = t;
+                                        var elapsed = (DateTime.UtcNow - pollStart).TotalMilliseconds;
+                                        Logger.Debug("ClipboardHelper", $"[剪贴板] 获取成功({elapsed:F0}ms): 长度={t.Length}");
+                                    }
                                 }
                             }
+                            catch (Exception ex)
+                            {
+                                Logger.Warn("ClipboardHelper", $"[剪贴板] 读取异常: {ex.Message}");
+                            }
+                            break;
                         }
-                        catch { /* 剪贴板暂时被锁定，继续轮询 */ }
+
+                        // ★ 快速失败：100ms 后序列号未变 → 无选中文本
+                        if (!fastFailChecked && (DateTime.UtcNow - pollStart).TotalMilliseconds >= 100)
+                        {
+                            fastFailChecked = true;
+                            fastFailed = true;
+                            Logger.Debug("ClipboardHelper", $"[剪贴板] 快速失败(100ms): 序列号未变化，无选中文本");
+                            break;
+                        }
+
                         Thread.Sleep(20);
                     }
 
-                    // 5. 如果轮询未成功，再固定等待 300ms（兜底）
-                    if (result == null)
+                    // 5. 如果轮询未成功且不是因为快速失败，再固定等待 300ms（兜底）
+                    if (result == null && !fastFailed)
                     {
+                        Logger.Debug("ClipboardHelper", $"[剪贴板] 轮询 500ms 未成功，进入兜底等待 300ms");
                         Thread.Sleep(300);
-                        try
+                        var seqAfter = Win32Api.GetClipboardSequenceNumber();
+                        if (seqAfter != seqBefore)
                         {
-                            if (Clipboard.ContainsText())
+                            try
                             {
-                                var t = Clipboard.GetText();
-                                result = (t != sentinel) ? t : null;
+                                if (Clipboard.ContainsText())
+                                {
+                                    var t = Clipboard.GetText();
+                                    if (!string.IsNullOrWhiteSpace(t))
+                                    {
+                                        result = t;
+                                        Logger.Debug("ClipboardHelper", $"[剪贴板] 兜底等待成功: 长度={t.Length}");
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Warn("ClipboardHelper", $"[剪贴板] 兜底读取异常: {ex.Message}");
                             }
                         }
-                        catch { /* 剪贴板被锁定，result 保持 null */ }
+                        else
+                        {
+                            Logger.Debug("ClipboardHelper", $"[剪贴板] 兜底等待后序列号仍未变化，Ctrl+C 模拟失败");
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warn("ClipboardHelper", $"剪贴板操作异常: {ex.Message}");
-                }
-                finally
-                {
-                    // ★ 关键：带重试的哨兵清理（最多 5 次，间隔 50ms）
-                    // 确保即使剪贴板暂时被锁定，也能在短暂等待后成功清理
-                    if (sentinel != null)
+
+                    // 6. 恢复原始剪贴板内容（Ctrl+C 成功时才需要恢复）
+                    //    即使恢复失败，选中文本留在剪贴板也比丢失原始内容好
+                    //    （用户至少可以手动 Ctrl+Z 或重新复制）
+                    if (result != null && !string.IsNullOrEmpty(originalText))
                     {
+                        bool restored = false;
                         for (int attempt = 0; attempt < 5; attempt++)
                         {
                             try
                             {
-                                Clipboard.Clear();
-                                break; // 清理成功，退出重试
+                                Clipboard.SetText(originalText);
+                                restored = true;
+                                break;
                             }
                             catch
                             {
-                                if (attempt < 4) Thread.Sleep(50);
-                                else Logger.Warn("ClipboardHelper", "哨兵清理重试 5 次均失败，启动后台清理");
+                                if (attempt < 4) Thread.Sleep(100);
                             }
                         }
-
-                        // 恢复原始剪贴板内容
-                        if (!string.IsNullOrEmpty(originalText))
-                        {
-                            for (int attempt = 0; attempt < 3; attempt++)
-                            {
-                                try
-                                {
-                                    Clipboard.SetText(originalText);
-                                    break;
-                                }
-                                catch
-                                {
-                                    if (attempt < 2) Thread.Sleep(50);
-                                }
-                            }
-                        }
+                        if (!restored)
+                            Logger.Warn("ClipboardHelper", $"[剪贴板] 原始内容恢复失败(5次重试均失败)，选中文本留在剪贴板");
                     }
-
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn("ClipboardHelper", $"[剪贴板] 操作异常: {ex.Message}");
+                }
+                finally
+                {
+                    var finalMs = (DateTime.UtcNow - opStart).TotalMilliseconds;
+                    Logger.Debug("ClipboardHelper", $"[剪贴板] 操作结束: 获取结果={(result != null ? $"成功(长度{result.Length})" : "失败")}, 总耗时 {finalMs:F0}ms");
                     tcs.SetResult(result);
                 }
             });
@@ -176,16 +209,55 @@ namespace QuickTranslate.Core
         }
 
         /// <summary>
-        /// 检查字符串是否为纯十六进制（32位 = 可能是泄漏的哨兵 GUID）
+        /// 检查字符串是否为哨兵格式（QT_S_ 前缀 + 32位十六进制 GUID）
         /// </summary>
-        private static bool IsHexString(string s)
+        public static bool IsSentinel(string s)
         {
-            foreach (var c in s)
+            if (string.IsNullOrEmpty(s) || !s.StartsWith(SentinelPrefix))
+                return false;
+            var hex = s.Substring(SentinelPrefix.Length);
+            if (hex.Length != 32) return false;
+            foreach (var c in hex)
             {
                 if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
                     return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// 启动时清扫：如果剪贴板中有旧版残留哨兵（QT_S_ 前缀），清除它。
+        /// 仅用于兼容旧版本，后续可移除。
+        /// </summary>
+        public static void CleanResidualOnStartup()
+        {
+            Task.Run(() =>
+            {
+                var t = new Thread(() =>
+                {
+                    try
+                    {
+                        if (Clipboard.ContainsText())
+                        {
+                            var text = Clipboard.GetText();
+                            if (IsSentinel(text))
+                            {
+                                var sid = text.Substring(text.Length - 8);
+                                Clipboard.Clear();
+                                Logger.Info("ClipboardHelper", $"[哨兵生命周期] 启动时清除残留哨兵: {sid}");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn("ClipboardHelper", $"[哨兵生命周期] 启动时清扫异常: {ex.Message}");
+                    }
+                });
+                t.SetApartmentState(ApartmentState.STA);
+                t.IsBackground = true;
+                t.Start();
+                t.Join(2000);
+            });
         }
     }
 }

@@ -67,6 +67,9 @@ public partial class App : Application
             retentionDays: _settings.LogRetentionDays);
         Logger.Info("App", $"应用启动, OS={Environment.OSVersion}, .NET={Environment.Version}");
 
+        // ★ 启动时清扫上次残留的剪贴板哨兵
+        ClipboardHelper.CleanResidualOnStartup();
+
         // ★ 单实例保护：防止双击启动第二个实例导致钩子冲突
         bool createdNew;
         _singleInstanceMutex = new Mutex(true, "QuickTranslate_SingleInstance_v1", out createdNew);
