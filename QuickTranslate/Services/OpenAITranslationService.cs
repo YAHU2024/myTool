@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using QuickTranslate.Helpers;
 using QuickTranslate.Models;
 
 namespace QuickTranslate.Services
@@ -157,49 +158,56 @@ namespace QuickTranslate.Services
 
             var fullResult = new StringBuilder();
 
-            using var stream = await response.Content.ReadAsStreamAsync();
-            using var reader = new StreamReader(stream);
-
-            while (!reader.EndOfStream)
+            // ★ 关键修复：将流式读取循环移到后台线程
+            // 原问题：await 在 UI 线程上执行，当 TCP 缓冲区有多个 SSE 事件时
+            // ReadLineAsync() 同步完成 → 不 yield → UI 线程被占满 → 无渲染 pass
+            // Task.Run 让循环在后台线程执行，UI 线程完全释放给 Dispatcher 渲染
+            await Task.Run(async () =>
             {
-                var line = await reader.ReadLineAsync();
+                using var stream = await response.Content.ReadAsStreamAsync();
+                using var reader = new StreamReader(stream);
 
-                if (string.IsNullOrWhiteSpace(line))
-                    continue;
-
-                // SSE 格式: "data: {...}" 或 "data: [DONE]"
-                if (!line.StartsWith("data: "))
-                    continue;
-
-                var data = line.Substring(6); // 去掉 "data: " 前缀
-
-                if (data == "[DONE]")
-                    break;
-
-                try
+                while (!reader.EndOfStream)
                 {
-                    using var doc = JsonDocument.Parse(data);
-                    var choices = doc.RootElement.GetProperty("choices");
-                    if (choices.GetArrayLength() == 0)
+                    var line = await reader.ReadLineAsync();
+
+                    if (string.IsNullOrWhiteSpace(line))
                         continue;
 
-                    var delta = choices[0].GetProperty("delta");
+                    // SSE 格式: "data: {...}" 或 "data: [DONE]"
+                    if (!line.StartsWith("data: "))
+                        continue;
 
-                    if (delta.TryGetProperty("content", out var contentElement))
+                    var data = line.Substring(6); // 去掉 "data: " 前缀
+
+                    if (data == "[DONE]")
+                        break;
+
+                    try
                     {
-                        var chunk = contentElement.GetString();
-                        if (!string.IsNullOrEmpty(chunk))
+                        using var doc = JsonDocument.Parse(data);
+                        var choices = doc.RootElement.GetProperty("choices");
+                        if (choices.GetArrayLength() == 0)
+                            continue;
+
+                        var delta = choices[0].GetProperty("delta");
+
+                        if (delta.TryGetProperty("content", out var contentElement))
                         {
-                            fullResult.Append(chunk);
-                            onChunk?.Invoke(fullResult.ToString());
+                            var chunk = contentElement.GetString();
+                            if (!string.IsNullOrEmpty(chunk))
+                            {
+                                fullResult.Append(chunk);
+                                onChunk?.Invoke(fullResult.ToString());
+                            }
                         }
                     }
+                    catch (JsonException)
+                    {
+                        // 忽略无法解析的 chunk
+                    }
                 }
-                catch (JsonException)
-                {
-                    // 忽略无法解析的 chunk
-                }
-            }
+            });
 
             return fullResult.ToString().Trim();
         }

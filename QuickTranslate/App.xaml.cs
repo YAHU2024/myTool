@@ -266,10 +266,11 @@ public partial class App : Application
 
             // 流式翻译
             var targetLang = _settings.TargetLanguage;
+            // ★ BeginInvoke 异步投递：不阻塞后台流式读取线程，让 Dispatcher 有时间渲染
             var result = await _translationService.TranslateStreamingAsync(
                 selectedText,
                 targetLang,
-                chunk => Dispatcher.Invoke(() =>
+                chunk => Dispatcher.BeginInvoke(() =>
                 {
                     _floatingWindow.UpdateTranslation(chunk);
                 }));
@@ -380,10 +381,11 @@ public partial class App : Application
 
             // 流式翻译
             var targetLang = _settings.TargetLanguage;
+            // ★ BeginInvoke 异步投递：不阻塞后台流式读取线程
             var result = await _translationService.TranslateStreamingAsync(
                 textToTranslate,
                 targetLang,
-                chunk => Dispatcher.Invoke(() =>
+                chunk => Dispatcher.BeginInvoke(() =>
                 {
                     _floatingWindow.UpdateTranslation(chunk);
                 }));
