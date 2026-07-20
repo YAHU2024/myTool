@@ -13,6 +13,7 @@ namespace QuickTranslate.UI
     {
         private readonly DispatcherTimer _autoHideTimer;
         private bool _isMouseInside;
+        private Point _anchorPosition; // 记录锚点，用于流式输出时重新定位
 
         public FloatingWindow()
         {
@@ -62,6 +63,17 @@ namespace QuickTranslate.UI
         public void ShowTranslation(string translation, Point anchorPosition)
         {
             TranslationTextBlock.Text = translation;
+            _anchorPosition = anchorPosition;
+
+            // ★ 根据锚点所在显示器的工作区动态限制 ScrollViewer 最大高度
+            // SizeToContent="WidthAndHeight" 让 WPF 自动处理窗口尺寸
+            // 只需约束 ScrollViewer.MaxHeight 防止窗口超出屏幕
+            var workArea = Win32Api.GetWorkAreaAtPoint(anchorPosition);
+            // Border chrome: Margin(4*2=8) + Padding(10*2=20) = 28px
+            double chromeHeight = 28;
+            double maxWindowH = (workArea.Bottom - workArea.Top) - 80;
+            double scrollerMaxH = maxWindowH - chromeHeight;
+            TranslationScroller.MaxHeight = Math.Max(scrollerMaxH, 80);
 
             // 先 Show 以获取 ActualWidth/ActualHeight，再精确定位
             Show();
@@ -77,6 +89,17 @@ namespace QuickTranslate.UI
         public void UpdateTranslation(string translation)
         {
             TranslationTextBlock.Text = translation;
+
+            // ★ 流式输出时自动滚动到底部，确保最新译文可见
+            if (TranslationScroller != null)
+            {
+                TranslationScroller.ScrollToEnd();
+            }
+
+            // ★ 内容增长后重新布局，然后检查边界
+            UpdateLayout();
+            ClampToWorkArea();
+
             ResetAutoHideTimer();
         }
 
@@ -112,6 +135,52 @@ namespace QuickTranslate.UI
 
             Left = left;
             Top = top;
+        }
+
+        /// <summary>
+        /// 检查并约束窗口在工作区内（流式输出导致窗口增长后调用）
+        /// </summary>
+        private void ClampToWorkArea()
+        {
+            if (_anchorPosition == default) return;
+
+            var workArea = Win32Api.GetWorkAreaAtPoint(_anchorPosition);
+            double w = ActualWidth;
+            double h = ActualHeight;
+            double newLeft = Left;
+            double newTop = Top;
+            bool needMove = false;
+
+            // 底部超出：上移窗口
+            if (newTop + h > workArea.Bottom)
+            {
+                newTop = workArea.Bottom - h;
+                needMove = true;
+            }
+            // 顶部超出：下移窗口
+            if (newTop < workArea.Top)
+            {
+                newTop = workArea.Top;
+                needMove = true;
+            }
+            // 右侧超出：左移窗口
+            if (newLeft + w > workArea.Right)
+            {
+                newLeft = workArea.Right - w;
+                needMove = true;
+            }
+            // 左侧超出：右移窗口
+            if (newLeft < workArea.Left)
+            {
+                newLeft = workArea.Left;
+                needMove = true;
+            }
+
+            if (needMove)
+            {
+                Left = newLeft;
+                Top = newTop;
+            }
         }
 
         /// <summary>

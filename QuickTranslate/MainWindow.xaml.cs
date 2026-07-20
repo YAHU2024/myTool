@@ -125,7 +125,7 @@ namespace QuickTranslate
                 var result = await _translationService.TranslateStreamingAsync(
                     sourceText,
                     targetLang,
-                    chunk => Dispatcher.Invoke(() =>
+                    chunk => Dispatcher.BeginInvoke(() =>
                     {
                         ResultTextBox.Text = chunk;
                         ResultTextBox.ScrollToEnd();

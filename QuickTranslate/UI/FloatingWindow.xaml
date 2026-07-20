@@ -14,22 +14,121 @@
         SizeToContent="WidthAndHeight"
         MaxWidth="420">
 
+    <Window.Resources>
+        <!-- ★ Windows 11 风格细条自动隐藏滚动条 -->
+        <!-- Thumb：细条 + 圆角 + 半透明白色 -->
+        <Style x:Key="Win11Thumb" TargetType="{x:Type Thumb}">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Thumb}">
+                        <Border x:Name="ThumbBorder"
+                                Background="#80FFFFFF"
+                                CornerRadius="2"
+                                SnapsToDevicePixels="True"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 垂直滚动条：4px 宽，悬浮在内容上方 -->
+        <Style x:Key="Win11VerticalScrollBar" TargetType="{x:Type ScrollBar}">
+            <Setter Property="Width" Value="4"/>
+            <Setter Property="MinWidth" Value="4"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ScrollBar}">
+                        <Grid>
+                            <Track x:Name="PART_Track" IsDirectionReversed="True">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageUpCommand">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Background="Transparent"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Style="{StaticResource Win11Thumb}"/>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageDownCommand">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Background="Transparent"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <!-- 默认隐藏，鼠标悬停时显示 -->
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="False">
+                    <Setter Property="Opacity" Value="0"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Opacity" Value="1"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- ScrollViewer 模板：滚动条悬浮在内容之上，不占额外空间 -->
+        <Style x:Key="Win11ScrollViewer" TargetType="{x:Type ScrollViewer}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ScrollViewer}">
+                        <Grid>
+                            <ScrollContentPresenter
+                                CanContentScroll="{TemplateBinding CanContentScroll}"
+                                Margin="{TemplateBinding Padding}"/>
+                            <!-- 垂直滚动条：悬浮在右侧，不占列宽 -->
+                            <ScrollBar x:Name="PART_VerticalScrollBar"
+                                       HorizontalAlignment="Right"
+                                       VerticalAlignment="Stretch"
+                                       Style="{StaticResource Win11VerticalScrollBar}"
+                                       Value="{TemplateBinding VerticalOffset}"
+                                       Maximum="{TemplateBinding ScrollableHeight}"
+                                       ViewportSize="{TemplateBinding ViewportHeight}"
+                                       Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"
+                                       Margin="0,0,1,0"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <Border Background="#E81E1E2E" CornerRadius="8" Padding="14,10" Margin="4">
         <Border.Effect>
             <DropShadowEffect Color="Black" BlurRadius="12" ShadowDepth="2" Opacity="0.5"/>
         </Border.Effect>
         <Grid>
-            <!-- 译文（白色大字，支持点击复制） -->
-            <TextBlock x:Name="TranslationTextBlock"
-                       Foreground="#F0F0F0"
-                       FontSize="16"
-                       FontFamily="Microsoft YaHei UI"
-                       TextWrapping="Wrap"
-                       MaxWidth="390"
-                       Cursor="Hand"
-                       ToolTip="点击复制译文"
-                       MouseLeftButtonDown="TranslationTextBlock_MouseLeftButtonDown"
-                       Text=""/>
+            <!-- 译文（Windows 11 风格细条自动隐藏滚动条） -->
+            <ScrollViewer x:Name="TranslationScroller"
+                          Style="{StaticResource Win11ScrollViewer}"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          MaxWidth="390">
+                <!-- 右侧留 6px 避免文字与滚动条重叠 -->
+                <TextBlock x:Name="TranslationTextBlock"
+                           Foreground="#F0F0F0"
+                           FontSize="16"
+                           FontFamily="Microsoft YaHei UI"
+                           TextWrapping="Wrap"
+                           Padding="0,0,6,0"
+                           Cursor="Hand"
+                           ToolTip="点击复制译文"
+                           MouseLeftButtonDown="TranslationTextBlock_MouseLeftButtonDown"
+                           Text=""/>
+            </ScrollViewer>
         </Grid>
     </Border>
 </Window>
