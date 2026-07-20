@@ -127,6 +127,7 @@ public partial class App : Application
 
         // 初始化悬浮窗（单例复用）
         _floatingWindow = new FloatingWindow();
+        _floatingWindow.AnalysisRequested += OnAnalysisRequested;
 
         // 初始化红点窗口（单例复用）
         _redDotWindow = new RedDotWindow();
@@ -292,7 +293,9 @@ public partial class App : Application
                 {
                     _floatingWindow.UpdateTranslation(chunk);
                 }),
-                contentType);
+                contentType,
+                onFallbackUsed: () => Dispatcher.BeginInvoke(() =>
+                    _floatingWindow.ShowAnalysisTag(selectedText)));
 
             // 保存翻译历史
             SaveTranslationHistory(selectedText, result, targetLang, contentType);
@@ -421,7 +424,9 @@ public partial class App : Application
                 {
                     _floatingWindow.UpdateTranslation(chunk);
                 }),
-                contentType);
+                contentType,
+                onFallbackUsed: () => Dispatcher.BeginInvoke(() =>
+                    _floatingWindow.ShowAnalysisTag(textToTranslate)));
 
             // 保存翻译历史
             SaveTranslationHistory(textToTranslate, result, targetLang, contentType);
@@ -435,6 +440,52 @@ public partial class App : Application
             {
                 _floatingWindow.UpdateTranslation($"翻译失败: {ex.Message}");
             }
+        }
+        finally
+        {
+            _isTranslating = false;
+        }
+    }
+
+    /// <summary>
+    /// 用户点击[解析]标签触发深度解析
+    /// </summary>
+    private async void OnAnalysisRequested(string sourceText)
+    {
+        if (_isTranslating || _translationService == null || _settings == null || _floatingWindow == null)
+            return;
+
+        if (string.IsNullOrWhiteSpace(sourceText))
+            return;
+
+        _isTranslating = true;
+
+        try
+        {
+            // 显示解析中状态
+            _floatingWindow.UpdateTranslation("解析中...");
+            _floatingWindow.ShowContentTypeLabel(ContentType.Analysis);
+
+            var targetLang = _settings.TargetLanguage;
+
+            // 流式解析
+            var result = await _translationService.AnalyzeStreamingAsync(
+                sourceText,
+                targetLang,
+                chunk => Dispatcher.BeginInvoke(() =>
+                {
+                    _floatingWindow.UpdateTranslation(chunk);
+                }));
+
+            // 保存解析历史
+            SaveTranslationHistory(sourceText, result, targetLang, ContentType.Analysis);
+
+            Logger.Info("App", $"解析完成: {result.Length} 字");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("App", "解析出错", ex);
+            _floatingWindow.UpdateTranslation($"解析失败: {ex.Message}");
         }
         finally
         {

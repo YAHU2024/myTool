@@ -170,7 +170,7 @@
                     </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
                 <DataGridTextColumn Header="原文" Binding="{Binding SourceText}" Width="*"/>
-                <DataGridTextColumn Header="译文" Binding="{Binding Translation}" Width="*"/>
+                <DataGridTextColumn Header="译文/解析" Binding="{Binding Translation}" Width="*"/>
                 <DataGridTextColumn Header="目标语言" Binding="{Binding TargetLanguage}" Width="90"/>
                 <DataGridTextColumn Header="模型" Binding="{Binding ModelName}" Width="110"/>
             </DataGrid.Columns>

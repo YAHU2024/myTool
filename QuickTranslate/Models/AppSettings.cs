@@ -156,6 +156,11 @@ namespace QuickTranslate.Models
         public bool EnableInBrowser { get; set; } = true;
 
         /// <summary>
+        /// 解析预设标识（general/learner/literary/business）
+        /// </summary>
+        public string AnalysisPreset { get; set; } = "general";
+
+        /// <summary>
         /// 用户自定义的浏览器进程名（逗号分隔，补充内置列表）
         /// </summary>
         public string CustomBrowserProcesses { get; set; } = string.Empty;

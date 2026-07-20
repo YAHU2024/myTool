@@ -27,6 +27,7 @@ namespace QuickTranslate.UI
         private bool _origSmartContentType = false;
         private string _origFallbackLanguage = "English";
         private string _origCustomSystemPrompt = string.Empty;
+        private string _origAnalysisPreset = "general";
         private byte _origHotKeyVK = 0x51;
         private bool _origHotKeyRequireAlt = true;
         private bool _origHotKeyRequireCtrl = false;
@@ -63,6 +64,7 @@ namespace QuickTranslate.UI
             _origSmartContentType = _settings.SmartContentType;
             _origFallbackLanguage = _settings.FallbackLanguage;
             _origCustomSystemPrompt = _settings.CustomSystemPrompt;
+            _origAnalysisPreset = _settings.AnalysisPreset;
             _origHotKeyVK = _settings.HotKeyVK;
             _origHotKeyRequireAlt = _settings.HotKeyRequireAlt;
             _origHotKeyRequireCtrl = _settings.HotKeyRequireCtrl;
@@ -101,6 +103,18 @@ namespace QuickTranslate.UI
 
             // 自定义提示词
             CustomSystemPromptTextBox.Text = _settings.CustomSystemPrompt;
+
+            // 解析风格预设
+            AnalysisPresetComboBox.ItemsSource = new[]
+            {
+                new { Value = "general", Name = "通用解析" },
+                new { Value = "learner", Name = "语言学习" },
+                new { Value = "literary", Name = "文学赏析" },
+                new { Value = "business", Name = "商务场景" }
+            };
+            AnalysisPresetComboBox.DisplayMemberPath = "Name";
+            AnalysisPresetComboBox.SelectedValuePath = "Value";
+            AnalysisPresetComboBox.SelectedValue = _settings.AnalysisPreset;
 
             // 开机自启
             AutoStartCheckBox.IsChecked = _settings.AutoStart;
@@ -278,6 +292,12 @@ namespace QuickTranslate.UI
             _isDirty = true;
         }
 
+        private void AnalysisPresetComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isInitializing) return;
+            _isDirty = true;
+        }
+
         /// <summary>
         /// 删除选中的已保存配置（从模型下拉框中移除）
         /// </summary>
@@ -424,6 +444,9 @@ namespace QuickTranslate.UI
                 _settings.FallbackLanguage = FallbackLanguageComboBox.SelectedItem.ToString() ?? _settings.FallbackLanguage;
 
             _settings.CustomSystemPrompt = CustomSystemPromptTextBox.Text?.Trim() ?? string.Empty;
+
+            if (AnalysisPresetComboBox.SelectedValue is string preset)
+                _settings.AnalysisPreset = preset;
 
             _settings.HotKeyEnabled = HotKeyEnabledCheckBox.IsChecked ?? true;
 

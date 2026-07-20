@@ -14,7 +14,9 @@ namespace QuickTranslate.Core
         /// <summary>代码或终端命令 → 解析</summary>
         Code,
         /// <summary>纯英文专有名词/技术术语 → 解释</summary>
-        Term
+        Term,
+        /// <summary>解析标签触发 → 深度解析</summary>
+        Analysis
     }
 
     /// <summary>

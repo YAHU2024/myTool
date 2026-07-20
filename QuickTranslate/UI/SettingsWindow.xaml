@@ -261,6 +261,8 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="10"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="80"/>
@@ -303,27 +305,32 @@
                               Grid.ColumnSpan="2"
                               Checked="Setting_Changed" Unchecked="Setting_Changed"/>
 
-                    <TextBlock Grid.Row="8" Grid.Column="0" Text="自定义提示词:" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,4,12,0"/>
-                    <TextBox x:Name="CustomSystemPromptTextBox" Grid.Row="8" Grid.Column="1"
+                    <TextBlock Grid.Row="8" Grid.Column="0" Text="解析风格:" Style="{StaticResource LabelStyle}"/>
+                    <ComboBox x:Name="AnalysisPresetComboBox" Grid.Row="8" Grid.Column="1"
+                              Style="{StaticResource DarkComboBox}"
+                              SelectionChanged="AnalysisPresetComboBox_SelectionChanged"/>
+
+                    <TextBlock Grid.Row="10" Grid.Column="0" Text="自定义提示词:" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,4,12,0"/>
+                    <TextBox x:Name="CustomSystemPromptTextBox" Grid.Row="10" Grid.Column="1"
                              Style="{StaticResource InputTextBox}"
                              Height="60" TextWrapping="Wrap" AcceptsReturn="True"
                              VerticalScrollBarVisibility="Auto"
-                             ToolTip="自定义翻译提示词，留空使用默认。支持 {targetLang} 占位符"
+                             ToolTip="自定义翻译/解析提示词，留空使用默认。支持 {targetLang} 占位符"
                              Grid.ColumnSpan="2"
                              TextChanged="Input_LostFocus"/>
-                    <TextBlock Grid.Row="9" Grid.Column="1" Grid.ColumnSpan="2"
-                               Text="提示：留空使用默认提示词。支持 {targetLang} 占位符，运行时替换为目标语言。"
+                    <TextBlock Grid.Row="11" Grid.Column="1" Grid.ColumnSpan="2"
+                               Text="提示：留空使用默认提示词。支持 {targetLang} 占位符，同时作用于翻译和解析。"
                                Foreground="#666688" FontSize="11" Margin="0,2,0,0"/>
 
-                    <TextBlock Grid.Row="10" Grid.Column="0" Text="浏览器翻译:" Style="{StaticResource LabelStyle}"/>
-                    <CheckBox x:Name="EnableInBrowserCheckBox" Grid.Row="10" Grid.Column="1"
+                    <TextBlock Grid.Row="12" Grid.Column="0" Text="浏览器翻译:" Style="{StaticResource LabelStyle}"/>
+                    <CheckBox x:Name="EnableInBrowserCheckBox" Grid.Row="12" Grid.Column="1"
                               Style="{StaticResource DarkCheckBox}"
                               Content="在浏览器中启用翻译（关闭后避免与翻译插件冲突）"
                               Grid.ColumnSpan="2"
                               Checked="Setting_Changed" Unchecked="Setting_Changed"/>
 
-                    <TextBlock Grid.Row="12" Grid.Column="0" Text="自定义浏览器:" Style="{StaticResource LabelStyle}" VerticalAlignment="Center"/>
-                    <TextBox x:Name="CustomBrowserProcessesTextBox" Grid.Row="12" Grid.Column="1"
+                    <TextBlock Grid.Row="14" Grid.Column="0" Text="自定义浏览器:" Style="{StaticResource LabelStyle}" VerticalAlignment="Center"/>
+                    <TextBox x:Name="CustomBrowserProcessesTextBox" Grid.Row="14" Grid.Column="1"
                              Style="{StaticResource InputTextBox}"
                              ToolTip="补充内置浏览器列表，多个用逗号分隔，如: 360se,qqbrowser,sogou"
                              Grid.ColumnSpan="2"

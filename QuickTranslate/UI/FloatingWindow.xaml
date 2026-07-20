@@ -117,7 +117,9 @@
                        FontFamily="Microsoft YaHei UI"
                        FontWeight="Medium"
                        Margin="0,0,0,4"
-                       Visibility="Collapsed"/>
+                       Visibility="Collapsed"
+                       Cursor="Hand"
+                       MouseLeftButtonDown="ContentTypeLabel_MouseLeftButtonDown"/>
             <!-- 译文（Windows 11 风格细条自动隐藏滚动条） -->
             <ScrollViewer x:Name="TranslationScroller"
                           Style="{StaticResource Win11ScrollViewer}"
