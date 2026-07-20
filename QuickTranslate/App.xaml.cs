@@ -1,4 +1,7 @@
 ﻿using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows;
 using QuickTranslate.Core;
 using QuickTranslate.Database;
@@ -25,7 +28,24 @@ public partial class App : Application
     private HistoryWindow? _historyWindow;
     private TranslationDbContext? _dbContext;
     private bool _isTranslating;
+    private bool _isProcessingSelection; // 防止 OnSelectionCompleted 并发重入
     private string? _pendingText; // 待翻译文本（红点悬停时使用）
+    private Mutex? _singleInstanceMutex;
+    private Window? _hiddenWindow; // 隐藏主窗口，稳定 WPF Application 生命周期
+    private Timer? _watchdogTimer; // 看门狗线程，定期写入状态文件
+
+    // 非托管异常处理
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr AddVectoredExceptionHandler(uint first, VectoredExceptionHandler handler);
+    private delegate IntPtr VectoredExceptionHandler(IntPtr exceptionInfo);
+    private static VectoredExceptionHandler? _vehHandler; // 防止 GC 回收
+
+    // 控制台信号处理
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetConsoleCtrlHandler(ConsoleCtrlHandler handler, bool add);
+    private delegate bool ConsoleCtrlHandler(uint ctrlType);
+    private static ConsoleCtrlHandler? _ctrlHandler; // 防止 GC 回收
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -36,13 +56,56 @@ public partial class App : Application
 
         // 初始化日志系统
 #if DEBUG
-        // WinExe 无控制台，附加到父进程终端以实时输出日志
+        // 附加控制台以实时输出日志（接受信号风险，但有 CtrlHandler 保护）
         Win32Api.AttachConsole(Win32Api.ATTACH_PARENT_PROCESS);
+        // 注册控制台信号处理器，忽略 Ctrl+C/Ctrl+Break/关闭信号
+        _ctrlHandler = ConsoleCtrlCallback;
+        SetConsoleCtrlHandler(_ctrlHandler, true);
 #endif
         Logger.Init(
             minLevel: Logger.ParseLevel(_settings.LogLevel),
             retentionDays: _settings.LogRetentionDays);
         Logger.Info("App", $"应用启动, OS={Environment.OSVersion}, .NET={Environment.Version}");
+
+        // ★ 启动时清扫上次残留的剪贴板哨兵
+        ClipboardHelper.CleanResidualOnStartup();
+
+        // ★ 单实例保护：防止双击启动第二个实例导致钩子冲突
+        bool createdNew;
+        _singleInstanceMutex = new Mutex(true, "QuickTranslate_SingleInstance_v1", out createdNew);
+        if (!createdNew)
+        {
+            Logger.Warn("App", "检测到已有实例运行，退出新实例");
+            Shutdown();
+            return;
+        }
+
+        // ★ 全路径退出监控（诊断层）
+        Dispatcher.ShutdownStarted += (s, ev) =>
+        {
+            Logger.Fatal("App", $"Dispatcher.ShutdownStarted (HasShutdownStarted={Dispatcher.HasShutdownStarted})");
+            Logger.Shutdown();
+        };
+        Dispatcher.ShutdownFinished += (s, ev) =>
+        {
+            try
+            {
+                File.AppendAllText(
+                    Path.Combine(Logger.LogDirectory, "shutdown-trace.log"),
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] Dispatcher.ShutdownFinished\n");
+            }
+            catch { }
+        };
+        AppDomain.CurrentDomain.ProcessExit += (s, ev) =>
+        {
+            try
+            {
+                File.AppendAllText(
+                    Path.Combine(Logger.LogDirectory, "shutdown-trace.log"),
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] ProcessExit\n");
+            }
+            catch { }
+        };
 
         // 全局异常兖底，防止未捕获异常导致闪退
         DispatcherUnhandledException += (s, args) =>
@@ -95,8 +158,74 @@ public partial class App : Application
         // 根据配置更新托盘提示
         UpdateTrayToolTip();
 
+        // ★ 注册非托管异常处理器（捕获 access violation 等 native 异常）
+        _vehHandler = VehCallback;
+        AddVectoredExceptionHandler(1, _vehHandler);
+
+        // ★ 看门狗线程：每 2 秒写入状态文件，用于定位进程死亡时刻
+        var tracePath = Path.Combine(Logger.LogDirectory, "watchdog.trace");
+        _watchdogTimer = new Timer(_ =>
+        {
+            try
+            {
+                File.WriteAllText(tracePath,
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] alive, thread={Thread.CurrentThread.ManagedThreadId}\n");
+            }
+            catch { }
+        }, null, 0, 2000);
+
         // 启动后直接最小化到托盘，不显示主窗口
-        // MainWindow 不创建、不显示
+        // ★ 创建隐藏主窗口：稳定 WPF Application 生命周期 + 接收 Shell 激活消息
+        _hiddenWindow = new Window
+        {
+            Width = 0, Height = 0,
+            WindowStyle = WindowStyle.None,
+            ShowInTaskbar = false,
+            ShowActivated = false,
+            Visibility = Visibility.Hidden
+        };
+        _hiddenWindow.Show();
+    }
+
+    /// <summary>
+    /// 非托管异常向量处理器（在 CLR 异常处理之前执行，可捕获 access violation）
+    /// </summary>
+    private static IntPtr VehCallback(IntPtr exceptionInfo)
+    {
+        try
+        {
+            // EXCEPTION_POINTERS 结构: [ExceptionRecord*][ContextRecord*]
+            var excRecord = Marshal.ReadIntPtr(exceptionInfo);
+            var exceptionCode = Marshal.ReadInt32(excRecord); // ExceptionCode 在偏移 0
+            File.AppendAllText(
+                Path.Combine(Logger.LogDirectory, "shutdown-trace.log"),
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] VEH: native exception code=0x{exceptionCode:X8}\n");
+        }
+        catch { }
+        return IntPtr.Zero; // EXCEPTION_CONTINUE_SEARCH
+    }
+
+    /// <summary>
+    /// 控制台信号处理器（忽略 Ctrl+C/Ctrl+Break/关闭，防止进程被杀）
+    /// </summary>
+    private static bool ConsoleCtrlCallback(uint ctrlType)
+    {
+        const uint CTRL_C_EVENT = 0;
+        const uint CTRL_BREAK_EVENT = 1;
+        const uint CTRL_CLOSE_EVENT = 2;
+
+        try
+        {
+            File.AppendAllText(
+                Path.Combine(Logger.LogDirectory, "shutdown-trace.log"),
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] ConsoleCtrl: type={ctrlType}\n");
+        }
+        catch { }
+
+        // 对 Ctrl+C/Break/Close 返回 true（已处理，不终止进程）
+        if (ctrlType == CTRL_C_EVENT || ctrlType == CTRL_BREAK_EVENT || ctrlType == CTRL_CLOSE_EVENT)
+            return true;
+        return false;
     }
 
     /// <summary>
@@ -165,10 +294,15 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 文本选择完成事件处理 - 显示红点
+    /// 文本选择完成事件处理 - 显示红点。
+    /// 防重入：如果上一次操作尚未完成，直接丢弃新触发。
     /// </summary>
     private async void OnSelectionCompleted(System.Windows.Point startPos, System.Windows.Point endPos)
     {
+        // ★ 防重入：快速多次触发时只处理第一次
+        if (_isProcessingSelection) return;
+        _isProcessingSelection = true;
+
         try
         {
             if (!IsTranslationEnabled) return;
@@ -209,6 +343,10 @@ public partial class App : Application
         catch (Exception ex)
         {
             Logger.Error("App", "OnSelectionCompleted 异常", ex);
+        }
+        finally
+        {
+            _isProcessingSelection = false;
         }
     }
 
@@ -421,11 +559,22 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // 停止看门狗
+        _watchdogTimer?.Dispose();
+
         // 清理资源
         _keyboardHook?.Dispose();
         _selectionDetector?.Dispose();
         _trayIcon?.Dispose();
         _dbContext?.Dispose();
+
+        // 释放单实例 Mutex
+        try
+        {
+            _singleInstanceMutex?.ReleaseMutex();
+            _singleInstanceMutex?.Dispose();
+        }
+        catch { }
 
         Logger.Info("App", "应用退出");
         Logger.Shutdown();

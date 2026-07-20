@@ -110,6 +110,10 @@ namespace QuickTranslate.Helpers
         [DllImport("user32.dll")]
         public static extern void keybd_event(byte bVk, byte bScan, byte dwFlags, UIntPtr dwExtraInfo);
 
+        // 剪贴板序列号（每次剪贴板内容变化时递增）
+        [DllImport("user32.dll")]
+        public static extern uint GetClipboardSequenceNumber();
+
         // 鼠标位置
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
