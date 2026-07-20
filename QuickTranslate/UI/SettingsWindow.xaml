@@ -287,9 +287,14 @@
                     <TextBlock Grid.Row="4" Grid.Column="0" Text="语言检测:" Style="{StaticResource LabelStyle}"/>
                     <CheckBox x:Name="AutoDetectLanguageCheckBox" Grid.Row="4" Grid.Column="1"
                               Style="{StaticResource DarkCheckBox}"
-                              Content="自动检测语言方向（→目标语言，同语言→英文）"
-                              Grid.ColumnSpan="2"
+                              Content="自动检测语言方向（同语言→备选）"
                               Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                    <StackPanel Grid.Row="4" Grid.Column="2" Orientation="Horizontal" Margin="8,0,0,0">
+                        <TextBlock Text="备选:" Foreground="#999999" FontSize="12" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <ComboBox x:Name="FallbackLanguageComboBox" Width="90"
+                                  Style="{StaticResource DarkComboBox}"
+                                  SelectionChanged="FallbackLanguageComboBox_SelectionChanged"/>
+                    </StackPanel>
 
                     <TextBlock Grid.Row="6" Grid.Column="0" Text="智能识别:" Style="{StaticResource LabelStyle}"/>
                     <CheckBox x:Name="SmartContentTypeCheckBox" Grid.Row="6" Grid.Column="1"

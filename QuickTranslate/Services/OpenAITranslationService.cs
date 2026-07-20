@@ -100,42 +100,50 @@ namespace QuickTranslate.Services
         /// </summary>
         private string BuildSystemPrompt(string targetLang)
         {
+            var fallback = _settings.FallbackLanguage;
+            Logger.Info("TranslationService", $"[Prompt构建] 目标语言={targetLang}, 备选语言={fallback}, " +
+                $"AutoDetect={_settings.AutoDetectLanguage}, SmartContent={_settings.SmartContentType}, " +
+                $"CustomPrompt={(!string.IsNullOrWhiteSpace(_settings.CustomSystemPrompt))}");
+
+            string prompt;
+
             // 用户自定义 prompt（支持 {targetLang} 占位符）
             if (!string.IsNullOrWhiteSpace(_settings.CustomSystemPrompt))
             {
-                return _settings.CustomSystemPrompt.Replace("{targetLang}", targetLang);
+                prompt = _settings.CustomSystemPrompt.Replace("{targetLang}", targetLang);
+                Logger.Debug("TranslationService", $"[Prompt构建] 使用自定义Prompt");
             }
-
-            // 智能内容识别：代码/命令→解析，专有名词→解释，其余→翻译
-            if (_settings.SmartContentType)
+            // 智能内容识别：代码/命令→解析，纯英文术语→解释，其余→翻译
+            else if (_settings.SmartContentType)
             {
                 var translateRule = _settings.AutoDetectLanguage
-                    ? $"Otherwise → translate it to {targetLang}. If the text is already in {targetLang}, translate to English instead."
-                    : $"Otherwise → translate it to {targetLang}.";
+                    ? $"其他所有情况：翻译为{targetLang}。如果原文已经是{targetLang}，则翻译为{fallback}。"
+                    : $"其他所有情况：翻译为{targetLang}。";
 
-                return "You are a smart assistant. Analyze the input and respond by these rules in priority order: " +
-                       $"1. If it is code or a terminal/shell command → briefly explain what it does in {targetLang}, parameter by parameter if applicable. " +
-                       $"2. If it is a single proper noun or technical term (not a sentence) → give a concise explanation in {targetLang} (what it is, 1-2 sentences). " +
-                       $"3. {translateRule} " +
-                       "Output only the response directly. No prefixes, no labels, no markdown headers.";
+                prompt = $"你是一个翻译助手。对输入文本执行以下操作：\n" +
+                       $"- 如果是代码或终端命令：用{targetLang}简要解释其功能。\n" +
+                       $"- 如果是纯英文的专有名词或技术术语（非句子）：用{targetLang}简要解释（1-2句）。\n" +
+                       $"- {translateRule}\n" +
+                       $"严格要求：直接输出结果，禁止添加任何前缀、标签或解释性语句。";
+                Logger.Debug("TranslationService", $"[Prompt构建] 使用SmartContent分支");
             }
-
-            // 默认 prompt
-            if (_settings.AutoDetectLanguage)
+            // 自动检测语言方向
+            else if (_settings.AutoDetectLanguage)
             {
-                // 智能翻译方向：检测源语言，翻译为目标语言；若源语言与目标语言相同则翻译为英文
-                return "You are a translator. Detect the language of the input text. " +
-                       $"Translate it to {targetLang}. " +
-                       $"However, if the detected language is {targetLang}, translate it to English instead. " +
-                       "IMPORTANT: You MUST always translate, even if the text is already in the target language. " +
-                       "Never output the original text unchanged. Output only the translation.";
+                prompt = $"你是翻译器。将输入文本翻译为{targetLang}。如果原文已经是{targetLang}，则翻译为{fallback}。\n" +
+                       "严格要求：必须翻译，禁止原样输出，直接输出译文。";
+                Logger.Debug("TranslationService", $"[Prompt构建] 使用AutoDetect分支");
             }
             else
             {
                 // 固定翻译方向
-                return $"Translate to {targetLang}. If already in {targetLang}, translate to English. " +
-                       "IMPORTANT: You MUST always translate. Never output the original text unchanged. Output only the translation.";
+                prompt = $"将输入文本翻译为{targetLang}。如果原文已经是{targetLang}，则翻译为{fallback}。\n" +
+                       "严格要求：必须翻译，禁止原样输出，直接输出译文。";
+                Logger.Debug("TranslationService", $"[Prompt构建] 使用固定方向分支");
             }
+
+            Logger.Info("TranslationService", $"[Prompt构建] 最终Prompt: {prompt}");
+            return prompt;
         }
 
         /// <summary>
@@ -148,6 +156,10 @@ namespace QuickTranslate.Services
 
             if (string.IsNullOrWhiteSpace(_settings.ApiKey))
                 throw new InvalidOperationException("请先在设置中配置 API Key");
+
+            var truncatedInput = text.Length > 80 ? text[..80] + "..." : text;
+            Logger.Info("TranslationService", $"[翻译请求] 模型={_settings.ModelName}, 目标={targetLang}, " +
+                $"备选={_settings.FallbackLanguage}, 输入=\"{truncatedInput}\"");
 
             var url = $"{_settings.ApiBaseUrl.TrimEnd('/')}/chat/completions";
             var requestBody = BuildRequestBody(text, targetLang, stream: true);
@@ -223,7 +235,10 @@ namespace QuickTranslate.Services
                 }
             });
 
-            return fullResult.ToString().Trim();
+            var result = fullResult.ToString().Trim();
+            var truncatedResult = result.Length > 100 ? result[..100] + "..." : result;
+            Logger.Info("TranslationService", $"[翻译结果] 输出=\"{truncatedResult}\"");
+            return result;
         }
 
         /// <summary>
@@ -236,6 +251,10 @@ namespace QuickTranslate.Services
 
             if (string.IsNullOrWhiteSpace(_settings.ApiKey))
                 throw new InvalidOperationException("请先在设置中配置 API Key");
+
+            var truncatedInput = text.Length > 80 ? text[..80] + "..." : text;
+            Logger.Info("TranslationService", $"[翻译请求-非流式] 模型={_settings.ModelName}, 目标={targetLang}, " +
+                $"备选={_settings.FallbackLanguage}, 输入=\"{truncatedInput}\"");
 
             var url = $"{_settings.ApiBaseUrl.TrimEnd('/')}/chat/completions";
             var requestBody = BuildRequestBody(text, targetLang, stream: false);

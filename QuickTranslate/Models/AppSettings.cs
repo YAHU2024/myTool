@@ -54,6 +54,25 @@ namespace QuickTranslate.Models
         public string TargetLanguage { get; set; } = "简体中文";
 
         /// <summary>
+        /// 备选语言（源语言与目标语言相同时翻译为备选语言）
+        /// </summary>
+        public string FallbackLanguage { get; set; } = "English";
+
+        /// <summary>
+        /// 根据目标语言获取推荐的备选语言
+        /// </summary>
+        public static string GetRecommendedFallback(string targetLanguage)
+        {
+            return targetLanguage switch
+            {
+                "简体中文" or "繁体中文" => "English",
+                "English" => "简体中文",
+                "日本語" or "한국어" => "简体中文",
+                _ => "English"
+            };
+        }
+
+        /// <summary>
         /// 支持的语言列表
         /// </summary>
         public List<string> SupportedLanguages { get; set; } = new()

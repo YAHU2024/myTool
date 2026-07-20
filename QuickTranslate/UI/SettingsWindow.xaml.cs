@@ -25,6 +25,7 @@ namespace QuickTranslate.UI
         private bool _origAutoStart = false;
         private bool _origAutoDetectLanguage = true;
         private bool _origSmartContentType = false;
+        private string _origFallbackLanguage = "English";
         private string _origCustomSystemPrompt = string.Empty;
         private byte _origHotKeyVK = 0x51;
         private bool _origHotKeyRequireAlt = true;
@@ -60,6 +61,7 @@ namespace QuickTranslate.UI
             _origAutoStart = _settings.AutoStart;
             _origAutoDetectLanguage = _settings.AutoDetectLanguage;
             _origSmartContentType = _settings.SmartContentType;
+            _origFallbackLanguage = _settings.FallbackLanguage;
             _origCustomSystemPrompt = _settings.CustomSystemPrompt;
             _origHotKeyVK = _settings.HotKeyVK;
             _origHotKeyRequireAlt = _settings.HotKeyRequireAlt;
@@ -89,6 +91,10 @@ namespace QuickTranslate.UI
 
             // 语言自动检测
             AutoDetectLanguageCheckBox.IsChecked = _settings.AutoDetectLanguage;
+
+            // 备选语言
+            FallbackLanguageComboBox.ItemsSource = _settings.SupportedLanguages;
+            FallbackLanguageComboBox.SelectedItem = _settings.FallbackLanguage;
 
             // 智能内容识别
             SmartContentTypeCheckBox.IsChecked = _settings.SmartContentType;
@@ -253,6 +259,23 @@ namespace QuickTranslate.UI
         {
             if (_isInitializing) return;
             _isDirty = true;
+
+            // 智能默认：目标语言变化时自动推荐备选语言
+            var target = LanguageComboBox.SelectedItem?.ToString();
+            if (!string.IsNullOrEmpty(target))
+            {
+                var recommended = AppSettings.GetRecommendedFallback(target);
+                if (FallbackLanguageComboBox.SelectedItem?.ToString() != recommended)
+                {
+                    FallbackLanguageComboBox.SelectedItem = recommended;
+                }
+            }
+        }
+
+        private void FallbackLanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isInitializing) return;
+            _isDirty = true;
         }
 
         /// <summary>
@@ -396,6 +419,9 @@ namespace QuickTranslate.UI
             _settings.AutoDetectLanguage = AutoDetectLanguageCheckBox.IsChecked ?? true;
 
             _settings.SmartContentType = SmartContentTypeCheckBox.IsChecked ?? false;
+
+            if (FallbackLanguageComboBox.SelectedItem != null)
+                _settings.FallbackLanguage = FallbackLanguageComboBox.SelectedItem.ToString() ?? _settings.FallbackLanguage;
 
             _settings.CustomSystemPrompt = CustomSystemPromptTextBox.Text?.Trim() ?? string.Empty;
 
