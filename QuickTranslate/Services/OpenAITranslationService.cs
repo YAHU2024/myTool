@@ -103,29 +103,24 @@ namespace QuickTranslate.Services
         private string BuildSystemPrompt(string targetLang, ContentType contentType, string sourceText, Action? onFallbackUsed = null)
         {
             var fallback = _settings.FallbackLanguage;
-            Logger.Info("TranslationService", $"[Prompt构建] 目标={targetLang}, 备选={fallback}, " +
-                $"ContentType={contentType}, AutoDetect={_settings.AutoDetectLanguage}, " +
-                $"SmartContent={_settings.SmartContentType}, CustomPrompt={(!string.IsNullOrWhiteSpace(_settings.CustomSystemPrompt))}");
-        
+                
             // 本地语言检测：判断原文是否已是目标语言
             bool sourceMatchesTarget = _settings.AutoDetectLanguage && TextMatchesLanguage(sourceText, targetLang);
             // 若原文匹配目标语言 → 使用备选语言作为实际翻译方向
             string effectiveTarget = sourceMatchesTarget ? fallback : targetLang;
-            Logger.Debug("TranslationService", $"[Prompt构建] 本地语言检测: sourceMatchesTarget={sourceMatchesTarget}, effectiveTarget={effectiveTarget}");
-
+        
             // 通知调用方触发了兆底（用于显示[解析]标签）
             if (sourceMatchesTarget)
             {
                 onFallbackUsed?.Invoke();
             }
-        
+                
             string prompt;
-        
+                
             // 用户自定义 prompt（支持 {targetLang} 占位符）
             if (!string.IsNullOrWhiteSpace(_settings.CustomSystemPrompt))
             {
                 prompt = _settings.CustomSystemPrompt.Replace("{targetLang}", targetLang);
-                Logger.Debug("TranslationService", $"[Prompt构建] 使用自定义Prompt");
             }
             // 本地检测为代码/命令 → 简单解析 Prompt
             else if (contentType == ContentType.Code)
@@ -133,40 +128,32 @@ namespace QuickTranslate.Services
                 prompt = $"You are a code assistant. Briefly explain what this code or command does in {targetLang}. " +
                        "If it is a terminal command, explain each parameter. " +
                        "Output only the explanation directly. No prefixes, no markdown headers.";
-                Logger.Debug("TranslationService", $"[Prompt构建] 使用Code解析Prompt");
             }
             // 本地检测为纯英文术语 → 简单解释 Prompt
             else if (contentType == ContentType.Term)
             {
                 prompt = $"You are a knowledge assistant. Give a concise explanation of this term in {targetLang} (what it is, 1-2 sentences). " +
                        "Output only the explanation directly. No prefixes, no markdown headers.";
-                Logger.Debug("TranslationService", $"[Prompt构建] 使用Term解释Prompt");
             }
-            // 翻译（默认 / Uncertain 兜底）
+            // 翻译（默认 / Uncertain 兆底）
             else if (_settings.SmartContentType)
             {
-                // 智能路由：翻译为主 + 轻量代码兜底，翻译方向由本地检测决定
                 prompt = $"You are a translator. Translate the input to {effectiveTarget}. " +
                        $"Exception: if the input is clearly code or a shell command, briefly explain it in {targetLang} instead. " +
                        "Output only the result directly. No prefixes, no labels.";
-                Logger.Debug("TranslationService", $"[Prompt构建] 使用SmartContent翻译Prompt");
             }
             else if (_settings.AutoDetectLanguage)
             {
-                // 翻译方向由本地检测决定
                 prompt = $"You are a translator. Translate the input to {effectiveTarget}. " +
                        "You MUST always translate. Never output the original text unchanged. Output only the translation.";
-                Logger.Debug("TranslationService", $"[Prompt构建] 使用AutoDetect分支");
             }
             else
             {
-                // 固定翻译方向
                 prompt = $"Translate the input to {targetLang}. If already in {targetLang}, translate to {fallback}. " +
                        "You MUST always translate. Never output the original text unchanged. Output only the translation.";
-                Logger.Debug("TranslationService", $"[Prompt构建] 使用固定方向分支");
             }
-        
-            Logger.Info("TranslationService", $"[Prompt构建] 最终Prompt: {prompt}");
+                
+            Logger.Debug("TranslationService", $"[Prompt] type={contentType}, target={effectiveTarget}, fallback={fallback}, prompt={prompt}");
             return prompt;
         }
         
@@ -205,8 +192,7 @@ namespace QuickTranslate.Services
                 throw new InvalidOperationException("请先在设置中配置 API Key");
 
             var truncatedInput = text.Length > 80 ? text[..80] + "..." : text;
-            Logger.Info("TranslationService", $"[翻译请求] 模型={_settings.ModelName}, 目标={targetLang}, " +
-                $"备选={_settings.FallbackLanguage}, 类型={contentType}, 输入=\"{truncatedInput}\"");
+            Logger.Info("TranslationService", $"[翻译] {contentType} | {targetLang} | \"{truncatedInput}\"");
 
             var url = $"{_settings.ApiBaseUrl.TrimEnd('/')}/chat/completions";
             var requestBody = BuildRequestBody(text, targetLang, stream: true, contentType, onFallbackUsed);
@@ -284,7 +270,7 @@ namespace QuickTranslate.Services
 
             var result = fullResult.ToString().Trim();
             var truncatedResult = result.Length > 100 ? result[..100] + "..." : result;
-            Logger.Info("TranslationService", $"[翻译结果] 输出=\"{truncatedResult}\"");
+            Logger.Info("TranslationService", $"[结果] \"{truncatedResult}\"");
             return result;
         }
 
@@ -300,8 +286,7 @@ namespace QuickTranslate.Services
                 throw new InvalidOperationException("请先在设置中配置 API Key");
 
             var truncatedInput = text.Length > 80 ? text[..80] + "..." : text;
-            Logger.Info("TranslationService", $"[翻译请求-非流式] 模型={_settings.ModelName}, 目标={targetLang}, " +
-                $"备选={_settings.FallbackLanguage}, 类型={contentType}, 输入=\"{truncatedInput}\"");
+            Logger.Info("TranslationService", $"[翻译-非流式] {contentType} | {targetLang} | \"{truncatedInput}\"");
 
             var url = $"{_settings.ApiBaseUrl.TrimEnd('/')}/chat/completions";
             var requestBody = BuildRequestBody(text, targetLang, stream: false, contentType);
@@ -360,8 +345,7 @@ namespace QuickTranslate.Services
                 throw new InvalidOperationException("请先在设置中配置 API Key");
 
             var truncatedInput = text.Length > 80 ? text[..80] + "..." : text;
-            Logger.Info("TranslationService", $"[解析请求] 模型={_settings.ModelName}, 目标={targetLang}, " +
-                $"预设={_settings.AnalysisPreset}, 输入=\"{truncatedInput}\"");
+            Logger.Info("TranslationService", $"[解析] {_settings.AnalysisPreset} | {targetLang} | \"{truncatedInput}\"");
 
             // 构建解析 Prompt
             var systemPrompt = BuildAnalysisPrompt(targetLang);
@@ -438,7 +422,7 @@ namespace QuickTranslate.Services
 
             var result = fullResult.ToString().Trim();
             var truncatedResult = result.Length > 100 ? result[..100] + "..." : result;
-            Logger.Info("TranslationService", $"[解析结果] 输出=\"{truncatedResult}\"");
+            Logger.Info("TranslationService", $"[解析结果] \"{truncatedResult}\"");
             return result;
         }
 
