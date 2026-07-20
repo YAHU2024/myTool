@@ -24,6 +24,7 @@ namespace QuickTranslate.UI
         private bool _origTranslationEnabled = true;
         private bool _origAutoStart = false;
         private bool _origAutoDetectLanguage = true;
+        private bool _origSmartContentType = false;
         private string _origCustomSystemPrompt = string.Empty;
         private byte _origHotKeyVK = 0x51;
         private bool _origHotKeyRequireAlt = true;
@@ -58,6 +59,7 @@ namespace QuickTranslate.UI
             _origTranslationEnabled = _settings.TranslationEnabled;
             _origAutoStart = _settings.AutoStart;
             _origAutoDetectLanguage = _settings.AutoDetectLanguage;
+            _origSmartContentType = _settings.SmartContentType;
             _origCustomSystemPrompt = _settings.CustomSystemPrompt;
             _origHotKeyVK = _settings.HotKeyVK;
             _origHotKeyRequireAlt = _settings.HotKeyRequireAlt;
@@ -87,6 +89,9 @@ namespace QuickTranslate.UI
 
             // 语言自动检测
             AutoDetectLanguageCheckBox.IsChecked = _settings.AutoDetectLanguage;
+
+            // 智能内容识别
+            SmartContentTypeCheckBox.IsChecked = _settings.SmartContentType;
 
             // 自定义提示词
             CustomSystemPromptTextBox.Text = _settings.CustomSystemPrompt;
@@ -389,6 +394,8 @@ namespace QuickTranslate.UI
             _settings.TranslationEnabled = TranslationEnabledCheckBox.IsChecked ?? true;
 
             _settings.AutoDetectLanguage = AutoDetectLanguageCheckBox.IsChecked ?? true;
+
+            _settings.SmartContentType = SmartContentTypeCheckBox.IsChecked ?? false;
 
             _settings.CustomSystemPrompt = CustomSystemPromptTextBox.Text?.Trim() ?? string.Empty;
 

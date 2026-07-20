@@ -122,6 +122,11 @@ namespace QuickTranslate.Models
         public bool AutoDetectLanguage { get; set; } = true;
 
         /// <summary>
+        /// 是否启用智能内容识别（代码/命令→解析，专有名词→解释，其余→翻译）
+        /// </summary>
+        public bool SmartContentType { get; set; } = false;
+
+        /// <summary>
         /// 自定义翻译提示词（留空使用默认，支持 {targetLang} 占位符）
         /// </summary>
         public string CustomSystemPrompt { get; set; } = string.Empty;

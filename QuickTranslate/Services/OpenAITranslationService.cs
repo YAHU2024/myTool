@@ -106,6 +106,20 @@ namespace QuickTranslate.Services
                 return _settings.CustomSystemPrompt.Replace("{targetLang}", targetLang);
             }
 
+            // 智能内容识别：代码/命令→解析，专有名词→解释，其余→翻译
+            if (_settings.SmartContentType)
+            {
+                var translateRule = _settings.AutoDetectLanguage
+                    ? $"Otherwise → translate it to {targetLang}. If the text is already in {targetLang}, translate to English instead."
+                    : $"Otherwise → translate it to {targetLang}.";
+
+                return "You are a smart assistant. Analyze the input and respond by these rules in priority order: " +
+                       $"1. If it is code or a terminal/shell command → briefly explain what it does in {targetLang}, parameter by parameter if applicable. " +
+                       $"2. If it is a single proper noun or technical term (not a sentence) → give a concise explanation in {targetLang} (what it is, 1-2 sentences). " +
+                       $"3. {translateRule} " +
+                       "Output only the response directly. No prefixes, no labels, no markdown headers.";
+            }
+
             // 默认 prompt
             if (_settings.AutoDetectLanguage)
             {
