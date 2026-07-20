@@ -1,7 +1,9 @@
 using System;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
+using QuickTranslate.Core;
 using QuickTranslate.Helpers;
 
 namespace QuickTranslate.UI
@@ -55,6 +57,29 @@ namespace QuickTranslate.UI
                     Hide();
                 }
             };
+        }
+
+        /// <summary>
+        /// 显示内容类型标签（翻译/命令解析/术语解释）
+        /// </summary>
+        public void ShowContentTypeLabel(ContentType contentType)
+        {
+            switch (contentType)
+            {
+                case ContentType.Code:
+                    ContentTypeLabel.Text = "[命令解析]";
+                    ContentTypeLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xA5, 0x00)); // 橙色
+                    ContentTypeLabel.Visibility = Visibility.Visible;
+                    break;
+                case ContentType.Term:
+                    ContentTypeLabel.Text = "[术语解释]";
+                    ContentTypeLabel.Foreground = new SolidColorBrush(Color.FromRgb(0x4E, 0xC9, 0xB0)); // 青绿
+                    ContentTypeLabel.Visibility = Visibility.Visible;
+                    break;
+                default:
+                    ContentTypeLabel.Visibility = Visibility.Collapsed;
+                    break;
+            }
         }
 
         /// <summary>

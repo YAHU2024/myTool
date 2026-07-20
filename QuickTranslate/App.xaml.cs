@@ -263,20 +263,24 @@ public partial class App : Application
             // 尝试 UIA 异步获取选中文本位置，降级为鼠标位置
             var anchorPosition = await GetSelectionAnchorPositionAsync();
 
-            // 先显示悬浮窗，提示正在翻译
-            _floatingWindow.ShowTranslation("翻译中...", anchorPosition);
-
             // 获取选中文本
             var selectedText = await ClipboardHelper.GetSelectedTextAsync();
 
             if (string.IsNullOrWhiteSpace(selectedText))
             {
-                _floatingWindow.UpdateTranslation("请先选中要翻译的文本");
+                // 先显示悬浮窗再更新提示
+                _floatingWindow.ShowTranslation("请先选中要翻译的文本", anchorPosition);
                 return;
             }
 
-            // 更新悬浮窗提示
-            _floatingWindow.UpdateTranslation("翻译中...");
+            // 智能内容检测（仅在 SmartContentType 开启时执行）—— 提前到翻译前
+            var contentType = _settings.SmartContentType
+                ? ContentTypeDetector.Detect(selectedText)
+                : ContentType.Translation;
+
+            // 显示悬浮窗 + 类型标签（与 "翻译中..." 同时出现）
+            _floatingWindow.ShowTranslation("翻译中...", anchorPosition);
+            _floatingWindow.ShowContentTypeLabel(contentType);
 
             // 流式翻译
             var targetLang = _settings.TargetLanguage;
@@ -287,10 +291,11 @@ public partial class App : Application
                 chunk => Dispatcher.BeginInvoke(() =>
                 {
                     _floatingWindow.UpdateTranslation(chunk);
-                }));
+                }),
+                contentType);
 
             // 保存翻译历史
-            SaveTranslationHistory(selectedText, result, targetLang);
+            SaveTranslationHistory(selectedText, result, targetLang, contentType);
 
             Logger.Info("App", $"热键翻译完成: {result.Length} 字");
         }
@@ -397,8 +402,14 @@ public partial class App : Application
             var dotPosition = _redDotWindow?.DotScreenPosition
                 ?? new System.Windows.Point(0, 0);
 
-            // 显示悬浮窗
+            // 智能内容检测（仅在 SmartContentType 开启时执行）—— 提前到翻译前
+            var contentType = _settings.SmartContentType
+                ? ContentTypeDetector.Detect(textToTranslate)
+                : ContentType.Translation;
+
+            // 显示悬浮窗 + 类型标签（与 "翻译中..." 同时出现）
             _floatingWindow.ShowTranslation("翻译中...", dotPosition);
+            _floatingWindow.ShowContentTypeLabel(contentType);
 
             // 流式翻译
             var targetLang = _settings.TargetLanguage;
@@ -409,10 +420,11 @@ public partial class App : Application
                 chunk => Dispatcher.BeginInvoke(() =>
                 {
                     _floatingWindow.UpdateTranslation(chunk);
-                }));
+                }),
+                contentType);
 
             // 保存翻译历史
-            SaveTranslationHistory(textToTranslate, result, targetLang);
+            SaveTranslationHistory(textToTranslate, result, targetLang, contentType);
 
             Logger.Info("App", $"红点翻译完成: {result.Length} 字");
         }
@@ -583,7 +595,7 @@ public partial class App : Application
     /// <summary>
     /// 保存翻译历史记录
     /// </summary>
-    private void SaveTranslationHistory(string sourceText, string translation, string targetLang)
+    private void SaveTranslationHistory(string sourceText, string translation, string targetLang, ContentType contentType)
     {
         if (_dbContext == null || string.IsNullOrWhiteSpace(sourceText) || string.IsNullOrWhiteSpace(translation))
             return;
@@ -597,6 +609,7 @@ public partial class App : Application
                 SourceLanguage = "auto",
                 TargetLanguage = targetLang,
                 ModelName = _settings.ModelName,
+                ContentType = contentType.ToString(),
                 TranslatedAt = DateTime.Now
             };
 

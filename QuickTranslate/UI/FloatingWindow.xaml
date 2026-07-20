@@ -110,7 +110,14 @@
         <Border.Effect>
             <DropShadowEffect Color="Black" BlurRadius="12" ShadowDepth="2" Opacity="0.5"/>
         </Border.Effect>
-        <Grid>
+        <StackPanel>
+            <!-- 内容类型标签 -->
+            <TextBlock x:Name="ContentTypeLabel"
+                       FontSize="11"
+                       FontFamily="Microsoft YaHei UI"
+                       FontWeight="Medium"
+                       Margin="0,0,0,4"
+                       Visibility="Collapsed"/>
             <!-- 译文（Windows 11 风格细条自动隐藏滚动条） -->
             <ScrollViewer x:Name="TranslationScroller"
                           Style="{StaticResource Win11ScrollViewer}"
@@ -129,6 +136,6 @@
                            MouseLeftButtonDown="TranslationTextBlock_MouseLeftButtonDown"
                            Text=""/>
             </ScrollViewer>
-        </Grid>
+        </StackPanel>
     </Border>
 </Window>

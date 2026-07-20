@@ -50,5 +50,10 @@ namespace QuickTranslate.Database
         /// 来源应用（可选，暂时留空）
         /// </summary>
         public string SourceApp { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 内容类型：Translation / Code / Term
+        /// </summary>
+        public string ContentType { get; set; } = string.Empty;
     }
 }
