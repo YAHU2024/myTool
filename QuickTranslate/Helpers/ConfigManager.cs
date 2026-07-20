@@ -61,7 +61,7 @@ namespace QuickTranslate.Helpers
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"保存配置失败: {ex.Message}");
+                Logger.Warn("ConfigManager", $"保存配置失败: {ex.Message}");
             }
         }
     }

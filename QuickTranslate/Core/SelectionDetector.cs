@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
@@ -91,7 +90,7 @@ namespace QuickTranslate.Core
             _hookThread?.Join(2000);
             _hookThread = null;
             _hookThreadId = 0;
-            Debug.WriteLine("文本选择检测器已停止");
+            Logger.Info("SelectionDetector", "文本选择检测器已停止");
         }
 
         /// <summary>
@@ -107,23 +106,38 @@ namespace QuickTranslate.Core
 
             if (_mouseHookId == IntPtr.Zero)
             {
-                Debug.WriteLine($"鼠标钩子安装失败，错误码: {Marshal.GetLastWin32Error()}");
+                Logger.Error("SelectionDetector", $"鼠标钩子安装失败，错误码: {Marshal.GetLastWin32Error()}");
                 _threadReady.Set();
                 return;
             }
 
             _threadReady.Set();
-            Debug.WriteLine("文本选择检测器已启动（独立消息循环线程）");
+            Logger.Info("SelectionDetector", $"文本选择检测器已启动（独立消息循环线程），HookId=0x{_mouseHookId:X}, ThreadId={_hookThreadId}");
 
             // 原生消息循环 —— 保证钩子回调立即被调度，不受 WPF Dispatcher 影响
-            while (Win32Api.GetMessage(out var msg, IntPtr.Zero, 0, 0))
+            try
             {
-                if (msg.message == Win32Api.WM_TIMER)
+                int result;
+                while ((result = Win32Api.GetMessage(out var msg, IntPtr.Zero, 0, 0)) != 0)
                 {
-                    HandleTimer(msg.wParam);
+                    if (result == -1)
+                    {
+                        // GetMessage 失败，记录错误并退出循环，避免分发垃圾消息导致崩溃
+                        Logger.Error("SelectionDetector", $"GetMessage 返回 -1，错误码: {Marshal.GetLastWin32Error()}");
+                        break;
+                    }
+
+                    if (msg.message == Win32Api.WM_TIMER)
+                    {
+                        HandleTimer(msg.wParam);
+                    }
+                    Win32Api.TranslateMessage(ref msg);
+                    Win32Api.DispatchMessage(ref msg);
                 }
-                Win32Api.TranslateMessage(ref msg);
-                Win32Api.DispatchMessage(ref msg);
+            }
+            catch (Exception ex)
+            {
+                Logger.Fatal("SelectionDetector", "鼠标钩子消息循环异常，线程即将退出", ex);
             }
 
             // 消息循环退出，清理钩子
@@ -132,6 +146,7 @@ namespace QuickTranslate.Core
                 Win32Api.UnhookWindowsHookEx(_mouseHookId);
                 _mouseHookId = IntPtr.Zero;
             }
+            Logger.Warn("SelectionDetector", "鼠标钩子消息循环已退出，钩子已卸载");
         }
 
         /// <summary>
@@ -209,10 +224,12 @@ namespace QuickTranslate.Core
                         _isLeftButtonDown = false;
                         _isDragging = false;
                     }
+
+                    return Win32Api.CallNextHookEx(_mouseHookId, nCode, wParam, ref lParam);
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"鼠标钩子回调异常: {ex.Message}");
+                    Logger.Error("SelectionDetector", $"鼠标钩子回调异常: wParam=0x{wParam:X}", ex);
                 }
             }
 
@@ -259,7 +276,7 @@ namespace QuickTranslate.Core
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"定时器处理异常: {ex.Message}");
+                Logger.Debug("SelectionDetector", $"定时器处理异常: {ex.Message}");
             }
         }
 

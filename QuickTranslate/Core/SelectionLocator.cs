@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -35,29 +34,34 @@ namespace QuickTranslate.Core
     }
 
     /// <summary>
-    /// UI Automation 选区定位器 - 通过 TextPattern 获取选中文本的精确屏幕坐标和文本内容
+    /// UI Automation 选区定位器 - 通过 TextPattern 获取选中文本的精确屏幕坐标。
+    /// 注意：UIA COM 调用存在原生层崩溃风险（AccessViolationException 0xc0000005），
+    /// 内置熔断器：连续失败后自动禁用，防止反复触发不可恢复的进程崩溃。
     /// </summary>
     public static class SelectionLocator
     {
-        /// <summary>
-        /// 异步获取选中文本（在后台 STA 线程执行 UIA 调用，带超时保护）
-        /// </summary>
-        public static Task<string?> TryGetSelectedTextAsync(int timeoutMs = 2000)
-        {
-            return RunOnSTAThread(() => TryGetSelectedText(), timeoutMs);
-        }
+        // 熔断器：UIA 连续失败计数，超过阈值后禁用 UIA 调用
+        private static int _uiaFailureCount;
+        private const int MaxUiaFailures = 3;
+        private static volatile bool _uiaDisabled;
 
         /// <summary>
-        /// 异步获取选中文本边界（在后台 STA 线程执行 UIA 调用，带超时保护）
+        /// 异步获取选中文本边界（在后台 STA 线程执行 UIA 调用，带超时保护 + 熔断器）
         /// </summary>
         public static Task<SelectionLocation?> TryGetSelectionBoundsAsync(int timeoutMs = 2000)
         {
+            if (_uiaDisabled)
+            {
+                Logger.Debug("SelectionLocator", "UIA 已熔断禁用，跳过定位");
+                return Task.FromResult<SelectionLocation?>(null);
+            }
             return RunOnSTAThread(() => TryGetSelectionBounds(), timeoutMs);
         }
 
         /// <summary>
         /// 在独立 STA 线程上执行 UIA 操作，避免阻塞 UI 线程。
         /// 超时后返回 null，防止 UIA 挂起导致鼠标卡顿。
+        /// 异常时触发熔断器计数。
         /// </summary>
         private static Task<T?> RunOnSTAThread<T>(Func<T?> func, int timeoutMs) where T : class
         {
@@ -67,11 +71,24 @@ namespace QuickTranslate.Core
             {
                 try
                 {
-                    tcs.TrySetResult(func());
+                    var result = func();
+                    // 成功时重置熔断计数
+                    _uiaFailureCount = 0;
+                    tcs.TrySetResult(result);
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[SelectionLocator] STA线程UIA异常: {ex.Message}");
+                    // 熔断器：连续失败超过阈值则禁用 UIA
+                    var failures = Interlocked.Increment(ref _uiaFailureCount);
+                    if (failures >= MaxUiaFailures)
+                    {
+                        _uiaDisabled = true;
+                        Logger.Error("SelectionLocator", $"UIA 连续失败 {failures} 次，已熔断禁用（防止进程崩溃）");
+                    }
+                    else
+                    {
+                        Logger.Warn("SelectionLocator", $"STA线程UIA异常 ({failures}/{MaxUiaFailures}): {ex.Message}");
+                    }
                     tcs.TrySetResult(null);
                 }
             });
@@ -85,55 +102,9 @@ namespace QuickTranslate.Core
 
             return tcs.Task;
         }
-        /// <summary>
-        /// 尝试通过 UI Automation TextPattern 直接获取选中文本（不依赖剪贴板）。
-        /// 需在 STA 线程上调用。
-        /// 失败时返回 null，由调用方降级到剪贴板方案。
-        /// </summary>
-        public static string? TryGetSelectedText()
-        {
-            try
-            {
-                var focusedElement = AutomationElement.FocusedElement;
-                if (focusedElement == null)
-                {
-                    Debug.WriteLine("[SelectionLocator] UIA文本获取: 无焦点元素");
-                    return null;
-                }
-
-                if (!focusedElement.TryGetCurrentPattern(TextPattern.Pattern, out object patternObj))
-                {
-                    Debug.WriteLine("[SelectionLocator] UIA文本获取: 焦点元素不支持 TextPattern");
-                    return null;
-                }
-
-                var textPattern = patternObj as TextPattern;
-                if (textPattern == null)
-                    return null;
-
-                var selections = textPattern.GetSelection();
-                if (selections == null || selections.Length == 0)
-                {
-                    Debug.WriteLine("[SelectionLocator] UIA文本获取: 无选区");
-                    return null;
-                }
-
-                var text = selections[0].GetText(-1);
-                if (string.IsNullOrWhiteSpace(text))
-                {
-                    Debug.WriteLine("[SelectionLocator] UIA文本获取: 选区文本为空");
-                    return null;
-                }
-
-                Debug.WriteLine($"[SelectionLocator] UIA文本获取成功: {text.Length} 字符");
-                return text;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[SelectionLocator] UIA文本获取异常: {ex.Message}");
-                return null;
-            }
-        }
+        // ⚠️ TryGetSelectedText 已弃用 —— TextPatternRange.GetText(-1) 在部分应用中
+        // 触发 AccessViolationException(0xc0000005) 导致进程不可恢复崩溃。
+        // 文本获取已改为纯剪贴板方案（ClipboardHelper）。
 
         /// <summary>
         /// 尝试通过 UI Automation 获取选中文本的精确屏幕坐标。
@@ -148,21 +119,21 @@ namespace QuickTranslate.Core
                 var focusedElement = AutomationElement.FocusedElement;
                 if (focusedElement == null)
                 {
-                    Debug.WriteLine("[SelectionLocator] 无法获取焦点元素");
+                    Logger.Debug("SelectionLocator", "无法获取焦点元素");
                     return null;
                 }
 
                 // 检查是否支持 TextPattern
                 if (!focusedElement.TryGetCurrentPattern(TextPattern.Pattern, out object patternObj))
                 {
-                    Debug.WriteLine("[SelectionLocator] 焦点元素不支持 TextPattern");
+                    Logger.Debug("SelectionLocator", "焦点元素不支持 TextPattern");
                     return null;
                 }
 
                 var textPattern = patternObj as TextPattern;
                 if (textPattern == null)
                 {
-                    Debug.WriteLine("[SelectionLocator] TextPattern 获取失败");
+                    Logger.Debug("SelectionLocator", "TextPattern 获取失败");
                     return null;
                 }
 
@@ -170,7 +141,7 @@ namespace QuickTranslate.Core
                 var selections = textPattern.GetSelection();
                 if (selections == null || selections.Length == 0)
                 {
-                    Debug.WriteLine("[SelectionLocator] 无选区");
+                    Logger.Debug("SelectionLocator", "无选区");
                     return null;
                 }
 
@@ -179,7 +150,7 @@ namespace QuickTranslate.Core
                 var rects = selection.GetBoundingRectangles();
                 if (rects == null || rects.Length == 0)
                 {
-                    Debug.WriteLine("[SelectionLocator] 无边界矩形");
+                    Logger.Debug("SelectionLocator", "无边界矩形");
                     return null;
                 }
 
@@ -206,7 +177,7 @@ namespace QuickTranslate.Core
 
                 if (lastLineRect == null || minX == double.MaxValue)
                 {
-                    Debug.WriteLine("[SelectionLocator] 无有效矩形");
+                    Logger.Debug("SelectionLocator", "无有效矩形");
                     return null;
                 }
 
@@ -218,7 +189,7 @@ namespace QuickTranslate.Core
                 var bounds = DpiHelper.PhysicalToLogical(
                     new Rect(minX, minY, maxX - minX, maxY - minY));
 
-                Debug.WriteLine($"[SelectionLocator] UIA 定位成功: EndPoint=({endPoint.X:F0},{endPoint.Y:F0}), Bounds={bounds}");
+                Logger.Debug("SelectionLocator", $"UIA 定位成功: EndPoint=({endPoint.X:F0},{endPoint.Y:F0}), Bounds={bounds}");
 
                 return new SelectionLocation
                 {
@@ -230,7 +201,7 @@ namespace QuickTranslate.Core
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[SelectionLocator] UIA 获取选区失败: {ex.Message}");
+                Logger.Warn("SelectionLocator", $"UIA 获取选区失败: {ex.Message}");
                 return null;
             }
         }

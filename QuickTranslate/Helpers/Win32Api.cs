@@ -99,6 +99,13 @@ namespace QuickTranslate.Helpers
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
         public static extern IntPtr GetModuleHandle(string? lpModuleName);
 
+        // 附加到父进程控制台（DEBUG 模式终端日志输出）
+        public const int ATTACH_PARENT_PROCESS = -1;
+
+        [DllImport("kernel32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool AttachConsole(int dwProcessId);
+
         // 模拟按键
         [DllImport("user32.dll")]
         public static extern void keybd_event(byte bVk, byte bScan, byte dwFlags, UIntPtr dwExtraInfo);
@@ -117,8 +124,9 @@ namespace QuickTranslate.Helpers
         public static extern short GetAsyncKeyState(int vKey);
 
         // ── 原生消息循环（钩子专用线程） ──
+        // GetMessage 返回 BOOL: >0 成功, 0 WM_QUIT, -1 错误（不能用 bool 接收，否则丢失 -1）
         [DllImport("user32.dll")]
-        public static extern bool GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+        public static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
 
         [DllImport("user32.dll")]
         public static extern bool TranslateMessage(ref MSG lpMsg);

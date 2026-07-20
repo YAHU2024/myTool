@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Diagnostics;
 using System.Windows;
 using QuickTranslate.Core;
 using QuickTranslate.Database;
@@ -32,19 +31,29 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // 加载配置
+        _settings = ConfigManager.Load();
+
+        // 初始化日志系统
+#if DEBUG
+        // WinExe 无控制台，附加到父进程终端以实时输出日志
+        Win32Api.AttachConsole(Win32Api.ATTACH_PARENT_PROCESS);
+#endif
+        Logger.Init(
+            minLevel: Logger.ParseLevel(_settings.LogLevel),
+            retentionDays: _settings.LogRetentionDays);
+        Logger.Info("App", $"应用启动, OS={Environment.OSVersion}, .NET={Environment.Version}");
+
         // 全局异常兖底，防止未捕获异常导致闪退
         DispatcherUnhandledException += (s, args) =>
         {
-            Debug.WriteLine($"未处理异常(UI线程): {args.Exception.Message}");
+            Logger.Fatal("App", "未处理异常(UI线程)", args.Exception);
             args.Handled = true;
         };
         AppDomain.CurrentDomain.UnhandledException += (s, args) =>
         {
-            Debug.WriteLine($"未处理异常(AppDomain): {args.ExceptionObject}");
+            Logger.Fatal("App", $"未处理异常(AppDomain): {args.ExceptionObject}");
         };
-
-        // 加载配置
-        _settings = ConfigManager.Load();
 
         // 初始化数据库
         _dbContext = new TranslationDbContext();
@@ -139,11 +148,11 @@ public partial class App : Application
             // 保存翻译历史
             SaveTranslationHistory(selectedText, result, targetLang);
 
-            Debug.WriteLine($"翻译完成: {result.Length} 字");
+            Logger.Info("App", $"热键翻译完成: {result.Length} 字");
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"翻译出错: {ex.Message}");
+            Logger.Error("App", "热键翻译出错", ex);
             if (_floatingWindow != null)
             {
                 _floatingWindow.UpdateTranslation($"翻译失败: {ex.Message}");
@@ -199,7 +208,7 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"OnSelectionCompleted 异常: {ex.Message}");
+            Logger.Error("App", "OnSelectionCompleted 异常", ex);
         }
     }
 
@@ -244,11 +253,11 @@ public partial class App : Application
             // 保存翻译历史
             SaveTranslationHistory(textToTranslate, result, targetLang);
 
-            Debug.WriteLine($"翻译完成: {result.Length} 字");
+            Logger.Info("App", $"红点翻译完成: {result.Length} 字");
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"翻译出错: {ex.Message}");
+            Logger.Error("App", "红点翻译出错", ex);
             if (_floatingWindow != null)
             {
                 _floatingWindow.UpdateTranslation($"翻译失败: {ex.Message}");
@@ -273,7 +282,7 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"UIA定位异常: {ex.Message}");
+            Logger.Warn("App", $"UIA定位异常: {ex.Message}");
         }
 
         // 降级为当前鼠标位置（GetCursorPos 返回物理像素，转 DIP）
@@ -402,11 +411,11 @@ public partial class App : Application
 
             _dbContext.TranslationRecords.Add(record);
             _dbContext.SaveChanges();
-            Debug.WriteLine($"翻译历史已保存: {record.Id}");
+            Logger.Debug("App", $"翻译历史已保存: {record.Id}");
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"保存翻译历史失败: {ex.Message}");
+            Logger.Error("App", "保存翻译历史失败", ex);
         }
     }
 
@@ -417,6 +426,9 @@ public partial class App : Application
         _selectionDetector?.Dispose();
         _trayIcon?.Dispose();
         _dbContext?.Dispose();
+
+        Logger.Info("App", "应用退出");
+        Logger.Shutdown();
         base.OnExit(e);
     }
 }

@@ -120,5 +120,17 @@ namespace QuickTranslate.Models
         /// 自定义翻译提示词（留空使用默认，支持 {targetLang} 占位符）
         /// </summary>
         public string CustomSystemPrompt { get; set; } = string.Empty;
+
+        // ==================== 日志配置 ====================
+
+        /// <summary>
+        /// 日志级别（Debug/Info/Warn/Error/Fatal）
+        /// </summary>
+        public string LogLevel { get; set; } = "Info";
+
+        /// <summary>
+        /// 日志保留天数
+        /// </summary>
+        public int LogRetentionDays { get; set; } = 7;
     }
 }

@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -8,60 +7,37 @@ using QuickTranslate.Helpers;
 namespace QuickTranslate.Core
 {
     /// <summary>
-    /// 文本获取辅助 - 三级降级策略获取选中文本
-    /// 第1级：UIA TextPattern 直接获取（不碰剪贴板）
-    /// 第2级：剪贴板轮询模式（Ctrl+C + 轮询直到剪贴板内容变化）
-    /// 第3级：固定等待兜底（兼容极端情况）
+    /// 文本获取辅助 - 二级降级策略获取选中文本
+    /// 第1级：剪贴板轮询模式（Ctrl+C + 轮询直到剪贴板内容变化）
+    /// 第2级：固定等待兜底（兼容极端情况）
+    /// 注意：UIA TextPattern.GetText 已移除 —— 该 COM 调用在部分应用中触发
+    /// AccessViolationException(0xc0000005) 导致进程不可恢复崩溃。
     /// </summary>
     public static class ClipboardHelper
     {
         /// <summary>
-        /// 获取当前选中的文本（三级降级策略）
+        /// 获取当前选中的文本（二级降级策略）
         /// </summary>
         public static async Task<string?> GetSelectedTextAsync()
         {
-            // 第1级：UIA TextPattern 异步获取（后台STA线程，不阻塞UI线程）
-            var uiaText = await TryGetTextViaUIAAsync();
-            if (!string.IsNullOrWhiteSpace(uiaText))
-            {
-                Debug.WriteLine("[ClipboardHelper] 第1级成功: UIA TextPattern 获取文本");
-                return uiaText;
-            }
-
-            // 第2级：剪贴板轮询模式（复制成功后立即返回，无需等待固定时长）
+            // 第1级：剪贴板轮询模式（复制成功后立即返回，无需等待固定时长）
             var pollText = await TryGetTextViaClipboardAsync(usePolling: true);
             if (!string.IsNullOrWhiteSpace(pollText))
             {
-                Debug.WriteLine("[ClipboardHelper] 第2级成功: 剪贴板轮询模式获取文本");
+                Logger.Info("ClipboardHelper", "第1级成功: 剪贴板轮询模式获取文本");
                 return pollText;
             }
 
-            // 第3级：固定等待兜底
+            // 第2级：固定等待兜底
             var fallbackText = await TryGetTextViaClipboardAsync(usePolling: false);
             if (!string.IsNullOrWhiteSpace(fallbackText))
             {
-                Debug.WriteLine("[ClipboardHelper] 第3级成功: 固定等待兜底获取文本");
+                Logger.Info("ClipboardHelper", "第2级成功: 固定等待兜底获取文本");
                 return fallbackText;
             }
 
-            Debug.WriteLine("[ClipboardHelper] 三级降级均失败，无选中文本");
+            Logger.Warn("ClipboardHelper", "二级降级均失败，无选中文本");
             return null;
-        }
-
-        /// <summary>
-        /// 第1级：通过 UIA TextPattern 异步获取选中文本（后台STA线程，带超时保护）
-        /// </summary>
-        private static async Task<string?> TryGetTextViaUIAAsync()
-        {
-            try
-            {
-                return await SelectionLocator.TryGetSelectedTextAsync();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ClipboardHelper] UIA获取异常: {ex.Message}");
-                return null;
-            }
         }
 
         /// <summary>
@@ -131,13 +107,13 @@ namespace QuickTranslate.Core
                     // 5. 校验：若读到的仍是哨兵，说明 Ctrl+C 未生效，视为失败
                     if (result == sentinel)
                     {
-                        Debug.WriteLine($"[ClipboardHelper] 剪贴板模式({(usePolling ? "轮询" : "固定等待")}): 检测到哨兵残留，视为失败");
+                        Logger.Debug("ClipboardHelper", $"剪贴板模式({(usePolling ? "轮询" : "固定等待")}): 检测到哨兵残留，视为失败");
                         result = null;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[ClipboardHelper] 剪贴板模式({(usePolling ? "轮询" : "固定等待")})异常: {ex.Message}");
+                    Logger.Warn("ClipboardHelper", $"剪贴板模式({(usePolling ? "轮询" : "固定等待")})异常: {ex.Message}");
                 }
                 finally
                 {

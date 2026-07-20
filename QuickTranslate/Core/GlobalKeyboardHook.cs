@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using QuickTranslate.Helpers;
@@ -85,7 +84,7 @@ namespace QuickTranslate.Core
             _hookThread?.Join(2000);
             _hookThread = null;
             _hookThreadId = 0;
-            Debug.WriteLine("全局键盘钩子已停止");
+            Logger.Info("KeyboardHook", "全局键盘钩子已停止");
         }
 
         /// <summary>
@@ -101,19 +100,32 @@ namespace QuickTranslate.Core
 
             if (_hookId == IntPtr.Zero)
             {
-                Debug.WriteLine($"键盘钩子安装失败，错误码: {Marshal.GetLastWin32Error()}");
+                Logger.Error("KeyboardHook", $"键盘钩子安装失败，错误码: {Marshal.GetLastWin32Error()}");
                 _threadReady.Set();
                 return;
             }
 
             _threadReady.Set();
-            Debug.WriteLine($"全局键盘钩子已启动（独立消息循环线程），热键: {GetHotKeyDisplay()}");
+            Logger.Info("KeyboardHook", $"全局键盘钩子已启动（独立消息循环线程），热键: {GetHotKeyDisplay()}, HookId=0x{_hookId:X}, ThreadId={_hookThreadId}");
 
             // 原生消息循环
-            while (Win32Api.GetMessage(out var msg, IntPtr.Zero, 0, 0))
+            try
             {
-                Win32Api.TranslateMessage(ref msg);
-                Win32Api.DispatchMessage(ref msg);
+                int result;
+                while ((result = Win32Api.GetMessage(out var msg, IntPtr.Zero, 0, 0)) != 0)
+                {
+                    if (result == -1)
+                    {
+                        Logger.Error("KeyboardHook", $"GetMessage 返回 -1，错误码: {Marshal.GetLastWin32Error()}");
+                        break;
+                    }
+                    Win32Api.TranslateMessage(ref msg);
+                    Win32Api.DispatchMessage(ref msg);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Fatal("KeyboardHook", "键盘钩子消息循环异常，线程即将退出", ex);
             }
 
             // 消息循环退出，清理钩子
@@ -122,6 +134,7 @@ namespace QuickTranslate.Core
                 Win32Api.UnhookWindowsHookEx(_hookId);
                 _hookId = IntPtr.Zero;
             }
+            Logger.Warn("KeyboardHook", "键盘钩子消息循环已退出，钩子已卸载");
         }
 
         /// <summary>
@@ -161,10 +174,12 @@ namespace QuickTranslate.Core
                             }
                         }
                     }
+
+                    return Win32Api.CallNextHookEx(_hookId, nCode, wParam, ref lParam);
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"键盘钩子回调异常: {ex.Message}");
+                    Logger.Error("KeyboardHook", $"键盘钩子回调异常: wParam=0x{wParam:X}", ex);
                 }
             }
 
