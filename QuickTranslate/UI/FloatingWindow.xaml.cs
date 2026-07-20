@@ -65,22 +65,18 @@ namespace QuickTranslate.UI
             TranslationTextBlock.Text = translation;
             _anchorPosition = anchorPosition;
 
-            // ★ 根据锚点所在显示器的工作区动态限制最大高度
+            // ★ 根据锚点所在显示器的工作区动态限制 ScrollViewer 最大高度
+            // SizeToContent="WidthAndHeight" 让 WPF 自动处理窗口尺寸
+            // 只需约束 ScrollViewer.MaxHeight 防止窗口超出屏幕
             var workArea = Win32Api.GetWorkAreaAtPoint(anchorPosition);
-            // Border chrome: Margin(8*2=16) + Padding(10*2=20) = 36px
-            double chromeHeight = 36;
+            // Border chrome: Margin(4*2=8) + Padding(10*2=20) = 28px
+            double chromeHeight = 28;
             double maxWindowH = (workArea.Bottom - workArea.Top) - 80;
             double scrollerMaxH = maxWindowH - chromeHeight;
             TranslationScroller.MaxHeight = Math.Max(scrollerMaxH, 80);
 
-            // 先 Show 以获取布局
+            // 先 Show 以获取 ActualWidth/ActualHeight，再精确定位
             Show();
-            // 让内容先测量，再根据实际内容调整窗口高度
-            UpdateLayout();
-            Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            double desiredH = Math.Min(DesiredSize.Height, maxWindowH);
-            Height = desiredH;
-
             UpdateLayout();
             PositionBelowAnchor(anchorPosition);
             Activate();
@@ -100,17 +96,8 @@ namespace QuickTranslate.UI
                 TranslationScroller.ScrollToEnd();
             }
 
-            // ★ 内容增长后重新测量并约束窗口尺寸
+            // ★ 内容增长后重新布局，然后检查边界
             UpdateLayout();
-            Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            var workArea = Win32Api.GetWorkAreaAtPoint(_anchorPosition);
-            double maxWindowH = (workArea.Bottom - workArea.Top) - 80;
-            double desiredH = Math.Min(DesiredSize.Height, maxWindowH);
-            if (Math.Abs(Height - desiredH) > 1)
-            {
-                Height = desiredH;
-                UpdateLayout();
-            }
             ClampToWorkArea();
 
             ResetAutoHideTimer();
