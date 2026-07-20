@@ -64,6 +64,7 @@ namespace QuickTranslate.Core
                 IsBackground = true,
                 Name = "KeyboardHookThread"
             };
+            _hookThread.SetApartmentState(ApartmentState.STA);
             _hookThread.Start();
             _threadReady.Wait(3000);
         }

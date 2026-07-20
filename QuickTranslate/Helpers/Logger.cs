@@ -24,6 +24,11 @@ namespace QuickTranslate.Helpers
     /// </summary>
     public static class Logger
     {
+        /// <summary>
+        /// 日志目录路径（供退出追踪等场景使用）
+        /// </summary>
+        public static string LogDirectory => LogDir;
+
         private static readonly string LogDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "QuickTranslate", "logs");

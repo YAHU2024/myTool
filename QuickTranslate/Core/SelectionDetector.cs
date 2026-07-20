@@ -70,6 +70,7 @@ namespace QuickTranslate.Core
                 IsBackground = true,
                 Name = "MouseHookThread"
             };
+            _hookThread.SetApartmentState(ApartmentState.STA);
             _hookThread.Start();
             _threadReady.Wait(3000); // 等待钩子安装完成
         }
