@@ -17,6 +17,7 @@
 - **快捷键自定义** — 支持 Ctrl/Alt/Shift 组合键，全局热键触发
 - **自定义 System Prompt** — 支持 `{targetLang}` 占位符，灵活定制翻译风格
 - **深色主题** — 精心设计的深色 UI，长时间使用不刺眼
+- **单实例保护** — Mutex 防止多开，避免全局钩子冲突
 - **本地配置** — API Key 等设置保存于 `%APPDATA%\QuickTranslate\settings.json`，不上传任何数据
 
 ## 快速开始
@@ -86,7 +87,7 @@ QuickTranslate/
 │   ├── GlobalKeyboardHook.cs         # 全局键盘钩子（热键触发翻译）
 │   ├── SelectionDetector.cs          # 鼠标钩子检测拖拽/双击/三击选词
 │   ├── SelectionLocator.cs           # UI Automation 选区像素级定位
-│   └── ClipboardHelper.cs            # 剪贴板操作（模拟 Ctrl+C + 恢复）
+│   └── ClipboardHelper.cs            # 剪贴板操作（序列号检测 Ctrl+C + 零污染获取 + 恢复）
 ├── Database/
 │   ├── TranslationRecord.cs          # 翻译历史记录模型
 │   └── TranslationDbContext.cs       # EF Core SQLite 数据库上下文
@@ -97,6 +98,7 @@ QuickTranslate/
 │   └── AppSettings.cs                # 配置模型（含已保存配置、快捷键等）
 ├── Helpers/
 │   ├── ConfigManager.cs              # 配置持久化（JSON 读写）
+│   ├── Logger.cs                     # 轻量级异步文件日志器（按天轮转 + 自动清理）
 │   ├── Win32Api.cs                   # Win32 P/Invoke 声明
 │   └── DpiHelper.cs                  # DPI 缩放坐标转换
 ├── UI/
@@ -105,8 +107,8 @@ QuickTranslate/
 │   ├── TrayIconManager.cs            # 系统托盘图标与右键菜单
 │   ├── SettingsWindow.xaml/.cs       # 设置窗口
 │   └── HistoryWindow.xaml/.cs        # 翻译历史查看窗口
-├── MainWindow.xaml / .cs             # 主窗口
-└── App.xaml / .cs                    # 应用入口
+├── MainWindow.xaml / .cs             # 隐藏主窗口（稳定 WPF Dispatcher 生命周期）
+└── App.xaml / .cs                    # 应用入口（单实例 Mutex + 退出监控）
 ```
 
 ## 开发路线
@@ -117,6 +119,7 @@ QuickTranslate/
 | 第二期 | 划词触发 + 红点交互 + 悬浮窗 + UIA 定位 + DPI 适配 | ✅ 已完成 |
 | 第三期 | 系统托盘 + 设置持久化 + 开机自启 | ✅ 已完成 |
 | 第四期 | 翻译历史 + 快捷键自定义 + 语言自动检测 + System Prompt 自定义 | ✅ 已完成 |
+| 第五期 | 稳定性加固：单实例保护 + 控制台信号防护 + 日志系统 + 剪贴板零污染改造 | ✅ 已完成 |
 
 ## 许可证
 
