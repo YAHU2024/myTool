@@ -248,6 +248,16 @@ namespace QuickTranslate.UI
                 return;
 
             var modelName = config.ModelName;
+
+            // 二次确认
+            var confirmResult = MessageBox.Show(
+                $"确定要删除模型配置 \"{modelName}\" 吗？",
+                "确认删除",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (confirmResult != MessageBoxResult.Yes)
+                return;
+
             _settings.SavedConfigs.Remove(config);
             DeleteConfigButton.IsEnabled = false;
             _isDirty = true;

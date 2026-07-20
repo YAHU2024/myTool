@@ -269,8 +269,8 @@ namespace QuickTranslate.UI
 
             var sb = new StringBuilder();
 
-            // 写入表头（Anki 格式：原文、译文、源语言、目标语言、时间）
-            sb.AppendLine($"原文{separator}译文{separator}源语言{separator}目标语言{separator}时间");
+            // 写入表头（Anki 格式：原文、译文、源语言、目标语言、模型、时间）
+            sb.AppendLine($"原文{separator}译文{separator}源语言{separator}目标语言{separator}模型{separator}时间");
 
             // 写入数据
             foreach (var record in records)
@@ -279,9 +279,10 @@ namespace QuickTranslate.UI
                 var translation = EscapeCsvField(record.Translation, separator);
                 var sourceLang = EscapeCsvField(record.SourceLanguage, separator);
                 var targetLang = EscapeCsvField(record.TargetLanguage, separator);
+                var model = EscapeCsvField(record.ModelName, separator);
                 var time = record.TranslatedAt.ToString("yyyy-MM-dd HH:mm:ss");
 
-                sb.AppendLine($"{source}{separator}{translation}{separator}{sourceLang}{separator}{targetLang}{separator}{time}");
+                sb.AppendLine($"{source}{separator}{translation}{separator}{sourceLang}{separator}{targetLang}{separator}{model}{separator}{time}");
             }
 
             File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);

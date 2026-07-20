@@ -546,6 +546,7 @@ public partial class App : Application
                 Translation = translation.Trim(),
                 SourceLanguage = "auto",
                 TargetLanguage = targetLang,
+                ModelName = _settings.ModelName,
                 TranslatedAt = DateTime.Now
             };
 

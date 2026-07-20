@@ -165,6 +165,7 @@
                 <DataGridTextColumn Header="原文" Binding="{Binding SourceText}" Width="*"/>
                 <DataGridTextColumn Header="译文" Binding="{Binding Translation}" Width="*"/>
                 <DataGridTextColumn Header="语言对" Binding="{Binding TargetLanguage}" Width="100"/>
+                <DataGridTextColumn Header="模型" Binding="{Binding ModelName}" Width="120"/>
             </DataGrid.Columns>
         </DataGrid>
 

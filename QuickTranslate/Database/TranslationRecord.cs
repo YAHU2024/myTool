@@ -42,6 +42,11 @@ namespace QuickTranslate.Database
         public DateTime TranslatedAt { get; set; } = DateTime.Now;
 
         /// <summary>
+        /// 执行翻译的模型名称
+        /// </summary>
+        public string ModelName { get; set; } = string.Empty;
+
+        /// <summary>
         /// 来源应用（可选，暂时留空）
         /// </summary>
         public string SourceApp { get; set; } = string.Empty;
