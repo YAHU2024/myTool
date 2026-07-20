@@ -285,7 +285,7 @@
                     <TextBlock Grid.Row="4" Grid.Column="0" Text="语言检测:" Style="{StaticResource LabelStyle}"/>
                     <CheckBox x:Name="AutoDetectLanguageCheckBox" Grid.Row="4" Grid.Column="1"
                               Style="{StaticResource DarkCheckBox}"
-                              Content="自动检测语言方向（中文→英文，其他→中文）"
+                              Content="自动检测语言方向（→目标语言，同语言→英文）"
                               Grid.ColumnSpan="2"
                               Checked="Setting_Changed" Unchecked="Setting_Changed"/>
 
