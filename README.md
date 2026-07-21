@@ -54,22 +54,22 @@ dotnet run
 ### 常用 API 配置参考
 
 <details>
-<summary>智谱 GLM-4.7-Flash（推荐，免费）</summary>
-
-| 字段 | 值 |
-|------|------|
-| Base URL | `https://open.bigmodel.cn/api/paas/v4` |
-| Model | `glm-4.7-flash` |
-
-</details>
-
-<details>
-<summary>硅基流动 SiliconFlow</summary>
+<summary>硅基流动 Qwen/Qwen3-8B（推荐，免费）</summary>
 
 | 字段 | 值 |
 |------|------|
 | Base URL | `https://api.siliconflow.cn/v1` |
 | Model | `Qwen/Qwen3-8B` |
+
+</details>
+
+<details>
+<summary>智谱 GLM-4.7-Flash</summary>
+
+| 字段 | 值 |
+|------|------|
+| Base URL | `https://open.bigmodel.cn/api/paas/v4` |
+| Model | `glm-4.7-flash` |
 
 </details>
 
