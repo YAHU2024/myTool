@@ -13,6 +13,8 @@
     <Product>QuickTranslate</Product>
     <Authors>YaHu</Authors>
     <Description>QuickTranslate - 智能快捷翻译工具</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
 
   <ItemGroup>

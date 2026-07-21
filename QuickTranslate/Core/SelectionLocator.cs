@@ -48,14 +48,14 @@ namespace QuickTranslate.Core
         /// <summary>
         /// 异步获取选中文本边界（在后台 STA 线程执行 UIA 调用，带超时保护 + 熔断器）
         /// </summary>
-        public static Task<SelectionLocation?> TryGetSelectionBoundsAsync(int timeoutMs = 2000)
+        public static Task<SelectionLocation?> TryGetSelectionBoundsAsync(int timeoutMs = 2000, CancellationToken cancellationToken = default)
         {
             if (_uiaDisabled)
             {
                 Logger.Debug("SelectionLocator", "UIA 已熔断禁用，跳过定位");
                 return Task.FromResult<SelectionLocation?>(null);
             }
-            return RunOnSTAThread(() => TryGetSelectionBounds(), timeoutMs);
+            return RunOnSTAThread(() => TryGetSelectionBounds(), timeoutMs, cancellationToken);
         }
 
         /// <summary>
@@ -63,7 +63,7 @@ namespace QuickTranslate.Core
         /// 超时后返回 null，防止 UIA 挂起导致鼠标卡顿。
         /// 异常时触发熔断器计数。
         /// </summary>
-        private static Task<T?> RunOnSTAThread<T>(Func<T?> func, int timeoutMs) where T : class
+        private static Task<T?> RunOnSTAThread<T>(Func<T?> func, int timeoutMs, CancellationToken cancellationToken) where T : class
         {
             var tcs = new TaskCompletionSource<T?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -99,6 +99,7 @@ namespace QuickTranslate.Core
 
             // 超时保护：避免 UIA 跨进程调用挂起
             Task.Delay(timeoutMs).ContinueWith(_ => tcs.TrySetResult(null));
+            if (cancellationToken.CanBeCanceled) cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
 
             return tcs.Task;
         }
@@ -161,7 +162,7 @@ namespace QuickTranslate.Core
 
                 foreach (var rect in rects)
                 {
-                    if (rect.IsEmpty || rect.Width <= 0 || rect.Height <= 0) continue;
+                    if (rect.IsEmpty || rect.Width <= 0 || rect.Height <= 0 || !double.IsFinite(rect.X) || !double.IsFinite(rect.Y)) continue;
 
                     minX = Math.Min(minX, rect.X);
                     minY = Math.Min(minY, rect.Y);
@@ -183,11 +184,9 @@ namespace QuickTranslate.Core
 
                 // 最后一行末端右上角外侧坐标（右上角上方）
                 // UIA 返回物理像素，转换为 WPF 逻辑像素(DIP)
-                var endPoint = DpiHelper.PhysicalToLogical(
-                    new Point(lastLineRect.Value.Right, lastLineRect.Value.Y));
+                var endPoint = new Point(lastLineRect.Value.Right, lastLineRect.Value.Y);
 
-                var bounds = DpiHelper.PhysicalToLogical(
-                    new Rect(minX, minY, maxX - minX, maxY - minY));
+                var bounds = new Rect(minX, minY, maxX - minX, maxY - minY);
 
                 Logger.Debug("SelectionLocator", $"UIA 定位成功: EndPoint=({endPoint.X:F0},{endPoint.Y:F0}), Bounds={bounds}");
 

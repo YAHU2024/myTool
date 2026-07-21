@@ -23,8 +23,9 @@ namespace QuickTranslate.Helpers
         private const int LOGPIXELSX = 88;
         private const int LOGPIXELSY = 90;
 
-        private static double? _scaleX;
-        private static double? _scaleY;
+        private const uint MDT_EFFECTIVE_DPI = 0;
+        [DllImport("shcore.dll")]
+        private static extern int GetDpiForMonitor(IntPtr hmonitor, uint dpiType, out uint dpiX, out uint dpiY);
 
         /// <summary>
         /// X 轴缩放比例（1.0 = 96 DPI，1.5 = 144 DPI 即 150% 缩放）
@@ -33,8 +34,7 @@ namespace QuickTranslate.Helpers
         {
             get
             {
-                if (!_scaleX.HasValue) Refresh();
-                return _scaleX ?? 1.0;
+                return GetScaleForPhysicalPoint(new Point(0, 0)).X;
             }
         }
 
@@ -45,8 +45,7 @@ namespace QuickTranslate.Helpers
         {
             get
             {
-                if (!_scaleY.HasValue) Refresh();
-                return _scaleY ?? 1.0;
+                return GetScaleForPhysicalPoint(new Point(0, 0)).Y;
             }
         }
 
@@ -55,21 +54,7 @@ namespace QuickTranslate.Helpers
         /// </summary>
         public static void Refresh()
         {
-            var hdc = GetDC(IntPtr.Zero);
-            try
-            {
-                _scaleX = GetDeviceCaps(hdc, LOGPIXELSX) / 96.0;
-                _scaleY = GetDeviceCaps(hdc, LOGPIXELSY) / 96.0;
-            }
-            catch
-            {
-                _scaleX = 1.0;
-                _scaleY = 1.0;
-            }
-            finally
-            {
-                ReleaseDC(IntPtr.Zero, hdc);
-            }
+            // DPI is queried per monitor by the conversion methods.
         }
 
         /// <summary>
@@ -77,7 +62,8 @@ namespace QuickTranslate.Helpers
         /// </summary>
         public static Point PhysicalToLogical(Point physical)
         {
-            return new Point(physical.X / ScaleX, physical.Y / ScaleY);
+            var scale = GetScaleForPhysicalPoint(physical);
+            return new Point(physical.X / scale.X, physical.Y / scale.Y);
         }
 
         /// <summary>
@@ -86,6 +72,26 @@ namespace QuickTranslate.Helpers
         public static Point LogicalToPhysical(Point logical)
         {
             return new Point(logical.X * ScaleX, logical.Y * ScaleY);
+        }
+
+        public static Point GetScaleForPhysicalPoint(Point physical)
+        {
+            var monitor = Win32Api.MonitorFromPoint(new Win32Api.POINT { X = (int)physical.X, Y = (int)physical.Y }, Win32Api.MONITOR_DEFAULTTONEAREST);
+            try
+            {
+                if (monitor != IntPtr.Zero && GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, out var x, out var y) == 0 && x > 0 && y > 0)
+                    return new Point(x / 96.0, y / 96.0);
+            }
+            catch (DllNotFoundException) { } catch (EntryPointNotFoundException) { }
+            var hdc = GetDC(IntPtr.Zero);
+            try { return new Point(Math.Max(GetDeviceCaps(hdc, LOGPIXELSX) / 96.0, 1), Math.Max(GetDeviceCaps(hdc, LOGPIXELSY) / 96.0, 1)); }
+            finally { if (hdc != IntPtr.Zero) ReleaseDC(IntPtr.Zero, hdc); }
+        }
+
+        public static Size LogicalSizeToPhysical(Size logical, Point physicalReference)
+        {
+            var scale = GetScaleForPhysicalPoint(physicalReference);
+            return new Size(logical.Width * scale.X, logical.Height * scale.Y);
         }
 
         /// <summary>

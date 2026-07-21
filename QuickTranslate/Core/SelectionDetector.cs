@@ -249,10 +249,8 @@ namespace QuickTranslate.Core
                     KillDragTimer();
 
                     // 转换为逻辑像素并投递到 UI 线程
-                    var startPos = DpiHelper.PhysicalToLogical(
-                        new Point(_mouseDownPos.X, _mouseDownPos.Y));
-                    var endPos = DpiHelper.PhysicalToLogical(
-                        new Point(_mouseUpPos.X, _mouseUpPos.Y));
+                    var startPos = new Point(_mouseDownPos.X, _mouseDownPos.Y);
+                    var endPos = new Point(_mouseUpPos.X, _mouseUpPos.Y);
 
                     Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
                     {
@@ -265,8 +263,7 @@ namespace QuickTranslate.Core
 
                     if (_multiClickCancelled || _isDragging) return;
 
-                    var clickPos = DpiHelper.PhysicalToLogical(
-                        new Point(_lastClickPos.X, _lastClickPos.Y));
+                    var clickPos = new Point(_lastClickPos.X, _lastClickPos.Y);
 
                     Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
                     {

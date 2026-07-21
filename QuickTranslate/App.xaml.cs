@@ -28,7 +28,8 @@ public partial class App : Application
     private HistoryWindow? _historyWindow;
     private TranslationDbContext? _dbContext;
     private bool _isTranslating;
-    private bool _isProcessingSelection; // 防止 OnSelectionCompleted 并发重入
+    private long _selectionGeneration;
+    private CancellationTokenSource? _selectionCts;
     private string? _pendingText; // 待翻译文本（红点悬停时使用）
     private Mutex? _singleInstanceMutex;
     private Window? _hiddenWindow; // 隐藏主窗口，稳定 WPF Application 生命周期
@@ -322,9 +323,12 @@ public partial class App : Application
     /// </summary>
     private async void OnSelectionCompleted(System.Windows.Point startPos, System.Windows.Point endPos)
     {
-        // ★ 防重入：快速多次触发时只处理第一次
-        if (_isProcessingSelection) return;
-        _isProcessingSelection = true;
+        var generation = Interlocked.Increment(ref _selectionGeneration);
+        _selectionCts?.Cancel();
+        _selectionCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _selectionCts = cts;
+        var token = cts.Token;
 
         try
         {
@@ -340,6 +344,8 @@ public partial class App : Application
 
             // 尝试获取选中文本（UIA 在后台 STA 线程执行，不阻塞 UI 线程）
             var selectedText = await ClipboardHelper.GetSelectedTextAsync();
+            token.ThrowIfCancellationRequested();
+            if (generation != Volatile.Read(ref _selectionGeneration)) return;
 
             if (string.IsNullOrWhiteSpace(selectedText))
             {
@@ -348,17 +354,14 @@ public partial class App : Application
                 return;
             }
 
-            // 保存待翻译文本
-            _pendingText = selectedText;
-
             // 尝试 UIA 异步精确定位（不阻塞 UI 线程）
-            var location = await SelectionLocator.TryGetSelectionBoundsAsync();
+            var location = await SelectionLocator.TryGetSelectionBoundsAsync(2000, token);
+            token.ThrowIfCancellationRequested();
+            if (generation != Volatile.Read(ref _selectionGeneration)) return;
             if (location == null || !location.IsValid)
             {
-                // 降级：拖拽中点 + 偏移(+4, -8)
-                var mid = new System.Windows.Point(
-                    (startPos.X + endPos.X) / 2 + 4,
-                    (startPos.Y + endPos.Y) / 2 - 8);
+                // Fallback: physical drag end point, same coordinate contract as UIA.
+                var mid = endPos;
                 location = new SelectionLocation
                 {
                     IsValid = false,
@@ -366,18 +369,20 @@ public partial class App : Application
                 };
             }
 
+            // Publish text only after the matching location has been obtained.
+            _pendingText = selectedText;
             // 显示红点
             _redDotWindow.ShowAt(location);
             _selectionDetector!.IsRedDotVisible = true;
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
             Logger.Error("App", "OnSelectionCompleted 异常", ex);
         }
-        finally
-        {
-            _isProcessingSelection = false;
-        }
+        finally { if (ReferenceEquals(_selectionCts, cts)) _selectionCts = null; cts.Dispose(); }
     }
 
     /// <summary>
@@ -520,6 +525,9 @@ public partial class App : Application
     /// </summary>
     private void OnSelectionCancelled()
     {
+        Interlocked.Increment(ref _selectionGeneration);
+        _selectionCts?.Cancel();
+        _selectionCts = null;
         _selectionDetector!.IsRedDotVisible = false;
         _redDotWindow?.Hide();
         _pendingText = null;
@@ -679,6 +687,10 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        Interlocked.Increment(ref _selectionGeneration);
+        _selectionCts?.Cancel();
+        _selectionCts?.Dispose();
+        _selectionCts = null;
         // 停止看门狗
         _watchdogTimer?.Dispose();
 

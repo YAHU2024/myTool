@@ -32,5 +32,9 @@ Desktop.ini
 ## App data (contains user API keys)
 **/settings.json
 
+## Agent and Claude files
+.agent
+.claude
+
 ## Private docs
 PLAN.md

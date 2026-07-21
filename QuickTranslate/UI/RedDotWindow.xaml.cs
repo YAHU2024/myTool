@@ -2,7 +2,9 @@ using System;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
+using System.Windows.Interop;
 using QuickTranslate.Core;
+using QuickTranslate.Helpers;
 
 namespace QuickTranslate.UI
 {
@@ -57,7 +59,8 @@ namespace QuickTranslate.UI
         /// </summary>
         public void ShowAt(SelectionLocation location)
         {
-            var anchor = location.IsValid ? location.EndPoint : location.FallbackPoint;
+            var physicalAnchor = location.IsValid ? location.EndPoint : location.FallbackPoint;
+            var anchor = DpiHelper.PhysicalToLogical(physicalAnchor);
 
             // 红点窗口 16x16，中心偏移 = 8
             Left = anchor.X - 8;
@@ -67,6 +70,24 @@ namespace QuickTranslate.UI
             DotScreenPosition = new System.Windows.Point(Left + 8, Top + 8);
 
             Show();
+            // WPF window coordinates are DIP; use the actual rendered center as the public anchor.
+            UpdateLayout();
+            var hwnd = new WindowInteropHelper(this).Handle;
+            var physicalSize = DpiHelper.LogicalSizeToPhysical(new System.Windows.Size(ActualWidth, ActualHeight), physicalAnchor);
+            var physicalWorkArea = Win32Api.GetPhysicalWorkAreaAtPoint(physicalAnchor);
+            var px = physicalAnchor.X - physicalSize.Width / 2;
+            var py = physicalAnchor.Y - physicalSize.Height / 2;
+            if (!physicalWorkArea.IsEmpty)
+            {
+                px = Math.Max(physicalWorkArea.Left, Math.Min(px, physicalWorkArea.Right - physicalSize.Width));
+                py = Math.Max(physicalWorkArea.Top, Math.Min(py, physicalWorkArea.Bottom - physicalSize.Height));
+            }
+            Win32Api.SetWindowPos(hwnd, IntPtr.Zero, (int)Math.Round(px), (int)Math.Round(py),
+                (int)Math.Round(physicalSize.Width), (int)Math.Round(physicalSize.Height),
+                0x0004 | 0x0010); // SWP_NOZORDER | SWP_NOACTIVATE
+            Left = px / DpiHelper.GetScaleForPhysicalPoint(physicalAnchor).X;
+            Top = py / DpiHelper.GetScaleForPhysicalPoint(physicalAnchor).Y;
+            DotScreenPosition = new System.Windows.Point(Left + ActualWidth / 2, Top + ActualHeight / 2);
             ResetAutoHideTimer();
         }
 

@@ -168,6 +168,18 @@ namespace QuickTranslate.Helpers
         // ── 多显示器支持 ──
         public const uint MONITOR_DEFAULTTONEAREST = 2;
 
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        public static Rect GetPhysicalWorkAreaAtPoint(Point physicalPoint)
+        {
+            var hMon = MonitorFromPoint(new POINT { X = (int)physicalPoint.X, Y = (int)physicalPoint.Y }, MONITOR_DEFAULTTONEAREST);
+            var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+            if (!GetMonitorInfo(hMon, ref mi)) return Rect.Empty;
+            return new Rect(mi.rcWork.Left, mi.rcWork.Top, mi.rcWork.Right - mi.rcWork.Left, mi.rcWork.Bottom - mi.rcWork.Top);
+        }
+
         [DllImport("user32.dll")]
         public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
 
