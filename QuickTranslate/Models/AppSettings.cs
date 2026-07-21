@@ -148,7 +148,12 @@ namespace QuickTranslate.Models
         /// <summary>
         /// 自定义翻译提示词（留空使用默认，支持 {targetLang} 占位符）
         /// </summary>
-        public string CustomSystemPrompt { get; set; } = string.Empty;
+        public string CustomTranslationPrompt { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 自定义深度解析提示词（留空使用解析预设，支持 {targetLang} 占位符）
+        /// </summary>
+        public string CustomAnalysisPrompt { get; set; } = string.Empty;
 
         /// <summary>
         /// 是否在浏览器中启用翻译（关闭后避免与浏览器翻译插件冲突）

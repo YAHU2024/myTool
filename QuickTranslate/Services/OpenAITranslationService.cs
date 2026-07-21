@@ -118,9 +118,9 @@ namespace QuickTranslate.Services
             string prompt;
                 
             // 用户自定义 prompt（支持 {targetLang} 占位符）
-            if (!string.IsNullOrWhiteSpace(_settings.CustomSystemPrompt))
+            if (!string.IsNullOrWhiteSpace(_settings.CustomTranslationPrompt))
             {
-                prompt = _settings.CustomSystemPrompt.Replace("{targetLang}", targetLang);
+                prompt = _settings.CustomTranslationPrompt.Replace("{targetLang}", targetLang);
             }
             // 本地检测为代码/命令 → 简单解析 Prompt
             else if (contentType == ContentType.Code)
@@ -432,9 +432,9 @@ namespace QuickTranslate.Services
         private string BuildAnalysisPrompt(string targetLang)
         {
             // 用户自定义 Prompt 优先
-            if (!string.IsNullOrWhiteSpace(_settings.CustomSystemPrompt))
+            if (!string.IsNullOrWhiteSpace(_settings.CustomAnalysisPrompt))
             {
-                return _settings.CustomSystemPrompt.Replace("{targetLang}", targetLang);
+                return _settings.CustomAnalysisPrompt.Replace("{targetLang}", targetLang);
             }
 
             // 根据预设选择 Prompt

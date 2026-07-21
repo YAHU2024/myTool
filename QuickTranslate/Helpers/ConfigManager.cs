@@ -33,7 +33,21 @@ namespace QuickTranslate.Helpers
                     var json = File.ReadAllText(ConfigFilePath);
                     var settings = JsonSerializer.Deserialize<AppSettings>(json);
                     if (settings != null)
+                    {
+                        // 兼容旧版本共用的 CustomSystemPrompt，仅在新字段均未提供时迁移一次。
+                        using var document = JsonDocument.Parse(json);
+                        if (document.RootElement.TryGetProperty("CustomSystemPrompt", out var legacyPrompt) &&
+                            legacyPrompt.ValueKind == JsonValueKind.String &&
+                            !document.RootElement.TryGetProperty("CustomTranslationPrompt", out _) &&
+                            !document.RootElement.TryGetProperty("CustomAnalysisPrompt", out _))
+                        {
+                            var prompt = legacyPrompt.GetString() ?? string.Empty;
+                            settings.CustomTranslationPrompt = prompt;
+                            settings.CustomAnalysisPrompt = prompt;
+                            Save(settings);
+                        }
                         return settings;
+                    }
                 }
             }
             catch
