@@ -267,6 +267,11 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="10"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="10"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="80"/>
@@ -351,6 +356,20 @@
                              ToolTip="补充内置浏览器列表，多个用逗号分隔，如: 360se,qqbrowser,sogou"
                              Grid.ColumnSpan="2"
                              LostFocus="Input_LostFocus"/>
+
+                    <TextBlock Grid.Row="18" Grid.Column="0" Text="终端取词:" Style="{StaticResource LabelStyle}"/>
+                    <ComboBox x:Name="TerminalCopyModeComboBox" Grid.Row="18" Grid.Column="1"
+                              Style="{StaticResource DarkComboBox}" Grid.ColumnSpan="2"
+                              SelectionChanged="TerminalCopyMode_SelectionChanged"/>
+
+                    <TextBlock Grid.Row="20" Grid.Column="0" Text="终端复制键:" Style="{StaticResource LabelStyle}"/>
+                    <TextBox x:Name="TerminalCopyMappingsTextBox" Grid.Row="20" Grid.Column="1"
+                             Style="{StaticResource InputTextBox}"
+                             ToolTip="按进程配置复制键，例如 WindowsTerminal=Ctrl+Shift+C;conhost=Ctrl+C"
+                             Grid.ColumnSpan="2" LostFocus="Input_LostFocus"/>
+                    <TextBlock Grid.Row="21" Grid.Column="1" Grid.ColumnSpan="2"
+                               Text="智能模式默认仅为 Windows Terminal 使用 Ctrl+Shift+C；其他终端请显式配置。"
+                               Foreground="#666688" FontSize="11" Margin="0,2,0,0"/>
                 </Grid>
             </StackPanel>
         </Border>

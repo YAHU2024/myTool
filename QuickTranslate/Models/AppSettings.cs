@@ -170,6 +170,17 @@ namespace QuickTranslate.Models
         /// </summary>
         public string CustomBrowserProcesses { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Terminal text capture policy: Smart, Compatible, or Disabled.
+        /// </summary>
+        public string TerminalCopyMode { get; set; } = "Smart";
+
+        /// <summary>
+        /// Per-process terminal copy shortcuts, for example:
+        /// WindowsTerminal=Ctrl+Shift+C;conhost=Ctrl+C
+        /// </summary>
+        public string TerminalCopyMappings { get; set; } = string.Empty;
+
         // ==================== 日志配置 ====================
 
         /// <summary>

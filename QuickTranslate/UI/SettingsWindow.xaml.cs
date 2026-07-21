@@ -129,6 +129,17 @@ namespace QuickTranslate.UI
             // 浏览器翻译开关
             EnableInBrowserCheckBox.IsChecked = _settings.EnableInBrowser;
             CustomBrowserProcessesTextBox.Text = _settings.CustomBrowserProcesses;
+
+            TerminalCopyModeComboBox.ItemsSource = new[]
+            {
+                new { Value = "Smart", Name = "智能（推荐）" },
+                new { Value = "Compatible", Name = "兼容（统一使用 Ctrl+Shift+C）" },
+                new { Value = "Disabled", Name = "禁用终端取词" }
+            };
+            TerminalCopyModeComboBox.DisplayMemberPath = "Name";
+            TerminalCopyModeComboBox.SelectedValuePath = "Value";
+            TerminalCopyModeComboBox.SelectedValue = _settings.TerminalCopyMode;
+            TerminalCopyMappingsTextBox.Text = _settings.TerminalCopyMappings;
         }
 
         /// <summary>
@@ -295,6 +306,12 @@ namespace QuickTranslate.UI
             _isDirty = true;
         }
 
+        private void TerminalCopyMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isInitializing) return;
+            _isDirty = true;
+        }
+
         private void AnalysisPresetComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_isInitializing) return;
@@ -456,6 +473,9 @@ namespace QuickTranslate.UI
 
             _settings.EnableInBrowser = EnableInBrowserCheckBox.IsChecked ?? true;
             _settings.CustomBrowserProcesses = CustomBrowserProcessesTextBox.Text?.Trim() ?? string.Empty;
+            if (TerminalCopyModeComboBox.SelectedValue is string terminalMode)
+                _settings.TerminalCopyMode = terminalMode;
+            _settings.TerminalCopyMappings = TerminalCopyMappingsTextBox.Text?.Trim() ?? string.Empty;
 
             var autoStart = AutoStartCheckBox.IsChecked ?? false;
             if (autoStart != _origAutoStart)
