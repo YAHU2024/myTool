@@ -14,6 +14,9 @@ namespace QuickTranslate.UI
     public partial class RedDotWindow : Window
     {
         private readonly DispatcherTimer _autoHideTimer;
+        // Prevents the mouse-up position from immediately activating the dot.
+        // It becomes armed only after the pointer has actually left the dot.
+        private bool _hoverArmed;
 
         /// <summary>
         /// 红点在屏幕上的中心位置（用于悬浮窗定位）
@@ -49,6 +52,8 @@ namespace QuickTranslate.UI
             // 鼠标离开时开始计时
             MouseLeave += (s, e) =>
             {
+                if (IsVisible)
+                    _hoverArmed = true;
                 ResetAutoHideTimer();
             };
         }
@@ -59,6 +64,9 @@ namespace QuickTranslate.UI
         /// </summary>
         public void ShowAt(SelectionLocation location)
         {
+            // Every new dot starts disarmed. If the pointer is already over the
+            // fallback position, the first MouseEnter is intentionally ignored.
+            _hoverArmed = false;
             var physicalAnchor = location.IsValid ? location.EndPoint : location.FallbackPoint;
             var anchor = DpiHelper.PhysicalToLogical(physicalAnchor);
 
@@ -88,6 +96,14 @@ namespace QuickTranslate.UI
             Left = px / DpiHelper.GetScaleForPhysicalPoint(physicalAnchor).X;
             Top = py / DpiHelper.GetScaleForPhysicalPoint(physicalAnchor).Y;
             DotScreenPosition = new System.Windows.Point(Left + ActualWidth / 2, Top + ActualHeight / 2);
+            // If the pointer is already outside the newly shown window, the
+            // next enter is an intentional hover and may activate normally.
+            // Only suppress the enter when the window appeared under the pointer.
+            if (Win32Api.GetCursorPos(out var cursor))
+            {
+                _hoverArmed = !new Rect(px, py, physicalSize.Width, physicalSize.Height)
+                    .Contains(new Point(cursor.X, cursor.Y));
+            }
             ResetAutoHideTimer();
         }
 
@@ -97,6 +113,7 @@ namespace QuickTranslate.UI
         public new void Hide()
         {
             _autoHideTimer.Stop();
+            _hoverArmed = false;
             base.Hide();
         }
 
@@ -106,6 +123,13 @@ namespace QuickTranslate.UI
         private void Grid_MouseEnter(object sender, MouseEventArgs e)
         {
             _autoHideTimer.Stop();
+            if (!_hoverArmed)
+            {
+                // This can be the synthetic enter caused by showing the window
+                // underneath the mouse. Require a real leave/re-enter cycle.
+                ResetAutoHideTimer();
+                return;
+            }
             HoverTriggered?.Invoke();
         }
 
