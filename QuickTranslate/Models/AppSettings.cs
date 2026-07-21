@@ -54,6 +54,25 @@ namespace QuickTranslate.Models
         public string TargetLanguage { get; set; } = "简体中文";
 
         /// <summary>
+        /// 备选语言（源语言与目标语言相同时翻译为备选语言）
+        /// </summary>
+        public string FallbackLanguage { get; set; } = "English";
+
+        /// <summary>
+        /// 根据目标语言获取推荐的备选语言
+        /// </summary>
+        public static string GetRecommendedFallback(string targetLanguage)
+        {
+            return targetLanguage switch
+            {
+                "简体中文" or "繁体中文" => "English",
+                "English" => "简体中文",
+                "日本語" or "한국어" => "简体中文",
+                _ => "English"
+            };
+        }
+
+        /// <summary>
         /// 支持的语言列表
         /// </summary>
         public List<string> SupportedLanguages { get; set; } = new()
@@ -92,6 +111,11 @@ namespace QuickTranslate.Models
         // ==================== 第四期：体验优化 ====================
 
         /// <summary>
+        /// 是否启用快捷键
+        /// </summary>
+        public bool HotKeyEnabled { get; set; } = true;
+
+        /// <summary>
         /// 快捷键虚拟键码（默认 Q = 0x51）
         /// </summary>
         public byte HotKeyVK { get; set; } = 0x51;
@@ -117,9 +141,29 @@ namespace QuickTranslate.Models
         public bool AutoDetectLanguage { get; set; } = true;
 
         /// <summary>
+        /// 是否启用智能内容识别（代码/命令→解析，专有名词→解释，其余→翻译）
+        /// </summary>
+        public bool SmartContentType { get; set; } = false;
+
+        /// <summary>
         /// 自定义翻译提示词（留空使用默认，支持 {targetLang} 占位符）
         /// </summary>
         public string CustomSystemPrompt { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 是否在浏览器中启用翻译（关闭后避免与浏览器翻译插件冲突）
+        /// </summary>
+        public bool EnableInBrowser { get; set; } = true;
+
+        /// <summary>
+        /// 解析预设标识（general/learner/literary/business）
+        /// </summary>
+        public string AnalysisPreset { get; set; } = "general";
+
+        /// <summary>
+        /// 用户自定义的浏览器进程名（逗号分隔，补充内置列表）
+        /// </summary>
+        public string CustomBrowserProcesses { get; set; } = string.Empty;
 
         // ==================== 日志配置 ====================
 

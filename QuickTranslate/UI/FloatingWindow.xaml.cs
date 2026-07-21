@@ -1,7 +1,9 @@
 using System;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
+using QuickTranslate.Core;
 using QuickTranslate.Helpers;
 
 namespace QuickTranslate.UI
@@ -14,6 +16,12 @@ namespace QuickTranslate.UI
         private readonly DispatcherTimer _autoHideTimer;
         private bool _isMouseInside;
         private Point _anchorPosition; // 记录锚点，用于流式输出时重新定位
+        private string? _sourceText; // 存储原文，供解析使用
+
+        /// <summary>
+        /// 用户点击[解析]标签时触发，携带原文
+        /// </summary>
+        public event Action<string>? AnalysisRequested;
 
         public FloatingWindow()
         {
@@ -58,12 +66,58 @@ namespace QuickTranslate.UI
         }
 
         /// <summary>
+        /// 显示内容类型标签（翻译/命令解析/术语解释）
+        /// </summary>
+        public void ShowContentTypeLabel(ContentType contentType)
+        {
+            switch (contentType)
+            {
+                case ContentType.Code:
+                    ContentTypeLabel.Text = "[命令解析]";
+                    ContentTypeLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xA5, 0x00)); // 橙色
+                    ContentTypeLabel.Visibility = Visibility.Visible;
+                    ContentTypeLabel.ToolTip = null;
+                    break;
+                case ContentType.Term:
+                    ContentTypeLabel.Text = "[术语解释]";
+                    ContentTypeLabel.Foreground = new SolidColorBrush(Color.FromRgb(0x4E, 0xC9, 0xB0)); // 青绿
+                    ContentTypeLabel.Visibility = Visibility.Visible;
+                    ContentTypeLabel.ToolTip = null;
+                    break;
+                case ContentType.Analysis:
+                    ContentTypeLabel.Text = "[深度解析]";
+                    ContentTypeLabel.Foreground = new SolidColorBrush(Color.FromRgb(0x7C, 0x3A, 0xED)); // 紫色
+                    ContentTypeLabel.Visibility = Visibility.Visible;
+                    ContentTypeLabel.ToolTip = null;
+                    break;
+                default:
+                    ContentTypeLabel.Visibility = Visibility.Collapsed;
+                    ContentTypeLabel.ToolTip = null;
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// 显示可点击的[解析]标签（兆底场景）
+        /// </summary>
+        public void ShowAnalysisTag(string sourceText)
+        {
+            _sourceText = sourceText;
+            ContentTypeLabel.Text = "[解析]";
+            ContentTypeLabel.Foreground = new SolidColorBrush(Color.FromRgb(0x7C, 0x3A, 0xED)); // 紫色
+            ContentTypeLabel.Visibility = Visibility.Visible;
+            ContentTypeLabel.ToolTip = "点击用目标语言深度解析此文本";
+        }
+
+        /// <summary>
         /// 显示翻译结果
         /// </summary>
         public void ShowTranslation(string translation, Point anchorPosition)
         {
             TranslationTextBlock.Text = translation;
             _anchorPosition = anchorPosition;
+            _sourceText = null; // 重置原文
+            ContentTypeLabel.ToolTip = null; // 重置提示
 
             // ★ 根据锚点所在显示器的工作区动态限制 ScrollViewer 最大高度
             // SizeToContent="WidthAndHeight" 让 WPF 自动处理窗口尺寸
@@ -218,6 +272,17 @@ namespace QuickTranslate.UI
                 {
                     // 忽略剪贴板异常
                 }
+            }
+        }
+
+        /// <summary>
+        /// 点击[解析]标签触发深度解析
+        /// </summary>
+        private void ContentTypeLabel_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (ContentTypeLabel.Text == "[解析]" && _sourceText != null)
+            {
+                AnalysisRequested?.Invoke(_sourceText);
             }
         }
     }

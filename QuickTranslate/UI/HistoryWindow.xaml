@@ -161,10 +161,18 @@
                   Style="{StaticResource DarkDataGrid}"
                   MouseDoubleClick="HistoryDataGrid_MouseDoubleClick">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="时间" Binding="{Binding TranslatedAt, StringFormat=yyyy-MM-dd HH:mm:ss}" Width="160"/>
+                <DataGridTextColumn Header="时间" Binding="{Binding TranslatedAt, StringFormat=yyyy-MM-dd HH:mm:ss}" Width="150"/>
+                <DataGridTextColumn Header="类型" Binding="{Binding ContentType}" Width="70">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
                 <DataGridTextColumn Header="原文" Binding="{Binding SourceText}" Width="*"/>
-                <DataGridTextColumn Header="译文" Binding="{Binding Translation}" Width="*"/>
-                <DataGridTextColumn Header="语言对" Binding="{Binding TargetLanguage}" Width="100"/>
+                <DataGridTextColumn Header="译文/解析" Binding="{Binding Translation}" Width="*"/>
+                <DataGridTextColumn Header="目标语言" Binding="{Binding TargetLanguage}" Width="90"/>
+                <DataGridTextColumn Header="模型" Binding="{Binding ModelName}" Width="110"/>
             </DataGrid.Columns>
         </DataGrid>
 

@@ -127,6 +127,7 @@ public partial class App : Application
 
         // 初始化悬浮窗（单例复用）
         _floatingWindow = new FloatingWindow();
+        _floatingWindow.AnalysisRequested += OnAnalysisRequested;
 
         // 初始化红点窗口（单例复用）
         _redDotWindow = new RedDotWindow();
@@ -140,7 +141,10 @@ public partial class App : Application
         _keyboardHook.RequireCtrl = _settings.HotKeyRequireCtrl;
         _keyboardHook.RequireShift = _settings.HotKeyRequireShift;
         _keyboardHook.HotKeyPressed += OnHotKeyPressed;
-        _keyboardHook.Start();
+        if (_settings.HotKeyEnabled)
+        {
+            _keyboardHook.Start();
+        }
 
         // 启动文本选择检测器
         _selectionDetector = new SelectionDetector();
@@ -153,7 +157,11 @@ public partial class App : Application
         _trayIcon.SettingsRequested += OnSettingsRequested;
         _trayIcon.HistoryRequested += OnHistoryRequested;
         _trayIcon.PauseToggled += OnPauseToggled;
+        _trayIcon.HotKeyToggled += OnHotKeyToggled;
         _trayIcon.ExitRequested += OnExitRequested;
+
+        // 根据配置初始化快捷键开关状态
+        _trayIcon.SetHotKeyEnabled(_settings.HotKeyEnabled);
 
         // 根据配置更新托盘提示
         UpdateTrayToolTip();
@@ -242,6 +250,13 @@ public partial class App : Application
         if (_isTranslating || _translationService == null || _settings == null || _floatingWindow == null)
             return;
 
+        // 浏览器中禁用翻译：避免与浏览器翻译插件冲突
+        if (!_settings.EnableInBrowser && BrowserDetector.IsForegroundBrowser(_settings.CustomBrowserProcesses))
+        {
+            Logger.Debug("App", "热键触发但前台为浏览器，已跳过（浏览器翻译已禁用）");
+            return;
+        }
+
         _isTranslating = true;
 
         try
@@ -249,20 +264,24 @@ public partial class App : Application
             // 尝试 UIA 异步获取选中文本位置，降级为鼠标位置
             var anchorPosition = await GetSelectionAnchorPositionAsync();
 
-            // 先显示悬浮窗，提示正在翻译
-            _floatingWindow.ShowTranslation("翻译中...", anchorPosition);
-
             // 获取选中文本
             var selectedText = await ClipboardHelper.GetSelectedTextAsync();
 
             if (string.IsNullOrWhiteSpace(selectedText))
             {
-                _floatingWindow.UpdateTranslation("请先选中要翻译的文本");
+                // 先显示悬浮窗再更新提示
+                _floatingWindow.ShowTranslation("请先选中要翻译的文本", anchorPosition);
                 return;
             }
 
-            // 更新悬浮窗提示
-            _floatingWindow.UpdateTranslation("翻译中...");
+            // 智能内容检测（仅在 SmartContentType 开启时执行）—— 提前到翻译前
+            var contentType = _settings.SmartContentType
+                ? ContentTypeDetector.Detect(selectedText)
+                : ContentType.Translation;
+
+            // 显示悬浮窗 + 类型标签（与 "翻译中..." 同时出现）
+            _floatingWindow.ShowTranslation("翻译中...", anchorPosition);
+            _floatingWindow.ShowContentTypeLabel(contentType);
 
             // 流式翻译
             var targetLang = _settings.TargetLanguage;
@@ -273,10 +292,13 @@ public partial class App : Application
                 chunk => Dispatcher.BeginInvoke(() =>
                 {
                     _floatingWindow.UpdateTranslation(chunk);
-                }));
+                }),
+                contentType,
+                onFallbackUsed: () => Dispatcher.BeginInvoke(() =>
+                    _floatingWindow.ShowAnalysisTag(selectedText)));
 
             // 保存翻译历史
-            SaveTranslationHistory(selectedText, result, targetLang);
+            SaveTranslationHistory(selectedText, result, targetLang, contentType);
 
             Logger.Info("App", $"热键翻译完成: {result.Length} 字");
         }
@@ -308,6 +330,13 @@ public partial class App : Application
         {
             if (!IsTranslationEnabled) return;
             if (_redDotWindow == null) return;
+
+            // 浏览器中禁用翻译：避免与浏览器翻译插件冲突
+            if (_settings != null && !_settings.EnableInBrowser && BrowserDetector.IsForegroundBrowser(_settings.CustomBrowserProcesses))
+            {
+                Logger.Debug("App", "选词触发但前台为浏览器，已跳过（浏览器翻译已禁用）");
+                return;
+            }
 
             // 尝试获取选中文本（UIA 在后台 STA 线程执行，不阻塞 UI 线程）
             var selectedText = await ClipboardHelper.GetSelectedTextAsync();
@@ -376,8 +405,14 @@ public partial class App : Application
             var dotPosition = _redDotWindow?.DotScreenPosition
                 ?? new System.Windows.Point(0, 0);
 
-            // 显示悬浮窗
+            // 智能内容检测（仅在 SmartContentType 开启时执行）—— 提前到翻译前
+            var contentType = _settings.SmartContentType
+                ? ContentTypeDetector.Detect(textToTranslate)
+                : ContentType.Translation;
+
+            // 显示悬浮窗 + 类型标签（与 "翻译中..." 同时出现）
             _floatingWindow.ShowTranslation("翻译中...", dotPosition);
+            _floatingWindow.ShowContentTypeLabel(contentType);
 
             // 流式翻译
             var targetLang = _settings.TargetLanguage;
@@ -388,10 +423,13 @@ public partial class App : Application
                 chunk => Dispatcher.BeginInvoke(() =>
                 {
                     _floatingWindow.UpdateTranslation(chunk);
-                }));
+                }),
+                contentType,
+                onFallbackUsed: () => Dispatcher.BeginInvoke(() =>
+                    _floatingWindow.ShowAnalysisTag(textToTranslate)));
 
             // 保存翻译历史
-            SaveTranslationHistory(textToTranslate, result, targetLang);
+            SaveTranslationHistory(textToTranslate, result, targetLang, contentType);
 
             Logger.Info("App", $"红点翻译完成: {result.Length} 字");
         }
@@ -402,6 +440,52 @@ public partial class App : Application
             {
                 _floatingWindow.UpdateTranslation($"翻译失败: {ex.Message}");
             }
+        }
+        finally
+        {
+            _isTranslating = false;
+        }
+    }
+
+    /// <summary>
+    /// 用户点击[解析]标签触发深度解析
+    /// </summary>
+    private async void OnAnalysisRequested(string sourceText)
+    {
+        if (_isTranslating || _translationService == null || _settings == null || _floatingWindow == null)
+            return;
+
+        if (string.IsNullOrWhiteSpace(sourceText))
+            return;
+
+        _isTranslating = true;
+
+        try
+        {
+            // 显示解析中状态
+            _floatingWindow.UpdateTranslation("解析中...");
+            _floatingWindow.ShowContentTypeLabel(ContentType.Analysis);
+
+            var targetLang = _settings.TargetLanguage;
+
+            // 流式解析
+            var result = await _translationService.AnalyzeStreamingAsync(
+                sourceText,
+                targetLang,
+                chunk => Dispatcher.BeginInvoke(() =>
+                {
+                    _floatingWindow.UpdateTranslation(chunk);
+                }));
+
+            // 保存解析历史
+            SaveTranslationHistory(sourceText, result, targetLang, ContentType.Analysis);
+
+            Logger.Info("App", $"解析完成: {result.Length} 字");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("App", "解析出错", ex);
+            _floatingWindow.UpdateTranslation($"解析失败: {ex.Message}");
         }
         finally
         {
@@ -469,16 +553,25 @@ public partial class App : Application
     {
         _translationService?.UpdateSettings(settings);
 
-        // 更新快捷键配置
+        // 更新快捷键配置（后台线程执行，避免钩子 Stop/Start 阻塞 UI）
         if (_keyboardHook != null)
         {
-            _keyboardHook.Stop();
-            _keyboardHook.HotKey = settings.HotKeyVK;
-            _keyboardHook.RequireAlt = settings.HotKeyRequireAlt;
-            _keyboardHook.RequireCtrl = settings.HotKeyRequireCtrl;
-            _keyboardHook.RequireShift = settings.HotKeyRequireShift;
-            _keyboardHook.Start();
+            Task.Run(() =>
+            {
+                _keyboardHook.Stop();
+                _keyboardHook.HotKey = settings.HotKeyVK;
+                _keyboardHook.RequireAlt = settings.HotKeyRequireAlt;
+                _keyboardHook.RequireCtrl = settings.HotKeyRequireCtrl;
+                _keyboardHook.RequireShift = settings.HotKeyRequireShift;
+                if (settings.HotKeyEnabled)
+                {
+                    _keyboardHook.Start();
+                }
+            });
         }
+
+        // 同步托盘菜单快捷键开关状态
+        _trayIcon?.SetHotKeyEnabled(settings.HotKeyEnabled);
 
         UpdateTrayToolTip();
     }
@@ -500,6 +593,29 @@ public partial class App : Application
             _historyWindow.Closed += (s, e) => _historyWindow = null;
             _historyWindow.Show();
         });
+    }
+
+    /// <summary>
+    /// 快捷键开关切换
+    /// </summary>
+    private void OnHotKeyToggled(bool enabled)
+    {
+        _settings!.HotKeyEnabled = enabled;
+        ConfigManager.Save(_settings);
+
+        if (_keyboardHook != null)
+        {
+            if (enabled)
+            {
+                _keyboardHook.Start();
+                Logger.Info("App", "快捷键已启用");
+            }
+            else
+            {
+                _keyboardHook.Stop();
+                Logger.Info("App", "快捷键已禁用");
+            }
+        }
     }
 
     /// <summary>
@@ -533,7 +649,7 @@ public partial class App : Application
     /// <summary>
     /// 保存翻译历史记录
     /// </summary>
-    private void SaveTranslationHistory(string sourceText, string translation, string targetLang)
+    private void SaveTranslationHistory(string sourceText, string translation, string targetLang, ContentType contentType)
     {
         if (_dbContext == null || string.IsNullOrWhiteSpace(sourceText) || string.IsNullOrWhiteSpace(translation))
             return;
@@ -546,6 +662,8 @@ public partial class App : Application
                 Translation = translation.Trim(),
                 SourceLanguage = "auto",
                 TargetLanguage = targetLang,
+                ModelName = _settings.ModelName,
+                ContentType = contentType.ToString(),
                 TranslatedAt = DateTime.Now
             };
 

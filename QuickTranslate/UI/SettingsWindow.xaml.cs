@@ -24,11 +24,17 @@ namespace QuickTranslate.UI
         private bool _origTranslationEnabled = true;
         private bool _origAutoStart = false;
         private bool _origAutoDetectLanguage = true;
+        private bool _origSmartContentType = false;
+        private string _origFallbackLanguage = "English";
         private string _origCustomSystemPrompt = string.Empty;
+        private string _origAnalysisPreset = "general";
         private byte _origHotKeyVK = 0x51;
         private bool _origHotKeyRequireAlt = true;
         private bool _origHotKeyRequireCtrl = false;
         private bool _origHotKeyRequireShift = false;
+        private bool _origHotKeyEnabled = true;
+        private bool _origEnableInBrowser = true;
+        private string _origCustomBrowserProcesses = string.Empty;
 
         // 快捷键录入状态
         private bool _isCapturingHotKey = false;
@@ -55,11 +61,17 @@ namespace QuickTranslate.UI
             _origTranslationEnabled = _settings.TranslationEnabled;
             _origAutoStart = _settings.AutoStart;
             _origAutoDetectLanguage = _settings.AutoDetectLanguage;
+            _origSmartContentType = _settings.SmartContentType;
+            _origFallbackLanguage = _settings.FallbackLanguage;
             _origCustomSystemPrompt = _settings.CustomSystemPrompt;
+            _origAnalysisPreset = _settings.AnalysisPreset;
             _origHotKeyVK = _settings.HotKeyVK;
             _origHotKeyRequireAlt = _settings.HotKeyRequireAlt;
             _origHotKeyRequireCtrl = _settings.HotKeyRequireCtrl;
             _origHotKeyRequireShift = _settings.HotKeyRequireShift;
+            _origHotKeyEnabled = _settings.HotKeyEnabled;
+            _origEnableInBrowser = _settings.EnableInBrowser;
+            _origCustomBrowserProcesses = _settings.CustomBrowserProcesses;
         }
 
         private void LoadSettings()
@@ -82,14 +94,38 @@ namespace QuickTranslate.UI
             // 语言自动检测
             AutoDetectLanguageCheckBox.IsChecked = _settings.AutoDetectLanguage;
 
+            // 备选语言
+            FallbackLanguageComboBox.ItemsSource = _settings.SupportedLanguages;
+            FallbackLanguageComboBox.SelectedItem = _settings.FallbackLanguage;
+
+            // 智能内容识别
+            SmartContentTypeCheckBox.IsChecked = _settings.SmartContentType;
+
             // 自定义提示词
             CustomSystemPromptTextBox.Text = _settings.CustomSystemPrompt;
+
+            // 解析风格预设
+            AnalysisPresetComboBox.ItemsSource = new[]
+            {
+                new { Value = "general", Name = "通用解析" },
+                new { Value = "learner", Name = "语言学习" },
+                new { Value = "literary", Name = "文学赏析" },
+                new { Value = "business", Name = "商务场景" }
+            };
+            AnalysisPresetComboBox.DisplayMemberPath = "Name";
+            AnalysisPresetComboBox.SelectedValuePath = "Value";
+            AnalysisPresetComboBox.SelectedValue = _settings.AnalysisPreset;
 
             // 开机自启
             AutoStartCheckBox.IsChecked = _settings.AutoStart;
 
             // 快捷键显示
+            HotKeyEnabledCheckBox.IsChecked = _settings.HotKeyEnabled;
             UpdateHotKeyDisplay();
+
+            // 浏览器翻译开关
+            EnableInBrowserCheckBox.IsChecked = _settings.EnableInBrowser;
+            CustomBrowserProcessesTextBox.Text = _settings.CustomBrowserProcesses;
         }
 
         /// <summary>
@@ -237,6 +273,29 @@ namespace QuickTranslate.UI
         {
             if (_isInitializing) return;
             _isDirty = true;
+
+            // 智能默认：目标语言变化时自动推荐备选语言
+            var target = LanguageComboBox.SelectedItem?.ToString();
+            if (!string.IsNullOrEmpty(target))
+            {
+                var recommended = AppSettings.GetRecommendedFallback(target);
+                if (FallbackLanguageComboBox.SelectedItem?.ToString() != recommended)
+                {
+                    FallbackLanguageComboBox.SelectedItem = recommended;
+                }
+            }
+        }
+
+        private void FallbackLanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isInitializing) return;
+            _isDirty = true;
+        }
+
+        private void AnalysisPresetComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isInitializing) return;
+            _isDirty = true;
         }
 
         /// <summary>
@@ -248,6 +307,16 @@ namespace QuickTranslate.UI
                 return;
 
             var modelName = config.ModelName;
+
+            // 二次确认
+            var confirmResult = MessageBox.Show(
+                $"确定要删除模型配置 \"{modelName}\" 吗？",
+                "确认删除",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (confirmResult != MessageBoxResult.Yes)
+                return;
+
             _settings.SavedConfigs.Remove(config);
             DeleteConfigButton.IsEnabled = false;
             _isDirty = true;
@@ -369,7 +438,20 @@ namespace QuickTranslate.UI
 
             _settings.AutoDetectLanguage = AutoDetectLanguageCheckBox.IsChecked ?? true;
 
+            _settings.SmartContentType = SmartContentTypeCheckBox.IsChecked ?? false;
+
+            if (FallbackLanguageComboBox.SelectedItem != null)
+                _settings.FallbackLanguage = FallbackLanguageComboBox.SelectedItem.ToString() ?? _settings.FallbackLanguage;
+
             _settings.CustomSystemPrompt = CustomSystemPromptTextBox.Text?.Trim() ?? string.Empty;
+
+            if (AnalysisPresetComboBox.SelectedValue is string preset)
+                _settings.AnalysisPreset = preset;
+
+            _settings.HotKeyEnabled = HotKeyEnabledCheckBox.IsChecked ?? true;
+
+            _settings.EnableInBrowser = EnableInBrowserCheckBox.IsChecked ?? true;
+            _settings.CustomBrowserProcesses = CustomBrowserProcessesTextBox.Text?.Trim() ?? string.Empty;
 
             var autoStart = AutoStartCheckBox.IsChecked ?? false;
             if (autoStart != _origAutoStart)

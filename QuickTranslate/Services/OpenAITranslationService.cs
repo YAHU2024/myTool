@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using QuickTranslate.Core;
 using QuickTranslate.Helpers;
 using QuickTranslate.Models;
 
@@ -64,10 +66,10 @@ namespace QuickTranslate.Services
         /// <summary>
         /// 构建请求体（根据 API 类型动态添加参数）
         /// </summary>
-        private Dictionary<string, object> BuildRequestBody(string text, string targetLang, bool stream)
+        private Dictionary<string, object> BuildRequestBody(string text, string targetLang, bool stream, ContentType contentType, Action? onFallbackUsed = null)
         {
             // 构建 system prompt
-            var systemPrompt = BuildSystemPrompt(targetLang);
+            var systemPrompt = BuildSystemPrompt(targetLang, contentType, text, onFallbackUsed);
 
             var body = new Dictionary<string, object>
             {
@@ -96,38 +98,92 @@ namespace QuickTranslate.Services
         }
 
         /// <summary>
-        /// 构建 system prompt（支持自定义和语言自动检测）
+        /// 构建 system prompt（混合方案：本地检测类型 + 分层 Prompt）
         /// </summary>
-        private string BuildSystemPrompt(string targetLang)
+        private string BuildSystemPrompt(string targetLang, ContentType contentType, string sourceText, Action? onFallbackUsed = null)
         {
+            var fallback = _settings.FallbackLanguage;
+                
+            // 本地语言检测：判断原文是否已是目标语言
+            bool sourceMatchesTarget = _settings.AutoDetectLanguage && TextMatchesLanguage(sourceText, targetLang);
+            // 若原文匹配目标语言 → 使用备选语言作为实际翻译方向
+            string effectiveTarget = sourceMatchesTarget ? fallback : targetLang;
+        
+            // 通知调用方触发了兆底（用于显示[解析]标签）
+            if (sourceMatchesTarget)
+            {
+                onFallbackUsed?.Invoke();
+            }
+                
+            string prompt;
+                
             // 用户自定义 prompt（支持 {targetLang} 占位符）
             if (!string.IsNullOrWhiteSpace(_settings.CustomSystemPrompt))
             {
-                return _settings.CustomSystemPrompt.Replace("{targetLang}", targetLang);
+                prompt = _settings.CustomSystemPrompt.Replace("{targetLang}", targetLang);
             }
-
-            // 默认 prompt
-            if (_settings.AutoDetectLanguage)
+            // 本地检测为代码/命令 → 简单解析 Prompt
+            else if (contentType == ContentType.Code)
             {
-                // 语言自动检测：尊重用户在设置中配置的目标语言
-                return "You are a translator. First detect the language of the input text. " +
-                       "If the text is Chinese, translate it to English. " +
-                       $"If the text is NOT Chinese, translate it to {targetLang}. " +
-                       "IMPORTANT: You MUST always translate, even if the text is already in the target language. " +
-                       "Never output the original text unchanged. Output only the translation.";
+                prompt = $"You are a code assistant. Briefly explain what this code or command does in {targetLang}. " +
+                       "If it is a terminal command, explain each parameter. " +
+                       "Output only the explanation directly. No prefixes, no markdown headers.";
+            }
+            // 本地检测为纯英文术语 → 简单解释 Prompt
+            else if (contentType == ContentType.Term)
+            {
+                prompt = $"You are a knowledge assistant. Give a concise explanation of this term in {targetLang} (what it is, 1-2 sentences). " +
+                       "Output only the explanation directly. No prefixes, no markdown headers.";
+            }
+            // 翻译（默认 / Uncertain 兆底）
+            else if (_settings.SmartContentType)
+            {
+                prompt = $"You are a translator. Translate the input to {effectiveTarget}. " +
+                       $"Exception: if the input is clearly code or a shell command, briefly explain it in {targetLang} instead. " +
+                       "Output only the result directly. No prefixes, no labels.";
+            }
+            else if (_settings.AutoDetectLanguage)
+            {
+                prompt = $"You are a translator. Translate the input to {effectiveTarget}. " +
+                       "You MUST always translate. Never output the original text unchanged. Output only the translation.";
             }
             else
             {
-                // 固定翻译方向
-                return $"Translate to {targetLang}. If already in {targetLang}, translate to English. " +
-                       "IMPORTANT: You MUST always translate. Never output the original text unchanged. Output only the translation.";
+                prompt = $"Translate the input to {targetLang}. If already in {targetLang}, translate to {fallback}. " +
+                       "You MUST always translate. Never output the original text unchanged. Output only the translation.";
             }
+                
+            Logger.Debug("TranslationService", $"[Prompt] type={contentType}, target={effectiveTarget}, fallback={fallback}, prompt={prompt}");
+            return prompt;
+        }
+        
+        /// <summary>
+        /// 本地启发式判断原文是否匹配目标语言
+        /// 用于决定翻译方向，避免模型中不可靠的条件判断
+        /// </summary>
+        private static bool TextMatchesLanguage(string text, string lang)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+        
+            bool hasCJK = text.Any(c => c >= 0x4E00 && c <= 0x9FFF);
+            bool hasKana = text.Any(c => (c >= 0x3040 && c <= 0x309F) || (c >= 0x30A0 && c <= 0x30FF));
+            bool hasHangul = text.Any(c => c >= 0xAC00 && c <= 0xD7AF);
+        
+            return lang switch
+            {
+                "简体中文" or "繁体中文" => hasCJK && !hasKana,
+                "日本語" => hasKana,
+                "한국어" => hasHangul,
+                "English" => !hasCJK && !hasKana && !hasHangul,
+                _ => false
+            };
         }
 
         /// <summary>
         /// 流式翻译 - 通过 SSE 逐步返回翻译结果
         /// </summary>
-        public async Task<string> TranslateStreamingAsync(string text, string targetLang, Action<string> onChunk)
+        public async Task<string> TranslateStreamingAsync(string text, string targetLang, Action<string> onChunk, ContentType contentType = ContentType.Translation, Action? onFallbackUsed = null)
         {
             if (string.IsNullOrWhiteSpace(text))
                 return string.Empty;
@@ -135,8 +191,11 @@ namespace QuickTranslate.Services
             if (string.IsNullOrWhiteSpace(_settings.ApiKey))
                 throw new InvalidOperationException("请先在设置中配置 API Key");
 
+            var truncatedInput = text.Length > 80 ? text[..80] + "..." : text;
+            Logger.Info("TranslationService", $"[翻译] {contentType} | {targetLang} | \"{truncatedInput}\"");
+
             var url = $"{_settings.ApiBaseUrl.TrimEnd('/')}/chat/completions";
-            var requestBody = BuildRequestBody(text, targetLang, stream: true);
+            var requestBody = BuildRequestBody(text, targetLang, stream: true, contentType, onFallbackUsed);
 
             var jsonContent = JsonSerializer.Serialize(requestBody, JsonOptions);
             var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
@@ -209,13 +268,16 @@ namespace QuickTranslate.Services
                 }
             });
 
-            return fullResult.ToString().Trim();
+            var result = fullResult.ToString().Trim();
+            var truncatedResult = result.Length > 100 ? result[..100] + "..." : result;
+            Logger.Info("TranslationService", $"[结果] \"{truncatedResult}\"");
+            return result;
         }
 
         /// <summary>
         /// 非流式翻译（兼容旧逻辑）
         /// </summary>
-        public async Task<string> TranslateAsync(string text, string targetLang)
+        public async Task<string> TranslateAsync(string text, string targetLang, ContentType contentType = ContentType.Translation)
         {
             if (string.IsNullOrWhiteSpace(text))
                 return string.Empty;
@@ -223,8 +285,11 @@ namespace QuickTranslate.Services
             if (string.IsNullOrWhiteSpace(_settings.ApiKey))
                 throw new InvalidOperationException("请先在设置中配置 API Key");
 
+            var truncatedInput = text.Length > 80 ? text[..80] + "..." : text;
+            Logger.Info("TranslationService", $"[翻译-非流式] {contentType} | {targetLang} | \"{truncatedInput}\"");
+
             var url = $"{_settings.ApiBaseUrl.TrimEnd('/')}/chat/completions";
-            var requestBody = BuildRequestBody(text, targetLang, stream: false);
+            var requestBody = BuildRequestBody(text, targetLang, stream: false, contentType);
 
             var jsonContent = JsonSerializer.Serialize(requestBody, JsonOptions);
             var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
@@ -266,6 +331,135 @@ namespace QuickTranslate.Services
             {
                 throw new FormatException($"解析翻译结果失败: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 流式解析文本（用目标语言深度解析）
+        /// </summary>
+        public async Task<string> AnalyzeStreamingAsync(string text, string targetLang, Action<string> onChunk)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+                throw new InvalidOperationException("请先在设置中配置 API Key");
+
+            var truncatedInput = text.Length > 80 ? text[..80] + "..." : text;
+            Logger.Info("TranslationService", $"[解析] {_settings.AnalysisPreset} | {targetLang} | \"{truncatedInput}\"");
+
+            // 构建解析 Prompt
+            var systemPrompt = BuildAnalysisPrompt(targetLang);
+
+            var url = $"{_settings.ApiBaseUrl.TrimEnd('/')}/chat/completions";
+            var body = new Dictionary<string, object>
+            {
+                ["model"] = _settings.ModelName,
+                ["messages"] = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = text }
+                },
+                ["temperature"] = 0.3,
+                ["stream"] = true
+            };
+
+            if (IsZhipuApi())
+                body["thinking"] = new { type = "disabled" };
+            else if (IsSiliconFlowApi())
+                body["enable_thinking"] = false;
+
+            var jsonContent = JsonSerializer.Serialize(body, JsonOptions);
+            var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+            var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Content = httpContent;
+            request.Headers.Add("Authorization", $"Bearer {_settings.ApiKey}");
+
+            var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync();
+                throw new HttpRequestException($"解析请求失败 ({(int)response.StatusCode}): {errorBody}");
+            }
+
+            var fullResult = new StringBuilder();
+
+            await Task.Run(async () =>
+            {
+                using var stream = await response.Content.ReadAsStreamAsync();
+                using var reader = new StreamReader(stream);
+
+                while (!reader.EndOfStream)
+                {
+                    var line = await reader.ReadLineAsync();
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    if (!line.StartsWith("data: ")) continue;
+
+                    var data = line.Substring(6);
+                    if (data == "[DONE]") break;
+
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(data);
+                        var choices = doc.RootElement.GetProperty("choices");
+                        if (choices.GetArrayLength() == 0) continue;
+
+                        var delta = choices[0].GetProperty("delta");
+                        if (delta.TryGetProperty("content", out var contentElement))
+                        {
+                            var chunk = contentElement.GetString();
+                            if (!string.IsNullOrEmpty(chunk))
+                            {
+                                fullResult.Append(chunk);
+                                onChunk?.Invoke(fullResult.ToString());
+                            }
+                        }
+                    }
+                    catch (JsonException) { }
+                }
+            });
+
+            var result = fullResult.ToString().Trim();
+            var truncatedResult = result.Length > 100 ? result[..100] + "..." : result;
+            Logger.Info("TranslationService", $"[解析结果] \"{truncatedResult}\"");
+            return result;
+        }
+
+        /// <summary>
+        /// 构建解析 Prompt（根据预设或自定义）
+        /// </summary>
+        private string BuildAnalysisPrompt(string targetLang)
+        {
+            // 用户自定义 Prompt 优先
+            if (!string.IsNullOrWhiteSpace(_settings.CustomSystemPrompt))
+            {
+                return _settings.CustomSystemPrompt.Replace("{targetLang}", targetLang);
+            }
+
+            // 根据预设选择 Prompt
+            return _settings.AnalysisPreset switch
+            {
+                "learner" => $"You are a language tutor. Analyze the following text in {targetLang}. " +
+                    "Provide: 1) Word-by-word breakdown, 2) Grammar explanation, " +
+                    "3) Common usage patterns, 4) Pronunciation tips if applicable. " +
+                    "Output only the analysis directly. No prefixes, no markdown headers.",
+
+                "literary" => $"You are a literary scholar. Analyze the following text in {targetLang}. " +
+                    "Provide: 1) Rhetorical devices used, 2) Literary imagery and symbolism, " +
+                    "3) Cultural and historical context, 4) Stylistic features. " +
+                    "Output only the analysis directly. No prefixes, no markdown headers.",
+
+                "business" => $"You are a business communication expert. Analyze the following text in {targetLang}. " +
+                    "Provide: 1) Core business meaning, 2) Industry terminology, " +
+                    "3) Action items or implications, 4) Professional context. " +
+                    "Output only the analysis directly. No prefixes, no markdown headers.",
+
+                _ => $"You are a knowledgeable analyst. Analyze the following text in {targetLang}. " +
+                    "Provide: 1) Core meaning and key points, 2) Grammar and structure analysis, " +
+                    "3) Context and background information. " +
+                    "Output only the analysis directly. No prefixes, no markdown headers."
+            };
         }
     }
 }
