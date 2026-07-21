@@ -553,18 +553,21 @@ public partial class App : Application
     {
         _translationService?.UpdateSettings(settings);
 
-        // 更新快捷键配置
+        // 更新快捷键配置（后台线程执行，避免钩子 Stop/Start 阻塞 UI）
         if (_keyboardHook != null)
         {
-            _keyboardHook.Stop();
-            _keyboardHook.HotKey = settings.HotKeyVK;
-            _keyboardHook.RequireAlt = settings.HotKeyRequireAlt;
-            _keyboardHook.RequireCtrl = settings.HotKeyRequireCtrl;
-            _keyboardHook.RequireShift = settings.HotKeyRequireShift;
-            if (settings.HotKeyEnabled)
+            Task.Run(() =>
             {
-                _keyboardHook.Start();
-            }
+                _keyboardHook.Stop();
+                _keyboardHook.HotKey = settings.HotKeyVK;
+                _keyboardHook.RequireAlt = settings.HotKeyRequireAlt;
+                _keyboardHook.RequireCtrl = settings.HotKeyRequireCtrl;
+                _keyboardHook.RequireShift = settings.HotKeyRequireShift;
+                if (settings.HotKeyEnabled)
+                {
+                    _keyboardHook.Start();
+                }
+            });
         }
 
         // 同步托盘菜单快捷键开关状态
