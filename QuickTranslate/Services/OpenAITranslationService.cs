@@ -100,7 +100,7 @@ namespace QuickTranslate.Services
         /// <summary>
         /// 构建 system prompt（混合方案：本地检测类型 + 分层 Prompt）
         /// </summary>
-        private string BuildSystemPrompt(string targetLang, ContentType contentType, string sourceText, Action? onFallbackUsed = null)
+        internal string BuildSystemPrompt(string targetLang, ContentType contentType, string sourceText, Action? onFallbackUsed = null)
         {
             var fallback = _settings.FallbackLanguage;
                 
@@ -144,7 +144,7 @@ namespace QuickTranslate.Services
             else if (_settings.SmartContentType)
             {
                 prompt = $"You are a translator. Translate the input to {effectiveTarget}. " +
-                       $"Exception: if the input is clearly code or a shell command, briefly explain it in {targetLang} instead. " +
+                       $"If the input is code, explain it briefly in {targetLang} instead. " +
                        "Output only the result directly. No prefixes, no labels.";
             }
             else if (_settings.AutoDetectLanguage)
