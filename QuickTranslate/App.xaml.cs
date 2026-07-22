@@ -131,7 +131,10 @@ public partial class App : Application
 
         // 初始化悬浮窗（单例复用）
         _floatingWindow = new FloatingWindow();
-        _floatingWindow.AnalysisRequested += OnAnalysisRequested;
+        _floatingWindow.ModeRequested += OnModeRequested;
+        _floatingWindow.RefreshRequested += OnRefreshRequested;
+        _floatingWindow.DismissRequested += OnDismissRequested;
+        _floatingWindow.ScrollStateChanged += OnScrollStateChanged;
 
         // 初始化红点窗口（单例复用）
         _redDotWindow = new RedDotWindow();
@@ -289,15 +292,17 @@ public partial class App : Application
             }
 
             // 智能内容检测（仅在 SmartContentType 开启时执行）—— 提前到翻译前
-            var contentType = _settings.SmartContentType
-                ? ContentTypeDetector.Detect(selectedText)
-                : ContentType.Translation;
+            var detection = _settings.SmartContentType
+                ? ContentTypeDetector.DetectDetailed(selectedText)
+                : null;
+            var contentType = detection?.ContentType ?? ContentType.Translation;
 
             await StartSessionRequestAsync(
                 selectedText,
                 contentType,
                 floatingAnchor.Value,
-                "热键翻译");
+                "热键翻译",
+                detection);
         }
         catch (Exception ex)
         {
@@ -413,15 +418,17 @@ public partial class App : Application
             }
 
             // 智能内容检测（仅在 SmartContentType 开启时执行）—— 提前到翻译前
-            var contentType = _settings.SmartContentType
-                ? ContentTypeDetector.Detect(textToTranslate)
-                : ContentType.Translation;
+            var detection = _settings.SmartContentType
+                ? ContentTypeDetector.DetectDetailed(textToTranslate)
+                : null;
+            var contentType = detection?.ContentType ?? ContentType.Translation;
 
             await StartSessionRequestAsync(
                 textToTranslate,
                 contentType,
                 floatingAnchor.Value,
-                "红点翻译");
+                "红点翻译",
+                detection);
         }
         catch (Exception ex)
         {
@@ -432,33 +439,58 @@ public partial class App : Application
         }
     }
 
-    /// <summary>
-    /// 用户点击[解析]标签触发深度解析
-    /// </summary>
-    private async void OnAnalysisRequested(string sourceText)
+    private async void OnModeRequested(ContentType mode)
     {
-        if (_translationService == null || _settings == null || _floatingWindow == null)
+        if (_floatingWindow is null)
             return;
 
-        if (string.IsNullOrWhiteSpace(sourceText))
+        _floatingWindow.ClearDetectionHint();
+        await ExecuteSessionTransitionAsync(_resultSessions.SwitchMode(mode), "模式切换");
+    }
+
+    private async void OnRefreshRequested()
+    {
+        if (_floatingWindow is null)
             return;
 
-        var transition = _resultSessions.CurrentSession?.SourceText == sourceText
-            ? _resultSessions.SwitchMode(ContentType.Analysis)
-            : _resultSessions.StartSession(
-                sourceText,
-                _floatingWindow.CurrentAnchor,
-                ContentType.Analysis);
-        await ExecuteSessionTransitionAsync(transition, "解析");
+        _floatingWindow.ClearDetectionHint();
+        await ExecuteSessionTransitionAsync(
+            _resultSessions.RefreshMode(),
+            "重新生成",
+            TranslationCacheReadMode.BypassCache);
+    }
+
+    private void OnDismissRequested()
+    {
+        _resultSessions.DismissSession();
+        CancelActiveTranslationRequest();
+        _floatingWindow?.ClearDetectionHint();
+        _floatingWindow?.ResetPin();
+        _floatingWindow?.Hide();
+    }
+
+    private void OnScrollStateChanged(
+        Guid sessionId,
+        ContentType mode,
+        double scrollOffset,
+        bool autoScrollEnabled)
+    {
+        _resultSessions.TrySetScrollState(
+            sessionId,
+            mode,
+            scrollOffset,
+            autoScrollEnabled);
     }
 
     private Task StartSessionRequestAsync(
         string text,
         ContentType contentType,
         FloatingWindowAnchor floatingAnchor,
-        string operationName)
+        string operationName,
+        DetectionResult? detection = null)
     {
-        var transition = _resultSessions.StartSession(text, floatingAnchor, contentType);
+        var transition = _resultSessions.StartSession(text, floatingAnchor, contentType, detection);
+        _floatingWindow?.ShowDetectionHint(detection);
         return ExecuteSessionTransitionAsync(transition, operationName);
     }
 
@@ -472,6 +504,7 @@ public partial class App : Application
 
         if (transition.Kind == FloatingResultSessionTransitionKind.RestoredCompleted)
         {
+            _translationRequests.Cancel();
             var state = transition.Session.ModeStates[transition.Session.ActiveMode];
             var presentationId = _floatingWindow.BeginReplacement(_resultSessions.CurrentPresentationId);
             await ShowRequestResultAsync(
@@ -479,6 +512,10 @@ public partial class App : Application
                 state.RawText,
                 transition.Session.Anchor ?? _floatingWindow.CurrentAnchor,
                 presentationId);
+            _floatingWindow.SetSessionView(
+                transition.Session.SessionId,
+                transition.Session.ActiveMode,
+                state);
             return;
         }
 
@@ -490,6 +527,10 @@ public partial class App : Application
         }
 
         var visualPresentationId = _floatingWindow.BeginReplacement(identity.PresentationId);
+        _floatingWindow.SetSessionView(
+            transition.Session.SessionId,
+            transition.Session.ActiveMode,
+            transition.Session.ModeStates[transition.Session.ActiveMode]);
         await ExecuteRequestAsync(
             transition.Session.SourceText,
             identity.Mode,
@@ -550,6 +591,7 @@ public partial class App : Application
                     cachedResult,
                     floatingAnchor,
                     presentationId);
+                UpdateFloatingSessionView();
                 SaveTranslationHistory(
                     request.Text,
                     cachedResult,
@@ -588,6 +630,8 @@ public partial class App : Application
                 !_resultSessions.TryComplete(sessionIdentity, result))
                 return;
 
+            UpdateFloatingSessionView();
+
             // Render only if this request still owns the visible presentation.
             if (_floatingWindow.IsPresentationCurrent(presentationId))
                 _floatingWindow.UpdateTranslation(presentationId, result);
@@ -612,6 +656,7 @@ public partial class App : Application
                 _resultSessions.TryFail(sessionIdentity, ex.Message) &&
                 _floatingWindow.IsPresentationCurrent(presentationId))
             {
+                UpdateFloatingSessionView();
                 _floatingWindow.UpdateTranslation(
                     presentationId,
                     $"{operationName}失败: {ex.Message}");
@@ -621,6 +666,17 @@ public partial class App : Application
         {
             CompleteTranslationRequest(requestScope);
         }
+    }
+
+    private void UpdateFloatingSessionView()
+    {
+        if (_floatingWindow is null || _resultSessions.CurrentSession is not { } session)
+            return;
+
+        _floatingWindow.SetSessionView(
+            session.SessionId,
+            session.ActiveMode,
+            session.ModeStates[session.ActiveMode]);
     }
 
     private async Task ShowMessageWithoutReplacingSessionAsync(
@@ -658,6 +714,7 @@ public partial class App : Application
         FloatingWindowAnchor floatingAnchor,
         long presentationId)
     {
+        _floatingWindow!.SetLoading(true);
         var loadingText = request.Kind == TranslationRequestKind.Analysis
             ? "解析中..."
             : "翻译中...";
@@ -675,6 +732,7 @@ public partial class App : Application
         FloatingWindowAnchor floatingAnchor,
         long presentationId)
     {
+        _floatingWindow!.SetLoading(false);
         return _floatingWindow!.ShowTranslationAsync(
             presentationId,
             result,

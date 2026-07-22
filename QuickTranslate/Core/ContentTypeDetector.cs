@@ -23,8 +23,15 @@ namespace QuickTranslate.Core
         Analysis
     }
 
+    internal enum DetectionConfidence
+    {
+        High,
+        Low
+    }
+
     internal sealed record DetectionResult(
         ContentType ContentType,
+        DetectionConfidence Confidence,
         int Score,
         int Threshold,
         IReadOnlyList<string> MatchedFeatures,
@@ -145,8 +152,10 @@ namespace QuickTranslate.Core
             DetectionResult Finish(ContentType contentType, int score, int threshold)
             {
                 stopwatch.Stop();
+                var confidence = GetConfidence(contentType, score, threshold, features);
                 return new DetectionResult(
                     contentType,
+                    confidence,
                     score,
                     threshold,
                     features.AsReadOnly(),
@@ -205,12 +214,41 @@ namespace QuickTranslate.Core
             return Finish(ContentType.Translation, score, threshold);
         }
 
+        private static DetectionConfidence GetConfidence(
+            ContentType contentType,
+            int score,
+            int threshold,
+            IReadOnlyCollection<string> features)
+        {
+            if (contentType == ContentType.Translation)
+                return DetectionConfidence.High;
+
+            if (contentType == ContentType.Term)
+            {
+                return features.Contains("technical-definition")
+                    ? DetectionConfidence.High
+                    : DetectionConfidence.Low;
+            }
+
+            if (contentType == ContentType.Code && features.Any(feature => feature is
+                "fenced-code" or "url" or "json-valid" or "json-large-candidate" or
+                "sql-block" or "yaml-structure" or "section-assignments" or
+                "xml-structure" or "environment-assignments"))
+            {
+                return DetectionConfidence.High;
+            }
+
+            return score > threshold
+                ? DetectionConfidence.High
+                : DetectionConfidence.Low;
+        }
+
         internal static string FormatDiagnostic(DetectionResult result)
         {
             var features = result.MatchedFeatures.Count == 0
                 ? "none"
                 : string.Join(',', result.MatchedFeatures);
-            return $"type={result.ContentType}, score={result.Score}, threshold={result.Threshold}, " +
+            return $"type={result.ContentType}, confidence={result.Confidence}, score={result.Score}, threshold={result.Threshold}, " +
                    $"chars={result.CharacterCount}, elapsedMs={result.Elapsed.TotalMilliseconds:F3}, features=[{features}]";
         }
 

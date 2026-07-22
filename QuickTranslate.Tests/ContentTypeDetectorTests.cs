@@ -146,11 +146,42 @@ public sealed class ContentTypeDetectorTests
         var result = ContentTypeDetector.DetectDetailed(input);
 
         Assert.Equal(ContentType.Code, result.ContentType);
+        Assert.Equal(DetectionConfidence.Low, result.Confidence);
         Assert.True(result.Score >= result.Threshold);
         Assert.True(result.Threshold > 0);
         Assert.NotEmpty(result.MatchedFeatures);
         Assert.Equal(input.Length, result.CharacterCount);
         Assert.True(result.Elapsed >= TimeSpan.Zero);
+    }
+
+    [Theory]
+    [InlineData("```csharp\nvar answer = 42;\n```")]
+    [InlineData("{\"name\":\"quick-translate\"}")]
+    [InlineData("SELECT id FROM users WHERE active = 1;")]
+    public void DetectDetailed_ReturnsHighConfidence_ForDeterministicCode(string input)
+    {
+        var result = ContentTypeDetector.DetectDetailed(input);
+
+        Assert.Equal(ContentType.Code, result.ContentType);
+        Assert.Equal(DetectionConfidence.High, result.Confidence);
+    }
+
+    [Fact]
+    public void DetectDetailed_ReturnsLowConfidence_ForOrdinaryTermRule()
+    {
+        var result = ContentTypeDetector.DetectDetailed("Kubernetes");
+
+        Assert.Equal(ContentType.Term, result.ContentType);
+        Assert.Equal(DetectionConfidence.Low, result.Confidence);
+    }
+
+    [Fact]
+    public void DetectDetailed_ReturnsHighConfidence_ForStructuredTermDefinition()
+    {
+        var result = ContentTypeDetector.DetectDetailed("Kubernetes\n是一个容器编排平台");
+
+        Assert.Equal(ContentType.Term, result.ContentType);
+        Assert.Equal(DetectionConfidence.High, result.Confidence);
     }
 
     [Fact]
