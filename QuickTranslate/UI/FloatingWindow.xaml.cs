@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using QuickTranslate.Core;
 using QuickTranslate.Helpers;
@@ -13,10 +14,14 @@ namespace QuickTranslate.UI
     /// </summary>
     public partial class FloatingWindow : Window
     {
+        private const double PlacementGapDip = 12;
         private readonly DispatcherTimer _autoHideTimer;
+        private readonly LatestPresentationCoordinator _presentations = new();
         private bool _isMouseInside;
-        private Point _anchorPosition; // 记录锚点，用于流式输出时重新定位
+        private FloatingWindowAnchor _anchor;
+        private bool _hasAnchor;
         private string? _sourceText; // 存储原文，供解析使用
+        private bool _placeAbove;
 
         /// <summary>
         /// 用户点击[解析]标签时触发，携带原文
@@ -109,39 +114,96 @@ namespace QuickTranslate.UI
             ContentTypeLabel.ToolTip = "点击用目标语言深度解析此文本";
         }
 
-        /// <summary>
-        /// 显示翻译结果
-        /// </summary>
-        public void ShowTranslation(string translation, Point anchorPosition)
+        internal FloatingWindowAnchor CurrentAnchor => _anchor;
+
+        public long BeginReplacement()
         {
+            var presentationId = _presentations.Begin();
+            _autoHideTimer.Stop();
+            _isMouseInside = false;
+            Opacity = 0;
+            IsHitTestVisible = false;
+            Hide();
+            TranslationTextBlock.Text = string.Empty;
+            ContentTypeLabel.Visibility = Visibility.Collapsed;
+            ContentTypeLabel.ToolTip = null;
+            _sourceText = null;
+            return presentationId;
+        }
+
+        public bool IsPresentationCurrent(long presentationId) =>
+            _presentations.IsCurrent(presentationId);
+
+        /// <summary>
+        /// Prepares a complete view while transparent, then reveals only the latest
+        /// presentation after WPF has committed a composition frame.
+        /// </summary>
+        internal async Task<bool> ShowTranslationAsync(
+            long presentationId,
+            string translation,
+            FloatingWindowAnchor anchor,
+            ContentType contentType,
+            string? analysisSourceText = null)
+        {
+            if (!IsPresentationCurrent(presentationId))
+                return false;
+
             TranslationTextBlock.Text = translation;
-            _anchorPosition = anchorPosition;
+            _anchor = anchor;
+            _hasAnchor = true;
             _sourceText = null; // 重置原文
             ContentTypeLabel.ToolTip = null; // 重置提示
+            ContentTypeLabel.Visibility = Visibility.Collapsed;
+            ShowContentTypeLabel(contentType);
+            if (!string.IsNullOrEmpty(analysisSourceText))
+                ShowAnalysisTag(analysisSourceText);
 
-            // ★ 根据锚点所在显示器的工作区动态限制 ScrollViewer 最大高度
-            // SizeToContent="WidthAndHeight" 让 WPF 自动处理窗口尺寸
-            // 只需约束 ScrollViewer.MaxHeight 防止窗口超出屏幕
-            var workArea = Win32Api.GetWorkAreaAtPoint(anchorPosition);
-            // Border chrome: Margin(4*2=8) + Padding(10*2=20) = 28px
-            double chromeHeight = 28;
-            double maxWindowH = (workArea.Bottom - workArea.Top) - 80;
-            double scrollerMaxH = maxWindowH - chromeHeight;
-            TranslationScroller.MaxHeight = Math.Max(scrollerMaxH, 80);
+            // UIA and mouse coordinates are physical screen pixels. Keep the same
+            // contract through layout and use the target monitor's actual DPI.
+            var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(anchor.PreferredPoint);
+            var scale = DpiHelper.GetScaleForPhysicalPoint(anchor.PreferredPoint);
+            var exclusionBounds = anchor.GetEffectiveExclusionBounds(scale);
+            const double chromeHeightDip = 28;
+            var gap = PlacementGapDip * scale.Y;
+            var minimumWindowHeight = (80 + chromeHeightDip) * scale.Y;
+            _placeAbove = FloatingWindowPlacement.ShouldPlaceAbove(
+                exclusionBounds,
+                workArea,
+                minimumWindowHeight,
+                gap);
+            var availableHeight = _placeAbove
+                ? exclusionBounds.Top - gap - workArea.Top
+                : workArea.Bottom - exclusionBounds.Bottom - gap;
+            TranslationScroller.MaxHeight = Math.Max(
+                availableHeight / scale.Y - chromeHeightDip,
+                80);
 
-            // 先 Show 以获取 ActualWidth/ActualHeight，再精确定位
+            Opacity = 0;
+            IsHitTestVisible = false;
             Show();
             UpdateLayout();
-            PositionBelowAnchor(anchorPosition);
-            Activate();
+            PositionWindowAtAnchor();
+
+            await WaitForCompositionFrameAsync();
+            if (!IsPresentationCurrent(presentationId))
+                return false;
+
+            UpdateLayout();
+            PositionWindowAtAnchor();
+            Opacity = 1;
+            IsHitTestVisible = true;
             ResetAutoHideTimer();
+            return true;
         }
 
         /// <summary>
         /// 更新译文（用于流式输出）
         /// </summary>
-        public void UpdateTranslation(string translation)
+        public void UpdateTranslation(long presentationId, string translation)
         {
+            if (!IsPresentationCurrent(presentationId))
+                return;
+
             TranslationTextBlock.Text = translation;
 
             // ★ 流式输出时自动滚动到底部，确保最新译文可见
@@ -152,88 +214,72 @@ namespace QuickTranslate.UI
 
             // ★ 内容增长后重新布局，然后检查边界
             UpdateLayout();
-            ClampToWorkArea();
+            PositionWindowAtAnchor();
 
             ResetAutoHideTimer();
         }
 
         /// <summary>
-        /// 在锚点正下方水平居中定位窗口（锚点通常为红点中心）
-        /// 支持6屏异现及屏幕边缘避让
+        /// 使用物理屏幕坐标将窗口固定在锚点上方或下方，并约束在目标工作区内。
         /// </summary>
-        private void PositionBelowAnchor(Point anchorCenter)
+        private void PositionWindowAtAnchor()
         {
-            double gap = 8;  // 锚点与悬浮窗间距
-            double w = ActualWidth;
-            double h = ActualHeight;
+            if (!_hasAnchor || ActualWidth <= 0 || ActualHeight <= 0)
+                return;
 
-            // 水平居中于锚点下方
-            double left = anchorCenter.X - w / 2;
-            double top = anchorCenter.Y + gap;
+            var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(_anchor.PreferredPoint);
+            if (workArea.IsEmpty)
+                return;
 
-            // 获取锚点所在显示器的工作区
-            var workArea = Win32Api.GetWorkAreaAtPoint(anchorCenter);
+            var physicalSize = DpiHelper.LogicalSizeToPhysical(
+                new Size(ActualWidth, ActualHeight),
+                _anchor.PreferredPoint);
+            var scale = DpiHelper.GetScaleForPhysicalPoint(_anchor.PreferredPoint);
+            var gap = PlacementGapDip * scale.Y;
+            var exclusionBounds = _anchor.GetEffectiveExclusionBounds(scale);
+            var rect = FloatingWindowPlacement.Calculate(
+                _anchor.PreferredPoint,
+                exclusionBounds,
+                physicalSize,
+                workArea,
+                _placeAbove,
+                gap);
 
-            // 右边界避让
-            if (left + w > workArea.Right)
-                left = workArea.Right - w;
-            // 左边界避让
-            if (left < workArea.Left)
-                left = workArea.Left;
-            // 底部边界：不够空间则显示在锚点上方
-            if (top + h > workArea.Bottom)
-                top = anchorCenter.Y - gap - h;
-            // 顶部边界
-            if (top < workArea.Top)
-                top = workArea.Top;
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero)
+                return;
 
-            Left = left;
-            Top = top;
+            Win32Api.SetWindowPos(
+                hwnd,
+                IntPtr.Zero,
+                (int)Math.Round(rect.Left),
+                (int)Math.Round(rect.Top),
+                (int)Math.Round(rect.Width),
+                (int)Math.Round(rect.Height),
+                0x0004 | 0x0010); // SWP_NOZORDER | SWP_NOACTIVATE
         }
 
-        /// <summary>
-        /// 检查并约束窗口在工作区内（流式输出导致窗口增长后调用）
-        /// </summary>
-        private void ClampToWorkArea()
+        private static async Task WaitForCompositionFrameAsync()
         {
-            if (_anchorPosition == default) return;
-
-            var workArea = Win32Api.GetWorkAreaAtPoint(_anchorPosition);
-            double w = ActualWidth;
-            double h = ActualHeight;
-            double newLeft = Left;
-            double newTop = Top;
-            bool needMove = false;
-
-            // 底部超出：上移窗口
-            if (newTop + h > workArea.Bottom)
+            var completion = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            EventHandler? handler = null;
+            handler = (_, _) =>
             {
-                newTop = workArea.Bottom - h;
-                needMove = true;
+                CompositionTarget.Rendering -= handler;
+                completion.TrySetResult(true);
+            };
+            CompositionTarget.Rendering += handler;
+            try
+            {
+                // Rendering normally arrives on the next composition pass. The
+                // timeout prevents a superseded hidden window from waiting forever
+                // if WPF suppresses that pass.
+                await Task.WhenAny(completion.Task, Task.Delay(100));
             }
-            // 顶部超出：下移窗口
-            if (newTop < workArea.Top)
+            finally
             {
-                newTop = workArea.Top;
-                needMove = true;
-            }
-            // 右侧超出：左移窗口
-            if (newLeft + w > workArea.Right)
-            {
-                newLeft = workArea.Right - w;
-                needMove = true;
-            }
-            // 左侧超出：右移窗口
-            if (newLeft < workArea.Left)
-            {
-                newLeft = workArea.Left;
-                needMove = true;
-            }
-
-            if (needMove)
-            {
-                Left = newLeft;
-                Top = newTop;
+                CompositionTarget.Rendering -= handler;
             }
         }
 

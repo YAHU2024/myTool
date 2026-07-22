@@ -27,10 +27,13 @@ public partial class App : Application
     private SettingsWindow? _settingsWindow;
     private HistoryWindow? _historyWindow;
     private TranslationDbContext? _dbContext;
-    private bool _isTranslating;
+    private readonly LatestRequestCoordinator _translationRequests = new();
+    private readonly TranslationCacheService _translationCache = new();
     private long _selectionGeneration;
     private CancellationTokenSource? _selectionCts;
     private ForegroundWindowInfo? _pendingSelection;
+    private FloatingWindowAnchor? _pendingFloatingAnchor;
+    private long _pendingPresentationId;
     private Mutex? _singleInstanceMutex;
     private Window? _hiddenWindow; // 隐藏主窗口，稳定 WPF Application 生命周期
     private Timer? _watchdogTimer; // 看门狗线程，定期写入状态文件
@@ -248,8 +251,11 @@ public partial class App : Application
     private async void OnHotKeyPressed()
     {
         if (!IsTranslationEnabled) return;
-        if (_isTranslating || _translationService == null || _settings == null || _floatingWindow == null)
+        if (_translationService == null || _settings == null || _floatingWindow == null)
             return;
+
+        var presentationId = _floatingWindow.BeginReplacement();
+        FloatingWindowAnchor? floatingAnchor = null;
 
         var sourceWindow = TerminalDetector.CaptureForegroundWindow();
 
@@ -260,24 +266,30 @@ public partial class App : Application
             return;
         }
 
-        _isTranslating = true;
-
         try
         {
             if (!TerminalDetector.TryCreateCopyRequest(sourceWindow, _settings, out var copyRequest, out var rejectionMessage))
             {
-                _floatingWindow.ShowTranslation(rejectionMessage ?? "无法安全获取选中文本", await GetSelectionAnchorPositionAsync());
+                floatingAnchor = CreateFloatingAnchor(await GetSelectionLocationAsync());
+                await _floatingWindow.ShowTranslationAsync(
+                    presentationId,
+                    rejectionMessage ?? "无法安全获取选中文本",
+                    floatingAnchor.Value,
+                    ContentType.Translation);
                 return;
             }
 
             // Copy before the optional UIA lookup so focus cannot change during an async operation.
             var selectedText = await ClipboardHelper.GetSelectedTextAsync(copyRequest!);
-            var anchorPosition = await GetSelectionAnchorPositionAsync();
+            floatingAnchor = CreateFloatingAnchor(await GetSelectionLocationAsync());
 
             if (string.IsNullOrWhiteSpace(selectedText))
             {
-                // 先显示悬浮窗再更新提示
-                _floatingWindow.ShowTranslation("请先选中要翻译的文本", anchorPosition);
+                await _floatingWindow.ShowTranslationAsync(
+                    presentationId,
+                    "请先选中要翻译的文本",
+                    floatingAnchor.Value,
+                    ContentType.Translation);
                 return;
             }
 
@@ -286,40 +298,23 @@ public partial class App : Application
                 ? ContentTypeDetector.Detect(selectedText)
                 : ContentType.Translation;
 
-            // 显示悬浮窗 + 类型标签（与 "翻译中..." 同时出现）
-            _floatingWindow.ShowTranslation("翻译中...", anchorPosition);
-            _floatingWindow.ShowContentTypeLabel(contentType);
-
-            // 流式翻译
-            var targetLang = _settings.TargetLanguage;
-            // ★ BeginInvoke 异步投递：不阻塞后台流式读取线程，让 Dispatcher 有时间渲染
-            var result = await _translationService.TranslateStreamingAsync(
+            await ExecuteRequestAsync(
                 selectedText,
-                targetLang,
-                chunk => Dispatcher.BeginInvoke(() =>
-                {
-                    _floatingWindow.UpdateTranslation(chunk);
-                }),
                 contentType,
-                onFallbackUsed: () => Dispatcher.BeginInvoke(() =>
-                    _floatingWindow.ShowAnalysisTag(selectedText)));
-
-            // 保存翻译历史
-            SaveTranslationHistory(selectedText, result, targetLang, contentType);
-
-            Logger.Info("App", $"热键翻译完成: {result.Length} 字");
+                floatingAnchor.Value,
+                presentationId,
+                TranslationRequestKind.Translation,
+                "热键翻译");
         }
         catch (Exception ex)
         {
             Logger.Error("App", "热键翻译出错", ex);
-            if (_floatingWindow != null)
-            {
-                _floatingWindow.UpdateTranslation($"翻译失败: {ex.Message}");
-            }
-        }
-        finally
-        {
-            _isTranslating = false;
+            floatingAnchor ??= CreateCursorFloatingAnchor();
+            await _floatingWindow.ShowTranslationAsync(
+                presentationId,
+                $"翻译失败: {ex.Message}",
+                floatingAnchor.Value,
+                ContentType.Translation);
         }
     }
 
@@ -329,6 +324,7 @@ public partial class App : Application
     /// </summary>
     private async void OnSelectionCompleted(System.Windows.Point startPos, System.Windows.Point endPos)
     {
+        var presentationId = _floatingWindow?.BeginReplacement() ?? 0;
         var generation = Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
         _selectionCts?.Dispose();
@@ -371,6 +367,10 @@ public partial class App : Application
             _pendingSelection = sourceWindow;
             // 显示红点
             _redDotWindow.ShowAt(location);
+            _pendingFloatingAnchor = CreateFloatingAnchor(
+                location,
+                _redDotWindow.DotScreenPosition);
+            _pendingPresentationId = presentationId;
             _selectionDetector!.IsRedDotVisible = true;
         }
         catch (OperationCanceledException)
@@ -389,7 +389,7 @@ public partial class App : Application
     private async void OnRedDotHovered()
     {
         if (!IsTranslationEnabled) return;
-        if (_isTranslating || _translationService == null || _settings == null || _floatingWindow == null)
+        if (_translationService == null || _settings == null || _floatingWindow == null)
             return;
 
         if (_pendingSelection == null) return;
@@ -398,68 +398,56 @@ public partial class App : Application
         _selectionDetector!.IsRedDotVisible = false;
         _redDotWindow?.Hide();
 
-        _isTranslating = true;
         var sourceWindow = _pendingSelection;
         _pendingSelection = null;
+        var floatingAnchor = _pendingFloatingAnchor;
+        _pendingFloatingAnchor = null;
+        var presentationId = _pendingPresentationId;
+        _pendingPresentationId = 0;
+        if (floatingAnchor == null || presentationId == 0)
+            return;
 
         try
         {
             if (!TerminalDetector.TryCreateCopyRequest(sourceWindow, _settings, out var copyRequest, out var rejectionMessage))
             {
-                _floatingWindow.ShowTranslation(rejectionMessage ?? "无法安全获取选中文本", _redDotWindow?.DotScreenPosition ?? new System.Windows.Point(0, 0));
+                await _floatingWindow.ShowTranslationAsync(
+                    presentationId,
+                    rejectionMessage ?? "无法安全获取选中文本",
+                    floatingAnchor.Value,
+                    ContentType.Translation);
                 return;
             }
 
             var textToTranslate = await ClipboardHelper.GetSelectedTextAsync(copyRequest!);
             if (string.IsNullOrWhiteSpace(textToTranslate))
             {
-                _floatingWindow.ShowTranslation("请保持原窗口焦点并选中要翻译的文本", _redDotWindow?.DotScreenPosition ?? new System.Windows.Point(0, 0));
+                // A red dot can be created by a double-click on empty space. Keep
+                // that accidental hover completely silent and unobtrusive.
                 return;
             }
-
-            // 使用红点位置（而非鼠标位置）作为悬浮窗显示位置
-            var dotPosition = _redDotWindow?.DotScreenPosition
-                ?? new System.Windows.Point(0, 0);
 
             // 智能内容检测（仅在 SmartContentType 开启时执行）—— 提前到翻译前
             var contentType = _settings.SmartContentType
                 ? ContentTypeDetector.Detect(textToTranslate)
                 : ContentType.Translation;
 
-            // 显示悬浮窗 + 类型标签（与 "翻译中..." 同时出现）
-            _floatingWindow.ShowTranslation("翻译中...", dotPosition);
-            _floatingWindow.ShowContentTypeLabel(contentType);
-
-            // 流式翻译
-            var targetLang = _settings.TargetLanguage;
-            // ★ BeginInvoke 异步投递：不阻塞后台流式读取线程
-            var result = await _translationService.TranslateStreamingAsync(
+            await ExecuteRequestAsync(
                 textToTranslate,
-                targetLang,
-                chunk => Dispatcher.BeginInvoke(() =>
-                {
-                    _floatingWindow.UpdateTranslation(chunk);
-                }),
                 contentType,
-                onFallbackUsed: () => Dispatcher.BeginInvoke(() =>
-                    _floatingWindow.ShowAnalysisTag(textToTranslate)));
-
-            // 保存翻译历史
-            SaveTranslationHistory(textToTranslate, result, targetLang, contentType);
-
-            Logger.Info("App", $"红点翻译完成: {result.Length} 字");
+                floatingAnchor.Value,
+                presentationId,
+                TranslationRequestKind.Translation,
+                "红点翻译");
         }
         catch (Exception ex)
         {
             Logger.Error("App", "红点翻译出错", ex);
-            if (_floatingWindow != null)
-            {
-                _floatingWindow.UpdateTranslation($"翻译失败: {ex.Message}");
-            }
-        }
-        finally
-        {
-            _isTranslating = false;
+            await _floatingWindow.ShowTranslationAsync(
+                presentationId,
+                $"翻译失败: {ex.Message}",
+                floatingAnchor.Value,
+                ContentType.Translation);
         }
     }
 
@@ -468,67 +456,207 @@ public partial class App : Application
     /// </summary>
     private async void OnAnalysisRequested(string sourceText)
     {
-        if (_isTranslating || _translationService == null || _settings == null || _floatingWindow == null)
+        if (_translationService == null || _settings == null || _floatingWindow == null)
             return;
 
         if (string.IsNullOrWhiteSpace(sourceText))
             return;
 
-        _isTranslating = true;
+        var floatingAnchor = _floatingWindow.CurrentAnchor;
+        var presentationId = _floatingWindow.BeginReplacement();
+        await ExecuteRequestAsync(
+            sourceText,
+            ContentType.Analysis,
+            floatingAnchor,
+            presentationId,
+            TranslationRequestKind.Analysis,
+            "解析");
+    }
+
+    private async Task ExecuteRequestAsync(
+        string text,
+        ContentType contentType,
+        FloatingWindowAnchor floatingAnchor,
+        long presentationId,
+        TranslationRequestKind kind,
+        string operationName)
+    {
+        if (_translationService == null || _settings == null || _floatingWindow == null)
+            return;
+
+        // CreateRequest snapshots all settings that can affect this request and its cache key.
+        var request = _translationService.CreateRequest(
+            text,
+            _settings.TargetLanguage,
+            contentType,
+            kind);
+        var requestScope = BeginTranslationRequest();
 
         try
         {
-            // 显示解析中状态
-            _floatingWindow.UpdateTranslation("解析中...");
-            _floatingWindow.ShowContentTypeLabel(ContentType.Analysis);
+            requestScope.Token.ThrowIfCancellationRequested();
 
-            var targetLang = _settings.TargetLanguage;
+            if (_translationCache.TryGet(request, out var cachedResult))
+            {
+                if (!IsCurrentRequest(requestScope))
+                    return;
 
-            // 流式解析
-            var result = await _translationService.AnalyzeStreamingAsync(
-                sourceText,
-                targetLang,
+                await ShowRequestResultAsync(
+                    request,
+                    cachedResult,
+                    floatingAnchor,
+                    presentationId);
+                SaveTranslationHistory(
+                    request.Text,
+                    cachedResult,
+                    request.TargetLanguage,
+                    request.ContentType,
+                    request.ModelName);
+                Logger.Info("App", $"{operationName}缓存命中: {cachedResult.Length} 字");
+                return;
+            }
+
+            var shown = await ShowRequestLoadingAsync(
+                request,
+                floatingAnchor,
+                presentationId);
+            if (!shown)
+                return;
+
+            var result = await _translationService.ExecuteStreamingAsync(
+                request,
                 chunk => Dispatcher.BeginInvoke(() =>
                 {
-                    _floatingWindow.UpdateTranslation(chunk);
-                }));
+                    if (IsCurrentRequest(requestScope) &&
+                        _floatingWindow?.IsPresentationCurrent(presentationId) == true)
+                    {
+                        _floatingWindow.UpdateTranslation(presentationId, chunk);
+                    }
+                }),
+                requestScope.Token);
 
-            // 保存解析历史
-            SaveTranslationHistory(sourceText, result, targetLang, ContentType.Analysis);
+            requestScope.Token.ThrowIfCancellationRequested();
+            if (!IsCurrentRequest(requestScope))
+                return;
 
-            Logger.Info("App", $"解析完成: {result.Length} 字");
+            // Render only if this request still owns the visible presentation.
+            if (_floatingWindow.IsPresentationCurrent(presentationId))
+                _floatingWindow.UpdateTranslation(presentationId, result);
+            _translationCache.Set(request, result);
+            SaveTranslationHistory(
+                request.Text,
+                result,
+                request.TargetLanguage,
+                request.ContentType,
+                request.ModelName);
+            Logger.Info("App", $"{operationName}完成: {result.Length} 字");
+        }
+        catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))
+        {
+            Logger.Debug("App", $"{operationName}已切换或取消, requestId={requestScope.RequestId}");
         }
         catch (Exception ex)
         {
-            Logger.Error("App", "解析出错", ex);
-            _floatingWindow.UpdateTranslation($"解析失败: {ex.Message}");
+            Logger.Error("App", $"{operationName}出错", ex);
+            if (IsCurrentRequest(requestScope) &&
+                _floatingWindow.IsPresentationCurrent(presentationId))
+            {
+                _floatingWindow.UpdateTranslation(
+                    presentationId,
+                    $"{operationName}失败: {ex.Message}");
+            }
         }
         finally
         {
-            _isTranslating = false;
+            CompleteTranslationRequest(requestScope);
         }
     }
+
+    private LatestRequestCoordinator.RequestScope BeginTranslationRequest() =>
+        _translationRequests.Begin();
+
+    private bool IsCurrentRequest(LatestRequestCoordinator.RequestScope requestScope) =>
+        _translationRequests.IsCurrent(requestScope);
+
+    private void CompleteTranslationRequest(LatestRequestCoordinator.RequestScope requestScope) =>
+        _translationRequests.Complete(requestScope);
+
+    private void CancelActiveTranslationRequest() => _translationRequests.Cancel();
+
+    private Task<bool> ShowRequestLoadingAsync(
+        TranslationRequest request,
+        FloatingWindowAnchor floatingAnchor,
+        long presentationId)
+    {
+        var loadingText = request.Kind == TranslationRequestKind.Analysis
+            ? "解析中..."
+            : "翻译中...";
+        return _floatingWindow!.ShowTranslationAsync(
+            presentationId,
+            loadingText,
+            floatingAnchor,
+            request.ContentType,
+            request.FallbackUsed ? request.Text : null);
+    }
+
+    private Task<bool> ShowRequestResultAsync(
+        TranslationRequest request,
+        string result,
+        FloatingWindowAnchor floatingAnchor,
+        long presentationId)
+    {
+        return _floatingWindow!.ShowTranslationAsync(
+            presentationId,
+            result,
+            floatingAnchor,
+            request.ContentType,
+            request.FallbackUsed ? request.Text : null);
+    }
+
 
     /// <summary>
     /// 获取选中文本锚点位置（优先 UIA 异步，降级为鼠标位置）
     /// </summary>
-    private async Task<System.Windows.Point> GetSelectionAnchorPositionAsync()
+    private async Task<SelectionLocation> GetSelectionLocationAsync()
     {
         try
         {
             var location = await SelectionLocator.TryGetSelectionBoundsAsync();
             if (location != null && location.IsValid)
-                return location.EndPoint;
+                return location;
         }
         catch (Exception ex)
         {
             Logger.Warn("App", $"UIA定位异常: {ex.Message}");
         }
 
-        // 降级为当前鼠标位置（GetCursorPos 返回物理像素，转 DIP）
+        // Fallback stays in physical screen pixels, matching UIA and RedDotWindow.
         Win32Api.GetCursorPos(out var cursorPoint);
-        return DpiHelper.PhysicalToLogical(
-            new System.Windows.Point(cursorPoint.X, cursorPoint.Y));
+        var fallbackPoint = new System.Windows.Point(cursorPoint.X, cursorPoint.Y);
+        return new SelectionLocation
+        {
+            IsValid = false,
+            FallbackPoint = fallbackPoint
+        };
+    }
+
+    private static FloatingWindowAnchor CreateFloatingAnchor(
+        SelectionLocation location,
+        Point? preferredPoint = null)
+    {
+        var point = preferredPoint ?? (location.IsValid
+            ? location.EndPoint
+            : location.FallbackPoint);
+        var bounds = location.IsValid ? location.Bounds : Rect.Empty;
+        return new FloatingWindowAnchor(point, bounds);
+    }
+
+    private static FloatingWindowAnchor CreateCursorFloatingAnchor()
+    {
+        Win32Api.GetCursorPos(out var cursorPoint);
+        return new FloatingWindowAnchor(
+            new Point(cursorPoint.X, cursorPoint.Y),
+            Rect.Empty);
     }
 
     /// <summary>
@@ -542,6 +670,8 @@ public partial class App : Application
         _selectionDetector!.IsRedDotVisible = false;
         _redDotWindow?.Hide();
         _pendingSelection = null;
+        _pendingFloatingAnchor = null;
+        _pendingPresentationId = 0;
     }
 
     // ==================== 第三期：托盘 + 设置 ====================
@@ -570,6 +700,9 @@ public partial class App : Application
     /// </summary>
     private void OnSettingsSaved(AppSettings settings)
     {
+        CancelActiveTranslationRequest();
+        _translationCache.Clear();
+        _settings = settings;
         _translationService?.UpdateSettings(settings);
 
         // 更新快捷键配置（后台线程执行，避免钩子 Stop/Start 阻塞 UI）
@@ -644,6 +777,8 @@ public partial class App : Application
     {
         _settings!.TranslationEnabled = !isPaused;
         ConfigManager.Save(_settings);
+        if (isPaused)
+            CancelActiveTranslationRequest();
         UpdateTrayToolTip();
     }
 
@@ -668,7 +803,12 @@ public partial class App : Application
     /// <summary>
     /// 保存翻译历史记录
     /// </summary>
-    private void SaveTranslationHistory(string sourceText, string translation, string targetLang, ContentType contentType)
+    private void SaveTranslationHistory(
+        string sourceText,
+        string translation,
+        string targetLang,
+        ContentType contentType,
+        string modelName)
     {
         if (_dbContext == null || string.IsNullOrWhiteSpace(sourceText) || string.IsNullOrWhiteSpace(translation))
             return;
@@ -681,7 +821,7 @@ public partial class App : Application
                 Translation = translation.Trim(),
                 SourceLanguage = "auto",
                 TargetLanguage = targetLang,
-                ModelName = _settings.ModelName,
+                ModelName = modelName,
                 ContentType = contentType.ToString(),
                 TranslatedAt = DateTime.Now
             };
@@ -698,6 +838,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        CancelActiveTranslationRequest();
         Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
         _selectionCts?.Dispose();
@@ -709,6 +850,7 @@ public partial class App : Application
         _keyboardHook?.Dispose();
         _selectionDetector?.Dispose();
         _trayIcon?.Dispose();
+        _translationService?.Dispose();
         _dbContext?.Dispose();
 
         // 释放单实例 Mutex
