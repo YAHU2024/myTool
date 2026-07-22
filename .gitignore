@@ -34,6 +34,7 @@ Desktop.ini
 
 ## Agent and Claude files
 .agent
+AGENTS.md
 .claude
 
 ## Private docs
