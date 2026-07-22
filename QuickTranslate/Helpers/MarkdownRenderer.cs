@@ -217,6 +217,8 @@ internal static class MarkdownRenderer
             FontSize = 12,
             Padding = new Thickness(7, 2, 7, 2),
             Margin = new Thickness(0, 6, 6, 0),
+            Focusable = false,
+            IsTabStop = false,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Top
         };

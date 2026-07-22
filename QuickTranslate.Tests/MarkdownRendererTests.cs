@@ -76,6 +76,8 @@ public sealed class MarkdownRendererTests
             var copyButton = Assert.IsType<Button>(header.Children[1]);
             Assert.Equal("复制代码", copyButton.Content);
             Assert.Same(code, copyButton.Tag);
+            Assert.False(copyButton.Focusable);
+            Assert.False(copyButton.IsTabStop);
             return true;
         });
     }
