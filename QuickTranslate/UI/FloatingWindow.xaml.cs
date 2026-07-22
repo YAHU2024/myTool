@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using QuickTranslate.Core;
 using QuickTranslate.Helpers;
@@ -17,6 +18,7 @@ namespace QuickTranslate.UI
         private bool _isMouseInside;
         private Point _anchorPosition; // 记录锚点，用于流式输出时重新定位
         private string? _sourceText; // 存储原文，供解析使用
+        private bool _placeAbove;
 
         /// <summary>
         /// 用户点击[解析]标签时触发，携带原文
@@ -118,23 +120,43 @@ namespace QuickTranslate.UI
             _anchorPosition = anchorPosition;
             _sourceText = null; // 重置原文
             ContentTypeLabel.ToolTip = null; // 重置提示
+            ContentTypeLabel.Visibility = Visibility.Collapsed;
 
-            // ★ 根据锚点所在显示器的工作区动态限制 ScrollViewer 最大高度
-            // SizeToContent="WidthAndHeight" 让 WPF 自动处理窗口尺寸
-            // 只需约束 ScrollViewer.MaxHeight 防止窗口超出屏幕
-            var workArea = Win32Api.GetWorkAreaAtPoint(anchorPosition);
-            // Border chrome: Margin(4*2=8) + Padding(10*2=20) = 28px
-            double chromeHeight = 28;
-            double maxWindowH = (workArea.Bottom - workArea.Top) - 80;
-            double scrollerMaxH = maxWindowH - chromeHeight;
-            TranslationScroller.MaxHeight = Math.Max(scrollerMaxH, 80);
+            // UIA and mouse coordinates are physical screen pixels. Keep the same
+            // contract through layout and use the target monitor's actual DPI.
+            var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(anchorPosition);
+            var scale = DpiHelper.GetScaleForPhysicalPoint(anchorPosition);
+            const double chromeHeightDip = 28;
+            const double gapDip = 8;
+            var gap = gapDip * scale.Y;
+            _placeAbove = FloatingWindowPlacement.ShouldPlaceAbove(anchorPosition, workArea, gap);
+            var availableHeight = _placeAbove
+                ? anchorPosition.Y - gap - workArea.Top
+                : workArea.Bottom - anchorPosition.Y - gap;
+            TranslationScroller.MaxHeight = Math.Max(
+                availableHeight / scale.Y - chromeHeightDip,
+                80);
 
-            // 先 Show 以获取 ActualWidth/ActualHeight，再精确定位
+            // A reused window must not paint its old position while its content and
+            // native position are being updated.
+            Opacity = 0;
             Show();
             UpdateLayout();
-            PositionBelowAnchor(anchorPosition);
-            Activate();
+            PositionWindowAtAnchor();
+            Opacity = 1;
             ResetAutoHideTimer();
+        }
+
+        /// <summary>
+        /// Re-measures and repositions after a content-type label changes size.
+        /// </summary>
+        public void RefreshPlacement()
+        {
+            if (!IsVisible)
+                return;
+
+            UpdateLayout();
+            PositionWindowAtAnchor();
         }
 
         /// <summary>
@@ -152,89 +174,47 @@ namespace QuickTranslate.UI
 
             // ★ 内容增长后重新布局，然后检查边界
             UpdateLayout();
-            ClampToWorkArea();
+            PositionWindowAtAnchor();
 
             ResetAutoHideTimer();
         }
 
         /// <summary>
-        /// 在锚点正下方水平居中定位窗口（锚点通常为红点中心）
-        /// 支持6屏异现及屏幕边缘避让
+        /// 使用物理屏幕坐标将窗口固定在锚点上方或下方，并约束在目标工作区内。
         /// </summary>
-        private void PositionBelowAnchor(Point anchorCenter)
+        private void PositionWindowAtAnchor()
         {
-            double gap = 8;  // 锚点与悬浮窗间距
-            double w = ActualWidth;
-            double h = ActualHeight;
+            if (_anchorPosition == default || ActualWidth <= 0 || ActualHeight <= 0)
+                return;
 
-            // 水平居中于锚点下方
-            double left = anchorCenter.X - w / 2;
-            double top = anchorCenter.Y + gap;
+            var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(_anchorPosition);
+            if (workArea.IsEmpty)
+                return;
 
-            // 获取锚点所在显示器的工作区
-            var workArea = Win32Api.GetWorkAreaAtPoint(anchorCenter);
+            var physicalSize = DpiHelper.LogicalSizeToPhysical(
+                new Size(ActualWidth, ActualHeight),
+                _anchorPosition);
+            var scale = DpiHelper.GetScaleForPhysicalPoint(_anchorPosition);
+            var gap = 8 * scale.Y;
+            var rect = FloatingWindowPlacement.Calculate(
+                _anchorPosition,
+                physicalSize,
+                workArea,
+                _placeAbove,
+                gap);
 
-            // 右边界避让
-            if (left + w > workArea.Right)
-                left = workArea.Right - w;
-            // 左边界避让
-            if (left < workArea.Left)
-                left = workArea.Left;
-            // 底部边界：不够空间则显示在锚点上方
-            if (top + h > workArea.Bottom)
-                top = anchorCenter.Y - gap - h;
-            // 顶部边界
-            if (top < workArea.Top)
-                top = workArea.Top;
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero)
+                return;
 
-            Left = left;
-            Top = top;
-        }
-
-        /// <summary>
-        /// 检查并约束窗口在工作区内（流式输出导致窗口增长后调用）
-        /// </summary>
-        private void ClampToWorkArea()
-        {
-            if (_anchorPosition == default) return;
-
-            var workArea = Win32Api.GetWorkAreaAtPoint(_anchorPosition);
-            double w = ActualWidth;
-            double h = ActualHeight;
-            double newLeft = Left;
-            double newTop = Top;
-            bool needMove = false;
-
-            // 底部超出：上移窗口
-            if (newTop + h > workArea.Bottom)
-            {
-                newTop = workArea.Bottom - h;
-                needMove = true;
-            }
-            // 顶部超出：下移窗口
-            if (newTop < workArea.Top)
-            {
-                newTop = workArea.Top;
-                needMove = true;
-            }
-            // 右侧超出：左移窗口
-            if (newLeft + w > workArea.Right)
-            {
-                newLeft = workArea.Right - w;
-                needMove = true;
-            }
-            // 左侧超出：右移窗口
-            if (newLeft < workArea.Left)
-            {
-                newLeft = workArea.Left;
-                needMove = true;
-            }
-
-            if (needMove)
-            {
-                Left = newLeft;
-                Top = newTop;
-            }
+            Win32Api.SetWindowPos(
+                hwnd,
+                IntPtr.Zero,
+                (int)Math.Round(rect.Left),
+                (int)Math.Round(rect.Top),
+                (int)Math.Round(rect.Width),
+                (int)Math.Round(rect.Height),
+                0x0004 | 0x0010); // SWP_NOZORDER | SWP_NOACTIVATE
         }
 
         /// <summary>

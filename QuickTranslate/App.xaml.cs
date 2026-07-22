@@ -252,6 +252,10 @@ public partial class App : Application
         if (_translationService == null || _settings == null || _floatingWindow == null)
             return;
 
+        // Do not leave the previous result visible while the next selection is
+        // being captured and positioned.
+        _floatingWindow.Hide();
+
         var sourceWindow = TerminalDetector.CaptureForegroundWindow();
 
         // 浏览器中禁用翻译：避免与浏览器翻译插件冲突
@@ -308,6 +312,9 @@ public partial class App : Application
     /// </summary>
     private async void OnSelectionCompleted(System.Windows.Point startPos, System.Windows.Point endPos)
     {
+        // A new selection supersedes the previous visual result immediately,
+        // even though the API request is cancelled only after valid text is captured.
+        _floatingWindow?.Hide();
         var generation = Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
         _selectionCts?.Dispose();
@@ -391,7 +398,8 @@ public partial class App : Application
             var textToTranslate = await ClipboardHelper.GetSelectedTextAsync(copyRequest!);
             if (string.IsNullOrWhiteSpace(textToTranslate))
             {
-                _floatingWindow.ShowTranslation("请保持原窗口焦点并选中要翻译的文本", _redDotWindow?.DotScreenPosition ?? new System.Windows.Point(0, 0));
+                // A red dot can be created by a double-click on empty space. Keep
+                // that accidental hover completely silent and unobtrusive.
                 return;
             }
 
@@ -537,6 +545,7 @@ public partial class App : Application
         {
             _floatingWindow!.UpdateTranslation("解析中...");
             _floatingWindow.ShowContentTypeLabel(ContentType.Analysis);
+            _floatingWindow.RefreshPlacement();
             return;
         }
 
@@ -544,6 +553,7 @@ public partial class App : Application
         _floatingWindow.ShowContentTypeLabel(request.ContentType);
         if (request.FallbackUsed)
             _floatingWindow.ShowAnalysisTag(request.Text);
+        _floatingWindow.RefreshPlacement();
     }
 
     private void ShowRequestResult(TranslationRequest request, string result, Point anchorPosition)
@@ -552,6 +562,7 @@ public partial class App : Application
         {
             _floatingWindow!.UpdateTranslation(result);
             _floatingWindow.ShowContentTypeLabel(ContentType.Analysis);
+            _floatingWindow.RefreshPlacement();
             return;
         }
 
@@ -559,6 +570,7 @@ public partial class App : Application
         _floatingWindow.ShowContentTypeLabel(request.ContentType);
         if (request.FallbackUsed)
             _floatingWindow.ShowAnalysisTag(request.Text);
+        _floatingWindow.RefreshPlacement();
     }
 
 
@@ -578,10 +590,9 @@ public partial class App : Application
             Logger.Warn("App", $"UIA定位异常: {ex.Message}");
         }
 
-        // 降级为当前鼠标位置（GetCursorPos 返回物理像素，转 DIP）
+        // Fallback stays in physical screen pixels, matching UIA and RedDotWindow.
         Win32Api.GetCursorPos(out var cursorPoint);
-        return DpiHelper.PhysicalToLogical(
-            new System.Windows.Point(cursorPoint.X, cursorPoint.Y));
+        return new System.Windows.Point(cursorPoint.X, cursorPoint.Y);
     }
 
     /// <summary>
