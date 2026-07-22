@@ -30,6 +30,17 @@ public class TranslationLifecycleTests
     }
 
     [Fact]
+    public void LatestPresentationCoordinator_InvalidatesOldVisualWithoutCancellation()
+    {
+        var coordinator = new LatestPresentationCoordinator();
+        var first = coordinator.Begin();
+        var second = coordinator.Begin();
+
+        Assert.False(coordinator.IsCurrent(first));
+        Assert.True(coordinator.IsCurrent(second));
+    }
+
+    [Fact]
     public void TranslationRequest_SnapshotsPromptAndModel()
     {
         var settings = new AppSettings

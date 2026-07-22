@@ -4,15 +4,27 @@ namespace QuickTranslate.UI;
 
 internal static class FloatingWindowPlacement
 {
-    public static bool ShouldPlaceAbove(Point anchor, Rect workArea, double gap)
+    public static bool ShouldPlaceAbove(
+        Rect exclusionBounds,
+        Rect workArea,
+        double requiredHeight,
+        double gap)
     {
-        var spaceBelow = Math.Max(0, workArea.Bottom - (anchor.Y + gap));
-        var spaceAbove = Math.Max(0, anchor.Y - gap - workArea.Top);
+        var spaceBelow = Math.Max(0, workArea.Bottom - exclusionBounds.Bottom - gap);
+        var spaceAbove = Math.Max(0, exclusionBounds.Top - gap - workArea.Top);
+
+        // Preserve the established UX: prefer below whenever the current window
+        // fits there. Only move above when below is genuinely too small.
+        if (spaceBelow >= requiredHeight)
+            return false;
+        if (spaceAbove >= requiredHeight)
+            return true;
         return spaceBelow < spaceAbove;
     }
 
     public static Rect Calculate(
         Point anchor,
+        Rect exclusionBounds,
         Size windowSize,
         Rect workArea,
         bool placeAbove,
@@ -20,8 +32,8 @@ internal static class FloatingWindowPlacement
     {
         var left = anchor.X - windowSize.Width / 2;
         var top = placeAbove
-            ? anchor.Y - gap - windowSize.Height
-            : anchor.Y + gap;
+            ? exclusionBounds.Top - gap - windowSize.Height
+            : exclusionBounds.Bottom + gap;
 
         if (left + windowSize.Width > workArea.Right)
             left = workArea.Right - windowSize.Width;

@@ -14,9 +14,12 @@ namespace QuickTranslate.UI
     /// </summary>
     public partial class FloatingWindow : Window
     {
+        private const double PlacementGapDip = 12;
         private readonly DispatcherTimer _autoHideTimer;
+        private readonly LatestPresentationCoordinator _presentations = new();
         private bool _isMouseInside;
-        private Point _anchorPosition; // 记录锚点，用于流式输出时重新定位
+        private FloatingWindowAnchor _anchor;
+        private bool _hasAnchor;
         private string? _sourceText; // 存储原文，供解析使用
         private bool _placeAbove;
 
@@ -111,59 +114,96 @@ namespace QuickTranslate.UI
             ContentTypeLabel.ToolTip = "点击用目标语言深度解析此文本";
         }
 
-        /// <summary>
-        /// 显示翻译结果
-        /// </summary>
-        public void ShowTranslation(string translation, Point anchorPosition)
+        internal FloatingWindowAnchor CurrentAnchor => _anchor;
+
+        public long BeginReplacement()
         {
+            var presentationId = _presentations.Begin();
+            _autoHideTimer.Stop();
+            _isMouseInside = false;
+            Opacity = 0;
+            IsHitTestVisible = false;
+            Hide();
+            TranslationTextBlock.Text = string.Empty;
+            ContentTypeLabel.Visibility = Visibility.Collapsed;
+            ContentTypeLabel.ToolTip = null;
+            _sourceText = null;
+            return presentationId;
+        }
+
+        public bool IsPresentationCurrent(long presentationId) =>
+            _presentations.IsCurrent(presentationId);
+
+        /// <summary>
+        /// Prepares a complete view while transparent, then reveals only the latest
+        /// presentation after WPF has committed a composition frame.
+        /// </summary>
+        internal async Task<bool> ShowTranslationAsync(
+            long presentationId,
+            string translation,
+            FloatingWindowAnchor anchor,
+            ContentType contentType,
+            string? analysisSourceText = null)
+        {
+            if (!IsPresentationCurrent(presentationId))
+                return false;
+
             TranslationTextBlock.Text = translation;
-            _anchorPosition = anchorPosition;
+            _anchor = anchor;
+            _hasAnchor = true;
             _sourceText = null; // 重置原文
             ContentTypeLabel.ToolTip = null; // 重置提示
             ContentTypeLabel.Visibility = Visibility.Collapsed;
+            ShowContentTypeLabel(contentType);
+            if (!string.IsNullOrEmpty(analysisSourceText))
+                ShowAnalysisTag(analysisSourceText);
 
             // UIA and mouse coordinates are physical screen pixels. Keep the same
             // contract through layout and use the target monitor's actual DPI.
-            var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(anchorPosition);
-            var scale = DpiHelper.GetScaleForPhysicalPoint(anchorPosition);
+            var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(anchor.PreferredPoint);
+            var scale = DpiHelper.GetScaleForPhysicalPoint(anchor.PreferredPoint);
+            var exclusionBounds = anchor.GetEffectiveExclusionBounds(scale);
             const double chromeHeightDip = 28;
-            const double gapDip = 8;
-            var gap = gapDip * scale.Y;
-            _placeAbove = FloatingWindowPlacement.ShouldPlaceAbove(anchorPosition, workArea, gap);
+            var gap = PlacementGapDip * scale.Y;
+            var minimumWindowHeight = (80 + chromeHeightDip) * scale.Y;
+            _placeAbove = FloatingWindowPlacement.ShouldPlaceAbove(
+                exclusionBounds,
+                workArea,
+                minimumWindowHeight,
+                gap);
             var availableHeight = _placeAbove
-                ? anchorPosition.Y - gap - workArea.Top
-                : workArea.Bottom - anchorPosition.Y - gap;
+                ? exclusionBounds.Top - gap - workArea.Top
+                : workArea.Bottom - exclusionBounds.Bottom - gap;
             TranslationScroller.MaxHeight = Math.Max(
                 availableHeight / scale.Y - chromeHeightDip,
                 80);
 
-            // A reused window must not paint its old position while its content and
-            // native position are being updated.
             Opacity = 0;
+            IsHitTestVisible = false;
             Show();
             UpdateLayout();
             PositionWindowAtAnchor();
-            Opacity = 1;
-            ResetAutoHideTimer();
-        }
 
-        /// <summary>
-        /// Re-measures and repositions after a content-type label changes size.
-        /// </summary>
-        public void RefreshPlacement()
-        {
-            if (!IsVisible)
-                return;
+            await WaitForCompositionFrameAsync();
+            if (!IsPresentationCurrent(presentationId))
+                return false;
 
             UpdateLayout();
             PositionWindowAtAnchor();
+            Opacity = 1;
+            IsHitTestVisible = true;
+            ResetAutoHideTimer();
+            return true;
         }
 
         /// <summary>
         /// 更新译文（用于流式输出）
         /// </summary>
-        public void UpdateTranslation(string translation)
+        public void UpdateTranslation(long presentationId, string translation)
         {
+            if (!IsPresentationCurrent(presentationId))
+                return;
+
             TranslationTextBlock.Text = translation;
 
             // ★ 流式输出时自动滚动到底部，确保最新译文可见
@@ -184,20 +224,22 @@ namespace QuickTranslate.UI
         /// </summary>
         private void PositionWindowAtAnchor()
         {
-            if (_anchorPosition == default || ActualWidth <= 0 || ActualHeight <= 0)
+            if (!_hasAnchor || ActualWidth <= 0 || ActualHeight <= 0)
                 return;
 
-            var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(_anchorPosition);
+            var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(_anchor.PreferredPoint);
             if (workArea.IsEmpty)
                 return;
 
             var physicalSize = DpiHelper.LogicalSizeToPhysical(
                 new Size(ActualWidth, ActualHeight),
-                _anchorPosition);
-            var scale = DpiHelper.GetScaleForPhysicalPoint(_anchorPosition);
-            var gap = 8 * scale.Y;
+                _anchor.PreferredPoint);
+            var scale = DpiHelper.GetScaleForPhysicalPoint(_anchor.PreferredPoint);
+            var gap = PlacementGapDip * scale.Y;
+            var exclusionBounds = _anchor.GetEffectiveExclusionBounds(scale);
             var rect = FloatingWindowPlacement.Calculate(
-                _anchorPosition,
+                _anchor.PreferredPoint,
+                exclusionBounds,
                 physicalSize,
                 workArea,
                 _placeAbove,
@@ -215,6 +257,30 @@ namespace QuickTranslate.UI
                 (int)Math.Round(rect.Width),
                 (int)Math.Round(rect.Height),
                 0x0004 | 0x0010); // SWP_NOZORDER | SWP_NOACTIVATE
+        }
+
+        private static async Task WaitForCompositionFrameAsync()
+        {
+            var completion = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            EventHandler? handler = null;
+            handler = (_, _) =>
+            {
+                CompositionTarget.Rendering -= handler;
+                completion.TrySetResult(true);
+            };
+            CompositionTarget.Rendering += handler;
+            try
+            {
+                // Rendering normally arrives on the next composition pass. The
+                // timeout prevents a superseded hidden window from waiting forever
+                // if WPF suppresses that pass.
+                await Task.WhenAny(completion.Task, Task.Delay(100));
+            }
+            finally
+            {
+                CompositionTarget.Rendering -= handler;
+            }
         }
 
         /// <summary>

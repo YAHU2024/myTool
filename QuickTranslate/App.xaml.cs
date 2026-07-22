@@ -32,6 +32,8 @@ public partial class App : Application
     private long _selectionGeneration;
     private CancellationTokenSource? _selectionCts;
     private ForegroundWindowInfo? _pendingSelection;
+    private FloatingWindowAnchor? _pendingFloatingAnchor;
+    private long _pendingPresentationId;
     private Mutex? _singleInstanceMutex;
     private Window? _hiddenWindow; // 隐藏主窗口，稳定 WPF Application 生命周期
     private Timer? _watchdogTimer; // 看门狗线程，定期写入状态文件
@@ -252,9 +254,8 @@ public partial class App : Application
         if (_translationService == null || _settings == null || _floatingWindow == null)
             return;
 
-        // Do not leave the previous result visible while the next selection is
-        // being captured and positioned.
-        _floatingWindow.Hide();
+        var presentationId = _floatingWindow.BeginReplacement();
+        FloatingWindowAnchor? floatingAnchor = null;
 
         var sourceWindow = TerminalDetector.CaptureForegroundWindow();
 
@@ -269,18 +270,26 @@ public partial class App : Application
         {
             if (!TerminalDetector.TryCreateCopyRequest(sourceWindow, _settings, out var copyRequest, out var rejectionMessage))
             {
-                _floatingWindow.ShowTranslation(rejectionMessage ?? "无法安全获取选中文本", await GetSelectionAnchorPositionAsync());
+                floatingAnchor = CreateFloatingAnchor(await GetSelectionLocationAsync());
+                await _floatingWindow.ShowTranslationAsync(
+                    presentationId,
+                    rejectionMessage ?? "无法安全获取选中文本",
+                    floatingAnchor.Value,
+                    ContentType.Translation);
                 return;
             }
 
             // Copy before the optional UIA lookup so focus cannot change during an async operation.
             var selectedText = await ClipboardHelper.GetSelectedTextAsync(copyRequest!);
-            var anchorPosition = await GetSelectionAnchorPositionAsync();
+            floatingAnchor = CreateFloatingAnchor(await GetSelectionLocationAsync());
 
             if (string.IsNullOrWhiteSpace(selectedText))
             {
-                // 先显示悬浮窗再更新提示
-                _floatingWindow.ShowTranslation("请先选中要翻译的文本", anchorPosition);
+                await _floatingWindow.ShowTranslationAsync(
+                    presentationId,
+                    "请先选中要翻译的文本",
+                    floatingAnchor.Value,
+                    ContentType.Translation);
                 return;
             }
 
@@ -292,17 +301,20 @@ public partial class App : Application
             await ExecuteRequestAsync(
                 selectedText,
                 contentType,
-                anchorPosition,
+                floatingAnchor.Value,
+                presentationId,
                 TranslationRequestKind.Translation,
                 "热键翻译");
         }
         catch (Exception ex)
         {
             Logger.Error("App", "热键翻译出错", ex);
-            if (_floatingWindow != null)
-            {
-                _floatingWindow.UpdateTranslation($"翻译失败: {ex.Message}");
-            }
+            floatingAnchor ??= CreateCursorFloatingAnchor();
+            await _floatingWindow.ShowTranslationAsync(
+                presentationId,
+                $"翻译失败: {ex.Message}",
+                floatingAnchor.Value,
+                ContentType.Translation);
         }
     }
 
@@ -312,9 +324,7 @@ public partial class App : Application
     /// </summary>
     private async void OnSelectionCompleted(System.Windows.Point startPos, System.Windows.Point endPos)
     {
-        // A new selection supersedes the previous visual result immediately,
-        // even though the API request is cancelled only after valid text is captured.
-        _floatingWindow?.Hide();
+        var presentationId = _floatingWindow?.BeginReplacement() ?? 0;
         var generation = Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
         _selectionCts?.Dispose();
@@ -357,6 +367,10 @@ public partial class App : Application
             _pendingSelection = sourceWindow;
             // 显示红点
             _redDotWindow.ShowAt(location);
+            _pendingFloatingAnchor = CreateFloatingAnchor(
+                location,
+                _redDotWindow.DotScreenPosition);
+            _pendingPresentationId = presentationId;
             _selectionDetector!.IsRedDotVisible = true;
         }
         catch (OperationCanceledException)
@@ -386,12 +400,22 @@ public partial class App : Application
 
         var sourceWindow = _pendingSelection;
         _pendingSelection = null;
+        var floatingAnchor = _pendingFloatingAnchor;
+        _pendingFloatingAnchor = null;
+        var presentationId = _pendingPresentationId;
+        _pendingPresentationId = 0;
+        if (floatingAnchor == null || presentationId == 0)
+            return;
 
         try
         {
             if (!TerminalDetector.TryCreateCopyRequest(sourceWindow, _settings, out var copyRequest, out var rejectionMessage))
             {
-                _floatingWindow.ShowTranslation(rejectionMessage ?? "无法安全获取选中文本", _redDotWindow?.DotScreenPosition ?? new System.Windows.Point(0, 0));
+                await _floatingWindow.ShowTranslationAsync(
+                    presentationId,
+                    rejectionMessage ?? "无法安全获取选中文本",
+                    floatingAnchor.Value,
+                    ContentType.Translation);
                 return;
             }
 
@@ -403,10 +427,6 @@ public partial class App : Application
                 return;
             }
 
-            // 使用红点位置（而非鼠标位置）作为悬浮窗显示位置
-            var dotPosition = _redDotWindow?.DotScreenPosition
-                ?? new System.Windows.Point(0, 0);
-
             // 智能内容检测（仅在 SmartContentType 开启时执行）—— 提前到翻译前
             var contentType = _settings.SmartContentType
                 ? ContentTypeDetector.Detect(textToTranslate)
@@ -415,17 +435,19 @@ public partial class App : Application
             await ExecuteRequestAsync(
                 textToTranslate,
                 contentType,
-                dotPosition,
+                floatingAnchor.Value,
+                presentationId,
                 TranslationRequestKind.Translation,
                 "红点翻译");
         }
         catch (Exception ex)
         {
             Logger.Error("App", "红点翻译出错", ex);
-            if (_floatingWindow != null)
-            {
-                _floatingWindow.UpdateTranslation($"翻译失败: {ex.Message}");
-            }
+            await _floatingWindow.ShowTranslationAsync(
+                presentationId,
+                $"翻译失败: {ex.Message}",
+                floatingAnchor.Value,
+                ContentType.Translation);
         }
     }
 
@@ -440,10 +462,13 @@ public partial class App : Application
         if (string.IsNullOrWhiteSpace(sourceText))
             return;
 
+        var floatingAnchor = _floatingWindow.CurrentAnchor;
+        var presentationId = _floatingWindow.BeginReplacement();
         await ExecuteRequestAsync(
             sourceText,
             ContentType.Analysis,
-            default,
+            floatingAnchor,
+            presentationId,
             TranslationRequestKind.Analysis,
             "解析");
     }
@@ -451,7 +476,8 @@ public partial class App : Application
     private async Task ExecuteRequestAsync(
         string text,
         ContentType contentType,
-        Point anchorPosition,
+        FloatingWindowAnchor floatingAnchor,
+        long presentationId,
         TranslationRequestKind kind,
         string operationName)
     {
@@ -475,7 +501,11 @@ public partial class App : Application
                 if (!IsCurrentRequest(requestScope))
                     return;
 
-                ShowRequestResult(request, cachedResult, anchorPosition);
+                await ShowRequestResultAsync(
+                    request,
+                    cachedResult,
+                    floatingAnchor,
+                    presentationId);
                 SaveTranslationHistory(
                     request.Text,
                     cachedResult,
@@ -486,14 +516,22 @@ public partial class App : Application
                 return;
             }
 
-            ShowRequestLoading(request, anchorPosition);
+            var shown = await ShowRequestLoadingAsync(
+                request,
+                floatingAnchor,
+                presentationId);
+            if (!shown)
+                return;
 
             var result = await _translationService.ExecuteStreamingAsync(
                 request,
                 chunk => Dispatcher.BeginInvoke(() =>
                 {
-                    if (IsCurrentRequest(requestScope))
-                        _floatingWindow?.UpdateTranslation(chunk);
+                    if (IsCurrentRequest(requestScope) &&
+                        _floatingWindow?.IsPresentationCurrent(presentationId) == true)
+                    {
+                        _floatingWindow.UpdateTranslation(presentationId, chunk);
+                    }
                 }),
                 requestScope.Token);
 
@@ -501,8 +539,9 @@ public partial class App : Application
             if (!IsCurrentRequest(requestScope))
                 return;
 
-            // Render the final value synchronously so queued partial chunks cannot become final UI.
-            _floatingWindow.UpdateTranslation(result);
+            // Render only if this request still owns the visible presentation.
+            if (_floatingWindow.IsPresentationCurrent(presentationId))
+                _floatingWindow.UpdateTranslation(presentationId, result);
             _translationCache.Set(request, result);
             SaveTranslationHistory(
                 request.Text,
@@ -519,8 +558,13 @@ public partial class App : Application
         catch (Exception ex)
         {
             Logger.Error("App", $"{operationName}出错", ex);
-            if (IsCurrentRequest(requestScope))
-                _floatingWindow.UpdateTranslation($"{operationName}失败: {ex.Message}");
+            if (IsCurrentRequest(requestScope) &&
+                _floatingWindow.IsPresentationCurrent(presentationId))
+            {
+                _floatingWindow.UpdateTranslation(
+                    presentationId,
+                    $"{operationName}失败: {ex.Message}");
+            }
         }
         finally
         {
@@ -539,51 +583,47 @@ public partial class App : Application
 
     private void CancelActiveTranslationRequest() => _translationRequests.Cancel();
 
-    private void ShowRequestLoading(TranslationRequest request, Point anchorPosition)
+    private Task<bool> ShowRequestLoadingAsync(
+        TranslationRequest request,
+        FloatingWindowAnchor floatingAnchor,
+        long presentationId)
     {
-        if (request.Kind == TranslationRequestKind.Analysis)
-        {
-            _floatingWindow!.UpdateTranslation("解析中...");
-            _floatingWindow.ShowContentTypeLabel(ContentType.Analysis);
-            _floatingWindow.RefreshPlacement();
-            return;
-        }
-
-        _floatingWindow!.ShowTranslation("翻译中...", anchorPosition);
-        _floatingWindow.ShowContentTypeLabel(request.ContentType);
-        if (request.FallbackUsed)
-            _floatingWindow.ShowAnalysisTag(request.Text);
-        _floatingWindow.RefreshPlacement();
+        var loadingText = request.Kind == TranslationRequestKind.Analysis
+            ? "解析中..."
+            : "翻译中...";
+        return _floatingWindow!.ShowTranslationAsync(
+            presentationId,
+            loadingText,
+            floatingAnchor,
+            request.ContentType,
+            request.FallbackUsed ? request.Text : null);
     }
 
-    private void ShowRequestResult(TranslationRequest request, string result, Point anchorPosition)
+    private Task<bool> ShowRequestResultAsync(
+        TranslationRequest request,
+        string result,
+        FloatingWindowAnchor floatingAnchor,
+        long presentationId)
     {
-        if (request.Kind == TranslationRequestKind.Analysis)
-        {
-            _floatingWindow!.UpdateTranslation(result);
-            _floatingWindow.ShowContentTypeLabel(ContentType.Analysis);
-            _floatingWindow.RefreshPlacement();
-            return;
-        }
-
-        _floatingWindow!.ShowTranslation(result, anchorPosition);
-        _floatingWindow.ShowContentTypeLabel(request.ContentType);
-        if (request.FallbackUsed)
-            _floatingWindow.ShowAnalysisTag(request.Text);
-        _floatingWindow.RefreshPlacement();
+        return _floatingWindow!.ShowTranslationAsync(
+            presentationId,
+            result,
+            floatingAnchor,
+            request.ContentType,
+            request.FallbackUsed ? request.Text : null);
     }
 
 
     /// <summary>
     /// 获取选中文本锚点位置（优先 UIA 异步，降级为鼠标位置）
     /// </summary>
-    private async Task<System.Windows.Point> GetSelectionAnchorPositionAsync()
+    private async Task<SelectionLocation> GetSelectionLocationAsync()
     {
         try
         {
             var location = await SelectionLocator.TryGetSelectionBoundsAsync();
             if (location != null && location.IsValid)
-                return location.EndPoint;
+                return location;
         }
         catch (Exception ex)
         {
@@ -592,7 +632,31 @@ public partial class App : Application
 
         // Fallback stays in physical screen pixels, matching UIA and RedDotWindow.
         Win32Api.GetCursorPos(out var cursorPoint);
-        return new System.Windows.Point(cursorPoint.X, cursorPoint.Y);
+        var fallbackPoint = new System.Windows.Point(cursorPoint.X, cursorPoint.Y);
+        return new SelectionLocation
+        {
+            IsValid = false,
+            FallbackPoint = fallbackPoint
+        };
+    }
+
+    private static FloatingWindowAnchor CreateFloatingAnchor(
+        SelectionLocation location,
+        Point? preferredPoint = null)
+    {
+        var point = preferredPoint ?? (location.IsValid
+            ? location.EndPoint
+            : location.FallbackPoint);
+        var bounds = location.IsValid ? location.Bounds : Rect.Empty;
+        return new FloatingWindowAnchor(point, bounds);
+    }
+
+    private static FloatingWindowAnchor CreateCursorFloatingAnchor()
+    {
+        Win32Api.GetCursorPos(out var cursorPoint);
+        return new FloatingWindowAnchor(
+            new Point(cursorPoint.X, cursorPoint.Y),
+            Rect.Empty);
     }
 
     /// <summary>
@@ -606,6 +670,8 @@ public partial class App : Application
         _selectionDetector!.IsRedDotVisible = false;
         _redDotWindow?.Hide();
         _pendingSelection = null;
+        _pendingFloatingAnchor = null;
+        _pendingPresentationId = 0;
     }
 
     // ==================== 第三期：托盘 + 设置 ====================
