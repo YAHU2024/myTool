@@ -150,7 +150,10 @@
                     </Style>
                 </Grid.Style>
                 <ScrollViewer x:Name="TranslationScroller" Style="{StaticResource Win11ScrollViewer}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxWidth="390" ScrollChanged="TranslationScroller_ScrollChanged" PreviewMouseWheel="TranslationScroller_PreviewMouseWheel" PreviewKeyDown="TranslationScroller_PreviewKeyDown">
-                    <TextBlock x:Name="TranslationTextBlock" Foreground="#F0F0F0" FontSize="16" FontFamily="Microsoft YaHei UI" TextWrapping="Wrap" Padding="0,0,6,0" Text=""/>
+                    <Grid>
+                        <TextBlock x:Name="TranslationTextBlock" Foreground="#F0F0F0" FontSize="16" FontFamily="Microsoft YaHei UI" TextWrapping="Wrap" Padding="0,0,6,0" Text=""/>
+                        <RichTextBox x:Name="MarkdownDocumentHost" Visibility="Collapsed" IsReadOnly="True" IsDocumentEnabled="True" Focusable="False" BorderThickness="0" Background="Transparent" Padding="0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"/>
+                    </Grid>
                 </ScrollViewer>
                 <Border x:Name="LoadingIndicator" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,8,0" Background="#B01E1E2E" CornerRadius="4" Padding="6,3" Visibility="Collapsed" IsHitTestVisible="False">
                     <StackPanel Orientation="Horizontal">
@@ -160,6 +163,7 @@
                     </StackPanel>
                 </Border>
                 <Button x:Name="ResumeScrollButton" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,6" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="自动滚动已暂停" ToolTip="恢复自动滚动" Visibility="Collapsed" Click="ResumeScrollButton_Click"/>
+                <Button x:Name="ExpandMarkdownButton" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,38" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="展开全文" ToolTip="渲染完整结果" Visibility="Collapsed" Click="ExpandMarkdownButton_Click"/>
                 <Border x:Name="DetectionHint" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="4" Background="#E63A3A4A" CornerRadius="4" Padding="7,4" Visibility="Collapsed" IsHitTestVisible="False">
                     <TextBlock x:Name="DetectionHintText" Foreground="#F0F0F0" FontSize="11"/>
                 </Border>

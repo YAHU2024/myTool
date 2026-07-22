@@ -1,9 +1,12 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Navigation;
 using System.Windows.Threading;
 using QuickTranslate.Core;
 using QuickTranslate.Helpers;
@@ -25,6 +28,7 @@ public partial class FloatingWindow : Window
     private bool _isMouseInside;
     private bool _isLoading;
     private bool _isProgrammaticScroll;
+    private bool _isMarkdownExpanded;
     private string _rawText = string.Empty;
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
@@ -42,6 +46,8 @@ public partial class FloatingWindow : Window
     public FloatingWindow()
     {
         InitializeComponent();
+        MarkdownDocumentHost.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
+        MarkdownDocumentHost.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
 
         _autoHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _autoHideTimer.Tick += (_, _) =>
@@ -92,17 +98,23 @@ public partial class FloatingWindow : Window
     /// </summary>
     internal void SetSessionView(Guid sessionId, ContentType mode, ModeResultState state)
     {
+        // Persist the currently visible mode before its view is replaced.
+        RaiseScrollStateChanged();
         _sessionId = sessionId;
         _activeMode = mode;
         SetActiveModeButton(mode);
         _rawText = state.RawText;
-        TranslationTextBlock.Text = state.RawText;
-        SetLoading(state.Status == ModeResultStatus.Loading);
-
+        _isMarkdownExpanded = false;
         _autoScroll.BeginRequest();
         if (!state.AutoScrollEnabled)
             _autoScroll.PauseForUpwardNavigation();
         UpdateAutoScrollAffordance();
+
+        if (state.Status == ModeResultStatus.Completed)
+            ShowCompletedMarkdown();
+        else
+            ShowPlainText();
+        SetLoading(state.Status == ModeResultStatus.Loading);
 
         var expectedSessionId = sessionId;
         var expectedMode = mode;
@@ -176,7 +188,7 @@ public partial class FloatingWindow : Window
             return false;
 
         _rawText = translation;
-        TranslationTextBlock.Text = translation;
+        ShowPlainText();
         _autoScroll.BeginRequest();
         UpdateAutoScrollAffordance();
         _anchor = anchor;
@@ -219,7 +231,7 @@ public partial class FloatingWindow : Window
             return;
 
         _rawText = translation;
-        TranslationTextBlock.Text = translation;
+        ShowPlainText();
         if (_isLoading && !string.IsNullOrEmpty(translation))
             HideLoadingIndicator();
         if (_autoScroll.OnContentOrViewportChanged())
@@ -228,6 +240,77 @@ public partial class FloatingWindow : Window
         UpdateLayout();
         PositionWindowAtAnchor();
         ResetAutoHideTimer();
+    }
+
+    private void ShowPlainText()
+    {
+        MarkdownDocumentHost.Visibility = Visibility.Collapsed;
+        ExpandMarkdownButton.Visibility = Visibility.Collapsed;
+        TranslationTextBlock.Visibility = Visibility.Visible;
+        TranslationTextBlock.Text = _rawText;
+    }
+
+    private void ShowCompletedMarkdown()
+    {
+        var maxDisplayCharacters = _isMarkdownExpanded ? int.MaxValue : MarkdownRenderer.DefaultMaxDisplayCharacters;
+        if (!MarkdownRenderer.TryRender(_rawText, out var result, maxDisplayCharacters) || result.UsedPlainTextFallback)
+        {
+            if (result.Error is not null)
+            {
+                // Never include the selected/result text in logs.
+                Logger.Error("FloatingWindow", "Markdown rendering failed; using the plain-text result view.", result.Error);
+            }
+
+            ShowPlainText();
+            return;
+        }
+
+        MarkdownDocumentHost.Document = result.Document;
+        TranslationTextBlock.Visibility = Visibility.Collapsed;
+        MarkdownDocumentHost.Visibility = Visibility.Visible;
+        ExpandMarkdownButton.Visibility = result.IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
+        UpdateLayout();
+        PositionWindowAtAnchor();
+        if (_autoScroll.IsAutoScrollEnabled)
+            ScrollToEndProgrammatically();
+    }
+
+    private void MarkdownCodeCopyButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (e.OriginalSource is not Button { Tag: MarkdownCodeBlock metadata })
+            return;
+
+        try
+        {
+            Clipboard.SetText(metadata.Code);
+            e.Handled = true;
+        }
+        catch
+        {
+            // Clipboard access can be temporarily unavailable.
+        }
+    }
+
+    private void ExpandMarkdownButton_Click(object sender, RoutedEventArgs e)
+    {
+        _isMarkdownExpanded = true;
+        ShowCompletedMarkdown();
+    }
+
+    private void MarkdownLink_RequestNavigate(object sender, RequestNavigateEventArgs e)
+    {
+        e.Handled = true;
+        if (!MarkdownRenderer.IsSafeLink(e.Uri?.AbsoluteUri, out var uri) || uri is null)
+            return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception exception)
+        {
+            Logger.Warn("FloatingWindow", $"Could not open a Markdown link: {exception.GetType().Name}");
+        }
     }
 
     private void ResetForReplacement()
@@ -242,8 +325,9 @@ public partial class FloatingWindow : Window
         Opacity = 0;
         IsHitTestVisible = false;
         Hide();
-        TranslationTextBlock.Text = string.Empty;
         _rawText = string.Empty;
+        _isMarkdownExpanded = false;
+        ShowPlainText();
         SetActiveModeButton(ContentType.Translation);
     }
 

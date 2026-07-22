@@ -631,10 +631,6 @@ public partial class App : Application
                 return;
 
             UpdateFloatingSessionView();
-
-            // Render only if this request still owns the visible presentation.
-            if (_floatingWindow.IsPresentationCurrent(presentationId))
-                _floatingWindow.UpdateTranslation(presentationId, result);
             _translationCache.Set(request, result);
             SaveTranslationHistory(
                 request.Text,
