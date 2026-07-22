@@ -26,7 +26,8 @@ namespace QuickTranslate.UI
         private bool _origAutoDetectLanguage = true;
         private bool _origSmartContentType = false;
         private string _origFallbackLanguage = "English";
-        private string _origCustomSystemPrompt = string.Empty;
+        private string _origCustomTranslationPrompt = string.Empty;
+        private string _origCustomAnalysisPrompt = string.Empty;
         private string _origAnalysisPreset = "general";
         private byte _origHotKeyVK = 0x51;
         private bool _origHotKeyRequireAlt = true;
@@ -63,7 +64,8 @@ namespace QuickTranslate.UI
             _origAutoDetectLanguage = _settings.AutoDetectLanguage;
             _origSmartContentType = _settings.SmartContentType;
             _origFallbackLanguage = _settings.FallbackLanguage;
-            _origCustomSystemPrompt = _settings.CustomSystemPrompt;
+            _origCustomTranslationPrompt = _settings.CustomTranslationPrompt;
+            _origCustomAnalysisPrompt = _settings.CustomAnalysisPrompt;
             _origAnalysisPreset = _settings.AnalysisPreset;
             _origHotKeyVK = _settings.HotKeyVK;
             _origHotKeyRequireAlt = _settings.HotKeyRequireAlt;
@@ -102,7 +104,8 @@ namespace QuickTranslate.UI
             SmartContentTypeCheckBox.IsChecked = _settings.SmartContentType;
 
             // 自定义提示词
-            CustomSystemPromptTextBox.Text = _settings.CustomSystemPrompt;
+            CustomTranslationPromptTextBox.Text = _settings.CustomTranslationPrompt;
+            CustomAnalysisPromptTextBox.Text = _settings.CustomAnalysisPrompt;
 
             // 解析风格预设
             AnalysisPresetComboBox.ItemsSource = new[]
@@ -126,6 +129,17 @@ namespace QuickTranslate.UI
             // 浏览器翻译开关
             EnableInBrowserCheckBox.IsChecked = _settings.EnableInBrowser;
             CustomBrowserProcessesTextBox.Text = _settings.CustomBrowserProcesses;
+
+            TerminalCopyModeComboBox.ItemsSource = new[]
+            {
+                new { Value = "Smart", Name = "智能（推荐）" },
+                new { Value = "Compatible", Name = "兼容（统一使用 Ctrl+Shift+C）" },
+                new { Value = "Disabled", Name = "禁用终端取词" }
+            };
+            TerminalCopyModeComboBox.DisplayMemberPath = "Name";
+            TerminalCopyModeComboBox.SelectedValuePath = "Value";
+            TerminalCopyModeComboBox.SelectedValue = _settings.TerminalCopyMode;
+            TerminalCopyMappingsTextBox.Text = _settings.TerminalCopyMappings;
         }
 
         /// <summary>
@@ -292,6 +306,12 @@ namespace QuickTranslate.UI
             _isDirty = true;
         }
 
+        private void TerminalCopyMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isInitializing) return;
+            _isDirty = true;
+        }
+
         private void AnalysisPresetComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_isInitializing) return;
@@ -443,7 +463,8 @@ namespace QuickTranslate.UI
             if (FallbackLanguageComboBox.SelectedItem != null)
                 _settings.FallbackLanguage = FallbackLanguageComboBox.SelectedItem.ToString() ?? _settings.FallbackLanguage;
 
-            _settings.CustomSystemPrompt = CustomSystemPromptTextBox.Text?.Trim() ?? string.Empty;
+            _settings.CustomTranslationPrompt = CustomTranslationPromptTextBox.Text?.Trim() ?? string.Empty;
+            _settings.CustomAnalysisPrompt = CustomAnalysisPromptTextBox.Text?.Trim() ?? string.Empty;
 
             if (AnalysisPresetComboBox.SelectedValue is string preset)
                 _settings.AnalysisPreset = preset;
@@ -452,6 +473,9 @@ namespace QuickTranslate.UI
 
             _settings.EnableInBrowser = EnableInBrowserCheckBox.IsChecked ?? true;
             _settings.CustomBrowserProcesses = CustomBrowserProcessesTextBox.Text?.Trim() ?? string.Empty;
+            if (TerminalCopyModeComboBox.SelectedValue is string terminalMode)
+                _settings.TerminalCopyMode = terminalMode;
+            _settings.TerminalCopyMappings = TerminalCopyMappingsTextBox.Text?.Trim() ?? string.Empty;
 
             var autoStart = AutoStartCheckBox.IsChecked ?? false;
             if (autoStart != _origAutoStart)

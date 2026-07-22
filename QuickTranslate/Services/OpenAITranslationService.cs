@@ -105,7 +105,10 @@ namespace QuickTranslate.Services
             var fallback = _settings.FallbackLanguage;
                 
             // 本地语言检测：判断原文是否已是目标语言
-            bool sourceMatchesTarget = _settings.AutoDetectLanguage && TextMatchesLanguage(sourceText, targetLang);
+            // Code/term explanations should never trigger translation-direction fallback.
+            bool sourceMatchesTarget = contentType == ContentType.Translation &&
+                                        _settings.AutoDetectLanguage &&
+                                        TextMatchesLanguage(sourceText, targetLang);
             // 若原文匹配目标语言 → 使用备选语言作为实际翻译方向
             string effectiveTarget = sourceMatchesTarget ? fallback : targetLang;
         
@@ -117,23 +120,25 @@ namespace QuickTranslate.Services
                 
             string prompt;
                 
-            // 用户自定义 prompt（支持 {targetLang} 占位符）
-            if (!string.IsNullOrWhiteSpace(_settings.CustomSystemPrompt))
+            // Smart content branches must take precedence over a custom translation prompt.
+            // Otherwise recognized code is still routed through a user translation prompt.
+            if (contentType == ContentType.Code)
             {
-                prompt = _settings.CustomSystemPrompt.Replace("{targetLang}", targetLang);
-            }
-            // 本地检测为代码/命令 → 简单解析 Prompt
-            else if (contentType == ContentType.Code)
-            {
-                prompt = $"You are a code assistant. Briefly explain what this code or command does in {targetLang}. " +
-                       "If it is a terminal command, explain each parameter. " +
-                       "Output only the explanation directly. No prefixes, no markdown headers.";
+                prompt = $"You are a code and command explanation assistant. Analyze the input as code, a script, SQL, configuration, or a terminal command. Explain what it does in {targetLang}. " +
+                       $"For terminal commands, explain each command, option, pipe, redirect, and important side effect in {targetLang}. " +
+                       "Do not translate the source code. Do not repeat the full source. Do not output the source unchanged. If a tiny snippet is necessary, quote only that snippet and explain it. " +
+                       "Return a concise explanation directly, without labels, preambles, or markdown headers.";
             }
             // 本地检测为纯英文术语 → 简单解释 Prompt
             else if (contentType == ContentType.Term)
             {
                 prompt = $"You are a knowledge assistant. Give a concise explanation of this term in {targetLang} (what it is, 1-2 sentences). " +
                        "Output only the explanation directly. No prefixes, no markdown headers.";
+            }
+            // 用户自定义 prompt（仅用于普通翻译，支持 {targetLang} 占位符）
+            else if (!string.IsNullOrWhiteSpace(_settings.CustomTranslationPrompt))
+            {
+                prompt = _settings.CustomTranslationPrompt.Replace("{targetLang}", effectiveTarget);
             }
             // 翻译（默认 / Uncertain 兆底）
             else if (_settings.SmartContentType)
@@ -432,9 +437,9 @@ namespace QuickTranslate.Services
         private string BuildAnalysisPrompt(string targetLang)
         {
             // 用户自定义 Prompt 优先
-            if (!string.IsNullOrWhiteSpace(_settings.CustomSystemPrompt))
+            if (!string.IsNullOrWhiteSpace(_settings.CustomAnalysisPrompt))
             {
-                return _settings.CustomSystemPrompt.Replace("{targetLang}", targetLang);
+                return _settings.CustomAnalysisPrompt.Replace("{targetLang}", targetLang);
             }
 
             // 根据预设选择 Prompt

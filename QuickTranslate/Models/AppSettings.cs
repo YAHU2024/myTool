@@ -148,7 +148,12 @@ namespace QuickTranslate.Models
         /// <summary>
         /// 自定义翻译提示词（留空使用默认，支持 {targetLang} 占位符）
         /// </summary>
-        public string CustomSystemPrompt { get; set; } = string.Empty;
+        public string CustomTranslationPrompt { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 自定义深度解析提示词（留空使用解析预设，支持 {targetLang} 占位符）
+        /// </summary>
+        public string CustomAnalysisPrompt { get; set; } = string.Empty;
 
         /// <summary>
         /// 是否在浏览器中启用翻译（关闭后避免与浏览器翻译插件冲突）
@@ -164,6 +169,17 @@ namespace QuickTranslate.Models
         /// 用户自定义的浏览器进程名（逗号分隔，补充内置列表）
         /// </summary>
         public string CustomBrowserProcesses { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Terminal text capture policy: Smart, Compatible, or Disabled.
+        /// </summary>
+        public string TerminalCopyMode { get; set; } = "Smart";
+
+        /// <summary>
+        /// Per-process terminal copy shortcuts, for example:
+        /// WindowsTerminal=Ctrl+Shift+C;conhost=Ctrl+C
+        /// </summary>
+        public string TerminalCopyMappings { get; set; } = string.Empty;
 
         // ==================== 日志配置 ====================
 

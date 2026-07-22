@@ -28,8 +28,9 @@ public partial class App : Application
     private HistoryWindow? _historyWindow;
     private TranslationDbContext? _dbContext;
     private bool _isTranslating;
-    private bool _isProcessingSelection; // 防止 OnSelectionCompleted 并发重入
-    private string? _pendingText; // 待翻译文本（红点悬停时使用）
+    private long _selectionGeneration;
+    private CancellationTokenSource? _selectionCts;
+    private ForegroundWindowInfo? _pendingSelection;
     private Mutex? _singleInstanceMutex;
     private Window? _hiddenWindow; // 隐藏主窗口，稳定 WPF Application 生命周期
     private Timer? _watchdogTimer; // 看门狗线程，定期写入状态文件
@@ -250,6 +251,8 @@ public partial class App : Application
         if (_isTranslating || _translationService == null || _settings == null || _floatingWindow == null)
             return;
 
+        var sourceWindow = TerminalDetector.CaptureForegroundWindow();
+
         // 浏览器中禁用翻译：避免与浏览器翻译插件冲突
         if (!_settings.EnableInBrowser && BrowserDetector.IsForegroundBrowser(_settings.CustomBrowserProcesses))
         {
@@ -261,11 +264,15 @@ public partial class App : Application
 
         try
         {
-            // 尝试 UIA 异步获取选中文本位置，降级为鼠标位置
-            var anchorPosition = await GetSelectionAnchorPositionAsync();
+            if (!TerminalDetector.TryCreateCopyRequest(sourceWindow, _settings, out var copyRequest, out var rejectionMessage))
+            {
+                _floatingWindow.ShowTranslation(rejectionMessage ?? "无法安全获取选中文本", await GetSelectionAnchorPositionAsync());
+                return;
+            }
 
-            // 获取选中文本
-            var selectedText = await ClipboardHelper.GetSelectedTextAsync();
+            // Copy before the optional UIA lookup so focus cannot change during an async operation.
+            var selectedText = await ClipboardHelper.GetSelectedTextAsync(copyRequest!);
+            var anchorPosition = await GetSelectionAnchorPositionAsync();
 
             if (string.IsNullOrWhiteSpace(selectedText))
             {
@@ -322,9 +329,12 @@ public partial class App : Application
     /// </summary>
     private async void OnSelectionCompleted(System.Windows.Point startPos, System.Windows.Point endPos)
     {
-        // ★ 防重入：快速多次触发时只处理第一次
-        if (_isProcessingSelection) return;
-        _isProcessingSelection = true;
+        var generation = Interlocked.Increment(ref _selectionGeneration);
+        _selectionCts?.Cancel();
+        _selectionCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _selectionCts = cts;
+        var token = cts.Token;
 
         try
         {
@@ -338,27 +348,18 @@ public partial class App : Application
                 return;
             }
 
-            // 尝试获取选中文本（UIA 在后台 STA 线程执行，不阻塞 UI 线程）
-            var selectedText = await ClipboardHelper.GetSelectedTextAsync();
-
-            if (string.IsNullOrWhiteSpace(selectedText))
-            {
-                _redDotWindow.Hide();
-                _selectionDetector!.IsRedDotVisible = false;
-                return;
-            }
-
-            // 保存待翻译文本
-            _pendingText = selectedText;
+            var sourceWindow = TerminalDetector.CaptureForegroundWindow();
+            if (sourceWindow == null) return;
 
             // 尝试 UIA 异步精确定位（不阻塞 UI 线程）
-            var location = await SelectionLocator.TryGetSelectionBoundsAsync();
+            var location = await SelectionLocator.TryGetSelectionBoundsAsync(2000, token);
+            token.ThrowIfCancellationRequested();
+            if (generation != Volatile.Read(ref _selectionGeneration)) return;
+            if (Win32Api.GetForegroundWindow() != sourceWindow.Handle) return;
             if (location == null || !location.IsValid)
             {
-                // 降级：拖拽中点 + 偏移(+4, -8)
-                var mid = new System.Windows.Point(
-                    (startPos.X + endPos.X) / 2 + 4,
-                    (startPos.Y + endPos.Y) / 2 - 8);
+                // Fallback: physical drag end point, same coordinate contract as UIA.
+                var mid = endPos;
                 location = new SelectionLocation
                 {
                     IsValid = false,
@@ -366,18 +367,20 @@ public partial class App : Application
                 };
             }
 
+            // Defer clipboard access until the user deliberately hovers the red dot.
+            _pendingSelection = sourceWindow;
             // 显示红点
             _redDotWindow.ShowAt(location);
             _selectionDetector!.IsRedDotVisible = true;
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
             Logger.Error("App", "OnSelectionCompleted 异常", ex);
         }
-        finally
-        {
-            _isProcessingSelection = false;
-        }
+        finally { if (ReferenceEquals(_selectionCts, cts)) _selectionCts = null; cts.Dispose(); }
     }
 
     /// <summary>
@@ -389,18 +392,31 @@ public partial class App : Application
         if (_isTranslating || _translationService == null || _settings == null || _floatingWindow == null)
             return;
 
-        if (string.IsNullOrWhiteSpace(_pendingText)) return;
+        if (_pendingSelection == null) return;
 
         // 标记红点已隐藏
         _selectionDetector!.IsRedDotVisible = false;
         _redDotWindow?.Hide();
 
         _isTranslating = true;
-        var textToTranslate = _pendingText;
-        _pendingText = null;
+        var sourceWindow = _pendingSelection;
+        _pendingSelection = null;
 
         try
         {
+            if (!TerminalDetector.TryCreateCopyRequest(sourceWindow, _settings, out var copyRequest, out var rejectionMessage))
+            {
+                _floatingWindow.ShowTranslation(rejectionMessage ?? "无法安全获取选中文本", _redDotWindow?.DotScreenPosition ?? new System.Windows.Point(0, 0));
+                return;
+            }
+
+            var textToTranslate = await ClipboardHelper.GetSelectedTextAsync(copyRequest!);
+            if (string.IsNullOrWhiteSpace(textToTranslate))
+            {
+                _floatingWindow.ShowTranslation("请保持原窗口焦点并选中要翻译的文本", _redDotWindow?.DotScreenPosition ?? new System.Windows.Point(0, 0));
+                return;
+            }
+
             // 使用红点位置（而非鼠标位置）作为悬浮窗显示位置
             var dotPosition = _redDotWindow?.DotScreenPosition
                 ?? new System.Windows.Point(0, 0);
@@ -520,9 +536,12 @@ public partial class App : Application
     /// </summary>
     private void OnSelectionCancelled()
     {
+        Interlocked.Increment(ref _selectionGeneration);
+        _selectionCts?.Cancel();
+        _selectionCts = null;
         _selectionDetector!.IsRedDotVisible = false;
         _redDotWindow?.Hide();
-        _pendingText = null;
+        _pendingSelection = null;
     }
 
     // ==================== 第三期：托盘 + 设置 ====================
@@ -679,6 +698,10 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        Interlocked.Increment(ref _selectionGeneration);
+        _selectionCts?.Cancel();
+        _selectionCts?.Dispose();
+        _selectionCts = null;
         // 停止看门狗
         _watchdogTimer?.Dispose();
 

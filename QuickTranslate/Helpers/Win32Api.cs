@@ -22,6 +22,8 @@ namespace QuickTranslate.Helpers
         public const byte VK_C = 0x43;
         public const byte VK_Q = 0x51;
         public const byte KEYEVENTF_KEYUP = 0x02;
+        public const uint INPUT_KEYBOARD = 1;
+        public const uint KEYEVENTF_KEYUP_EX = 0x0002;
 
         // 键盘钩子标志（用于过滤模拟按键事件）
         public const uint LLKHF_INJECTED = 0x10;
@@ -42,6 +44,33 @@ namespace QuickTranslate.Helpers
             public uint flags;
             public uint time;
             public IntPtr dwExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct INPUT
+        {
+            public uint type;
+            public InputUnion U;
+        }
+
+        // INPUT.u is a union whose largest member is MOUSEINPUT (32 bytes on x64).
+        // The explicit size is required even when only KEYBDINPUT is used; otherwise
+        // SendInput rejects the array because cbSize is not the native sizeof(INPUT).
+        [StructLayout(LayoutKind.Explicit, Size = 32)]
+        public struct InputUnion
+        {
+            [FieldOffset(0)]
+            public KEYBDINPUT ki;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct KEYBDINPUT
+        {
+            public ushort wVk;
+            public ushort wScan;
+            public uint dwFlags;
+            public uint time;
+            public UIntPtr dwExtraInfo;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -110,6 +139,9 @@ namespace QuickTranslate.Helpers
         [DllImport("user32.dll")]
         public static extern void keybd_event(byte bVk, byte bScan, byte dwFlags, UIntPtr dwExtraInfo);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern uint SendInput(uint cInputs, INPUT[] pInputs, int cbSize);
+
         // 剪贴板序列号（每次剪贴板内容变化时递增）
         [DllImport("user32.dll")]
         public static extern uint GetClipboardSequenceNumber();
@@ -167,6 +199,18 @@ namespace QuickTranslate.Helpers
 
         // ── 多显示器支持 ──
         public const uint MONITOR_DEFAULTTONEAREST = 2;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        public static Rect GetPhysicalWorkAreaAtPoint(Point physicalPoint)
+        {
+            var hMon = MonitorFromPoint(new POINT { X = (int)physicalPoint.X, Y = (int)physicalPoint.Y }, MONITOR_DEFAULTTONEAREST);
+            var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+            if (!GetMonitorInfo(hMon, ref mi)) return Rect.Empty;
+            return new Rect(mi.rcWork.Left, mi.rcWork.Top, mi.rcWork.Right - mi.rcWork.Left, mi.rcWork.Bottom - mi.rcWork.Top);
+        }
 
         [DllImport("user32.dll")]
         public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);

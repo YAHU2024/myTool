@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -29,7 +31,13 @@ namespace QuickTranslate.Core
         /// 全局互斥：如果已有操作进行中，直接返回 null（不排队等待）。
         /// 通过序列号检测 Ctrl+C 是否生效，不写任何内容到剪贴板。
         /// </summary>
-        public static async Task<string?> GetSelectedTextAsync()
+        public static Task<string?> GetSelectedTextAsync()
+        {
+            var target = Win32Api.GetForegroundWindow();
+            return GetSelectedTextAsync(new CopyRequest(target, CopyShortcut.CtrlC, RestoreClipboard: true));
+        }
+
+        public static async Task<string?> GetSelectedTextAsync(CopyRequest request)
         {
             // ★ 防并发：如果已有剪贴板操作进行中，直接放弃
             if (!_clipboardLock.Wait(0))
@@ -40,7 +48,7 @@ namespace QuickTranslate.Core
 
             try
             {
-                return await TryGetTextViaClipboardAsync();
+                return await TryGetTextViaClipboardAsync(request);
             }
             finally
             {
@@ -53,7 +61,7 @@ namespace QuickTranslate.Core
         /// ★ 不写哨兵，通过 GetClipboardSequenceNumber 检测 Ctrl+C 是否生效。
         /// 彻底消除哨兵残留可能性。
         /// </summary>
-        private static async Task<string?> TryGetTextViaClipboardAsync()
+        private static async Task<string?> TryGetTextViaClipboardAsync(CopyRequest request)
         {
             var tcs = new TaskCompletionSource<string?>();
             var opStart = DateTime.UtcNow;
@@ -62,8 +70,15 @@ namespace QuickTranslate.Core
             {
                 string? originalText = null;
                 string? result = null;
+                uint copiedSequence = 0;
                 try
                 {
+                    if (!WaitForModifiersReleased() || !IsExpectedWindow(request))
+                    {
+                        Logger.Debug("ClipboardHelper", "[Clipboard] Source window changed or modifier keys are still pressed");
+                        return;
+                    }
+
                     // 1. 保存当前剪贴板内容（用于最后恢复）
                     if (Clipboard.ContainsText())
                     {
@@ -80,26 +95,26 @@ namespace QuickTranslate.Core
                     var seqBefore = Win32Api.GetClipboardSequenceNumber();
                     Logger.Debug("ClipboardHelper", $"[剪贴板] 序列号 before={seqBefore}");
 
-                    // 3. 模拟 Ctrl+C
-                    Win32Api.keybd_event((byte)Win32Api.VK_CONTROL, 0, 0, UIntPtr.Zero);
-                    Thread.Sleep(30);
-                    Win32Api.keybd_event(Win32Api.VK_C, 0, 0, UIntPtr.Zero);
-                    Thread.Sleep(50);
-                    Win32Api.keybd_event(Win32Api.VK_C, 0, Win32Api.KEYEVENTF_KEYUP, UIntPtr.Zero);
-                    Thread.Sleep(30);
-                    Win32Api.keybd_event((byte)Win32Api.VK_CONTROL, 0, Win32Api.KEYEVENTF_KEYUP, UIntPtr.Zero);
+                    // 3. Send one marked, ordered input batch only while the original window is foreground.
+                    if (!SendCopyShortcut(request.Shortcut))
+                    {
+                        Logger.Warn("ClipboardHelper", "[Clipboard] SendInput failed");
+                        return;
+                    }
 
-                    // 4. 轮询阶段：最多 500ms，等待剪贴板序列号变化
-                    //    ★ 快速失败：100ms 内序列号未变化 → 无选中文本，立即退出
+                    // 4. Wait once for the requested copy command; never retry by injecting another shortcut.
                     var pollStart = DateTime.UtcNow;
                     var deadline = pollStart.AddMilliseconds(500);
-                    var fastFailChecked = false;
-                    var fastFailed = false;
                     while (DateTime.UtcNow < deadline)
                     {
                         var seqNow = Win32Api.GetClipboardSequenceNumber();
                         if (seqNow != seqBefore)
                         {
+                            if (!IsExpectedWindow(request))
+                            {
+                                Logger.Debug("ClipboardHelper", "[Clipboard] Foreground changed after copy; discard result");
+                                break;
+                            }
                             // 序列号变化了！等待稳定后读取（防止剪贴板管理器竞态）
                             Thread.Sleep(30);
                             try
@@ -110,6 +125,7 @@ namespace QuickTranslate.Core
                                     if (!string.IsNullOrWhiteSpace(t))
                                     {
                                         result = t;
+                                        copiedSequence = Win32Api.GetClipboardSequenceNumber();
                                         var elapsed = (DateTime.UtcNow - pollStart).TotalMilliseconds;
                                         Logger.Debug("ClipboardHelper", $"[剪贴板] 获取成功({elapsed:F0}ms): 长度={t.Length}");
                                     }
@@ -122,20 +138,11 @@ namespace QuickTranslate.Core
                             break;
                         }
 
-                        // ★ 快速失败：100ms 后序列号未变 → 无选中文本
-                        if (!fastFailChecked && (DateTime.UtcNow - pollStart).TotalMilliseconds >= 100)
-                        {
-                            fastFailChecked = true;
-                            fastFailed = true;
-                            Logger.Debug("ClipboardHelper", $"[剪贴板] 快速失败(100ms): 序列号未变化，无选中文本");
-                            break;
-                        }
-
                         Thread.Sleep(20);
                     }
 
-                    // 5. 如果轮询未成功且不是因为快速失败，再固定等待 300ms（兜底）
-                    if (result == null && !fastFailed)
+                    // 5. Give applications with asynchronous clipboard ownership one final read window.
+                    if (result == null)
                     {
                         Logger.Debug("ClipboardHelper", $"[剪贴板] 轮询 500ms 未成功，进入兜底等待 300ms");
                         Thread.Sleep(300);
@@ -150,6 +157,7 @@ namespace QuickTranslate.Core
                                     if (!string.IsNullOrWhiteSpace(t))
                                     {
                                         result = t;
+                                        copiedSequence = Win32Api.GetClipboardSequenceNumber();
                                         Logger.Debug("ClipboardHelper", $"[剪贴板] 兜底等待成功: 长度={t.Length}");
                                     }
                                 }
@@ -168,24 +176,31 @@ namespace QuickTranslate.Core
                     // 6. 恢复原始剪贴板内容（Ctrl+C 成功时才需要恢复）
                     //    即使恢复失败，选中文本留在剪贴板也比丢失原始内容好
                     //    （用户至少可以手动 Ctrl+Z 或重新复制）
-                    if (result != null && !string.IsNullOrEmpty(originalText))
+                    if (result != null && request.RestoreClipboard && originalText != null)
                     {
-                        bool restored = false;
-                        for (int attempt = 0; attempt < 5; attempt++)
+                        if (Win32Api.GetClipboardSequenceNumber() != copiedSequence)
                         {
-                            try
-                            {
-                                Clipboard.SetText(originalText);
-                                restored = true;
-                                break;
-                            }
-                            catch
-                            {
-                                if (attempt < 4) Thread.Sleep(100);
-                            }
+                            Logger.Debug("ClipboardHelper", "[Clipboard] Clipboard changed after copy; skip restore");
                         }
-                        if (!restored)
-                            Logger.Warn("ClipboardHelper", $"[剪贴板] 原始内容恢复失败(5次重试均失败)，选中文本留在剪贴板");
+                        else
+                        {
+                            bool restored = false;
+                            for (int attempt = 0; attempt < 5; attempt++)
+                            {
+                                try
+                                {
+                                    Clipboard.SetText(originalText);
+                                    restored = true;
+                                    break;
+                                }
+                                catch
+                                {
+                                    if (attempt < 4) Thread.Sleep(100);
+                                }
+                            }
+                            if (!restored)
+                                Logger.Warn("ClipboardHelper", "[Clipboard] Original clipboard restore failed after 5 attempts");
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -207,6 +222,60 @@ namespace QuickTranslate.Core
 
             return await tcs.Task;
         }
+
+        private static bool IsExpectedWindow(CopyRequest request) =>
+            request.ExpectedForegroundWindow != IntPtr.Zero &&
+            Win32Api.GetForegroundWindow() == request.ExpectedForegroundWindow;
+
+        private static bool WaitForModifiersReleased()
+        {
+            var deadline = DateTime.UtcNow.AddMilliseconds(350);
+            while (DateTime.UtcNow < deadline)
+            {
+                var ctrlDown = (Win32Api.GetAsyncKeyState(Win32Api.VK_CONTROL) & 0x8000) != 0;
+                var altDown = (Win32Api.GetAsyncKeyState(0x12) & 0x8000) != 0;
+                var shiftDown = (Win32Api.GetAsyncKeyState(0x10) & 0x8000) != 0;
+                if (!ctrlDown && !altDown && !shiftDown) return true;
+                Thread.Sleep(10);
+            }
+            return false;
+        }
+
+        private static bool SendCopyShortcut(CopyShortcut shortcut)
+        {
+            const ulong marker = 0x5154_434F_5059_0001;
+            var keys = new List<byte>();
+            if (shortcut.Ctrl) keys.Add((byte)Win32Api.VK_CONTROL);
+            if (shortcut.Alt) keys.Add(0x12);
+            if (shortcut.Shift) keys.Add(0x10);
+
+            var inputs = new List<Win32Api.INPUT>();
+            foreach (var key in keys) inputs.Add(CreateKeyboardInput(key, false, marker));
+            inputs.Add(CreateKeyboardInput(shortcut.Key, false, marker));
+            inputs.Add(CreateKeyboardInput(shortcut.Key, true, marker));
+            for (var i = keys.Count - 1; i >= 0; i--) inputs.Add(CreateKeyboardInput(keys[i], true, marker));
+
+            var sent = Win32Api.SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf<Win32Api.INPUT>());
+            if (sent != inputs.Count)
+            {
+                Logger.Warn("ClipboardHelper", $"[Clipboard] SendInput failed: sent={sent}/{inputs.Count}, cbSize={Marshal.SizeOf<Win32Api.INPUT>()}, win32Error={Marshal.GetLastWin32Error()}");
+            }
+            return sent == inputs.Count;
+        }
+
+        private static Win32Api.INPUT CreateKeyboardInput(byte key, bool keyUp, ulong marker) => new()
+        {
+            type = Win32Api.INPUT_KEYBOARD,
+            U = new Win32Api.InputUnion
+            {
+                ki = new Win32Api.KEYBDINPUT
+                {
+                    wVk = key,
+                    dwFlags = keyUp ? Win32Api.KEYEVENTF_KEYUP_EX : 0,
+                    dwExtraInfo = (UIntPtr)marker
+                }
+            }
+        };
 
         /// <summary>
         /// 检查字符串是否为哨兵格式（QT_S_ 前缀 + 32位十六进制 GUID）

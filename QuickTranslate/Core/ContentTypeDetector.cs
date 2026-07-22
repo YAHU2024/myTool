@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace QuickTranslate.Core
@@ -33,7 +34,7 @@ namespace QuickTranslate.Core
 
         /// <summary>包含管道、逻辑运算符、重定向：| 、&& 、|| 、>> 、2>&1</summary>
         private static readonly Regex ShellOperators = new(
-            @"\s(\|\||&&|>>?|<)\s|2>&1", RegexOptions.Compiled);
+            @"(\|\||&&|>>?|2>&1)", RegexOptions.Compiled);
 
         /// <summary>包含常见命令行参数格式：--flag 、-f 、-n 10</summary>
         private static readonly Regex CliFlags = new(
@@ -54,8 +55,23 @@ namespace QuickTranslate.Core
 
         /// <summary>代码特征：花括号、分号结尾、函数调用、赋值</summary>
         private static readonly Regex CodeSyntax = new(
-            @"(\{[^}]*\}|;\s*$|=>|\w+\([^)]*\)\s*[{;]|import\s+\w+|from\s+\w+\s+import|#include)",
+            @"(;\s*$|=>|\b(import|from)\s+[A-Za-z_]|#include|\b(class|interface|namespace|public|private|protected|static|async|await|def|func|function|fn|const|let|var|using|SELECT|CREATE|INSERT|UPDATE|WHERE)\b|\b[A-Za-z_$][\w$]*\s*:=|\b[A-Za-z_$][\w$]*\s*=\s*[^=])",
             RegexOptions.Compiled);
+
+        private static readonly Regex FencedCodeBlock = new(
+            @"(?s)^\s*```(?:[A-Za-z0-9_+#.-]+)?\s*\r?\n.+?\r?\n\s*```\s*$", RegexOptions.Compiled);
+
+        private static readonly Regex DeclarationSyntax = new(
+            @"(?m)^\s*(?:(?:public|private|protected|internal|static|async|export|const|let|var|class|interface|struct|enum|def|func|function|fn)\b|(?:if|for|while|switch|try|catch)\s*\([^)]*\)\s*\{?)", RegexOptions.Compiled);
+
+        private static readonly Regex CodeComment = new(
+            @"(?m)^\s*(?://|/\*|\*|#(?!include)|--|REM\b)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex SqlBlock = new(
+            @"(?is)^\s*(?:SELECT\b.+\bFROM\b|INSERT\s+INTO\b|UPDATE\b.+\bSET\b|DELETE\s+FROM\b|CREATE\s+(?:TABLE|VIEW|INDEX)\b)", RegexOptions.Compiled);
+
+        private static readonly Regex PowerShellCommand = new(
+            @"(?im)^\s*(?:Get|Set|New|Remove|Start|Stop|Invoke|Test|Select|Where|ForEach|Write|Import|Export)-[A-Za-z][\w-]*\b", RegexOptions.Compiled);
 
         // ─── 纯英文术语特征 ───
 
@@ -72,6 +88,9 @@ namespace QuickTranslate.Core
                 return ContentType.Translation;
 
             var trimmed = text.Trim();
+
+            if (FencedCodeBlock.IsMatch(trimmed))
+                return ContentType.Code;
 
             // ─── URL 检测（优先） ───
             if (UrlPattern.IsMatch(trimmed))
@@ -96,6 +115,16 @@ namespace QuickTranslate.Core
         private static bool IsCodeOrCommand(string text)
         {
             int score = 0;
+            var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (FencedCodeBlock.IsMatch(text)) return true;
+            if (SqlBlock.IsMatch(text)) return true;
+            if (PowerShellCommand.IsMatch(text)) score += 2;
+            if (LooksLikeJson(text)) return true;
+            if (DeclarationSyntax.IsMatch(text)) score += 2;
+            if (CodeComment.IsMatch(text)) score++;
+            if (text.Contains('{') && text.Contains('}')) score += 2;
+            if (text.Contains('\n') && lines.Length >= 2 && lines.Any(l => l.TrimEnd().EndsWith(';'))) score++;
 
             if (ShellPromptPrefix.IsMatch(text)) score += 2;  // 强信号
             if (KnownCommands.IsMatch(text)) score += 2;       // 强信号
@@ -106,6 +135,23 @@ namespace QuickTranslate.Core
             // 短文本（单行）只需 2 分；多行文本需要 3 分
             int threshold = text.Contains('\n') ? 3 : 2;
             return score >= threshold;
+        }
+
+        private static bool LooksLikeJson(string text)
+        {
+            var trimmed = text.Trim();
+            if (!(trimmed.StartsWith('{') && trimmed.EndsWith('}')) &&
+                !(trimmed.StartsWith('[') && trimmed.EndsWith(']')))
+                return false;
+            try
+            {
+                using var document = JsonDocument.Parse(trimmed);
+                return document.RootElement.ValueKind is JsonValueKind.Object or JsonValueKind.Array;
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
         }
 
         /// <summary>
