@@ -182,8 +182,9 @@ namespace QuickTranslate.Core
                     return null;
                 }
 
-                // 最后一行末端右上角外侧坐标（右上角上方）
-                // UIA 返回物理像素，转换为 WPF 逻辑像素(DIP)
+                // 最后一行末端右上角外侧坐标（右上角上方）。
+                // UIA returns physical screen pixels; keep that contract for the
+                // red dot and floating HWND positioning path.
                 var endPoint = new Point(lastLineRect.Value.Right, lastLineRect.Value.Y);
 
                 var bounds = new Rect(minX, minY, maxX - minX, maxY - minY);

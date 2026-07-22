@@ -9,9 +9,11 @@
         ResizeMode="NoResize"
         Topmost="True"
         ShowInTaskbar="False"
+        ShowActivated="False"
         AllowsTransparency="True"
         Background="Transparent"
-        SizeToContent="WidthAndHeight"
+        Width="420"
+        SizeToContent="Height"
         MaxWidth="420">
 
     <Window.Resources>

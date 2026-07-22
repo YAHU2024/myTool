@@ -19,7 +19,7 @@ namespace QuickTranslate.UI
         private bool _hoverArmed;
 
         /// <summary>
-        /// 红点在屏幕上的中心位置（用于悬浮窗定位）
+        /// 红点在屏幕上的物理像素中心位置（用于悬浮窗定位）
         /// </summary>
         public System.Windows.Point DotScreenPosition { get; private set; }
 
@@ -74,11 +74,12 @@ namespace QuickTranslate.UI
             Left = anchor.X - 8;
             Top = anchor.Y - 8;
 
-            // 记录红点中心点坐标（用于悬浮窗定位）
-            DotScreenPosition = new System.Windows.Point(Left + 8, Top + 8);
+            // Keep the public anchor in physical pixels. FloatingWindow uses the
+            // same coordinate contract and positions its HWND natively.
+            DotScreenPosition = physicalAnchor;
 
             Show();
-            // WPF window coordinates are DIP; use the actual rendered center as the public anchor.
+            // WPF window coordinates are DIP; native placement below is performed in physical pixels.
             UpdateLayout();
             var hwnd = new WindowInteropHelper(this).Handle;
             var physicalSize = DpiHelper.LogicalSizeToPhysical(new System.Windows.Size(ActualWidth, ActualHeight), physicalAnchor);
@@ -95,7 +96,9 @@ namespace QuickTranslate.UI
                 0x0004 | 0x0010); // SWP_NOZORDER | SWP_NOACTIVATE
             Left = px / DpiHelper.GetScaleForPhysicalPoint(physicalAnchor).X;
             Top = py / DpiHelper.GetScaleForPhysicalPoint(physicalAnchor).Y;
-            DotScreenPosition = new System.Windows.Point(Left + ActualWidth / 2, Top + ActualHeight / 2);
+            DotScreenPosition = new System.Windows.Point(
+                px + physicalSize.Width / 2,
+                py + physicalSize.Height / 2);
             // If the pointer is already outside the newly shown window, the
             // next enter is an intentional hover and may activate normally.
             // Only suppress the enter when the window appeared under the pointer.
