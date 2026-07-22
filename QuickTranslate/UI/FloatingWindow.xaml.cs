@@ -277,12 +277,12 @@ public partial class FloatingWindow : Window
 
     private void MarkdownCodeCopyButton_Click(object sender, RoutedEventArgs e)
     {
-        if (e.OriginalSource is not Button { Tag: MarkdownCodeBlock metadata })
+        if (e.OriginalSource is not Button { Tag: MarkdownCodeBlock metadata } button)
             return;
-
         try
         {
             Clipboard.SetText(metadata.Code);
+            ShowCopyFeedback(button, "复制代码");
             e.Handled = true;
         }
         catch
@@ -354,12 +354,29 @@ public partial class FloatingWindow : Window
     private void CopyAllButton_Click(object sender, RoutedEventArgs e)
     {
         var text = _rawText;
-        if (!string.IsNullOrEmpty(text))
+        if (string.IsNullOrEmpty(text)) return;
+        try
         {
-            try { Clipboard.SetText(text); }
-            catch { /* Clipboard access can be temporarily unavailable. */ }
+            Clipboard.SetText(text);
+            if (sender is Button btn)
+                ShowCopyFeedback(btn, "\u29C9", 11);
         }
+        catch { /* Clipboard access can be temporarily unavailable. */ }
         ResetAutoHideTimer();
+    }
+
+    private static void ShowCopyFeedback(Button button, object originalContent, double? feedbackFontSize = null)
+    {
+        button.Content = feedbackFontSize.HasValue
+            ? new TextBlock { Text = "\u2714", FontSize = feedbackFontSize.Value }
+            : (object)"\u2714";
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+        timer.Tick += (_, _) =>
+        {
+            button.Content = originalContent;
+            timer.Stop();
+        };
+        timer.Start();
     }
 
     private void PinButton_Click(object sender, RoutedEventArgs e)
