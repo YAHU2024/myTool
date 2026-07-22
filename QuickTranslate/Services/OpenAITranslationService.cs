@@ -280,12 +280,6 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         {
             prompt = settings.CustomTranslationPrompt.Replace("{targetLang}", effectiveTarget);
         }
-        else if (settings.SmartContentType)
-        {
-            prompt = $"You are a translator. Translate the input to {effectiveTarget}. " +
-                     $"If the input is code, explain it briefly in {targetLang} instead. " +
-                     "Output only the result directly. No prefixes, no labels.";
-        }
         else if (settings.AutoDetectLanguage)
         {
             prompt = $"You are a translator. Translate the input to {effectiveTarget}. " +

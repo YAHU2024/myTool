@@ -119,6 +119,19 @@ namespace QuickTranslate.UI
         public long BeginReplacement()
         {
             var presentationId = _presentations.Begin();
+            ResetForReplacement();
+            return presentationId;
+        }
+
+        public long BeginReplacement(long presentationId)
+        {
+            _presentations.Begin(presentationId);
+            ResetForReplacement();
+            return presentationId;
+        }
+
+        private void ResetForReplacement()
+        {
             _autoHideTimer.Stop();
             _isMouseInside = false;
             Opacity = 0;
@@ -128,7 +141,6 @@ namespace QuickTranslate.UI
             ContentTypeLabel.Visibility = Visibility.Collapsed;
             ContentTypeLabel.ToolTip = null;
             _sourceText = null;
-            return presentationId;
         }
 
         public bool IsPresentationCurrent(long presentationId) =>

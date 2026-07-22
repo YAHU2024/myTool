@@ -8,7 +8,7 @@ namespace QuickTranslate.Tests;
 public class OpenAITranslationServicePromptTests
 {
     [Fact]
-    public void BuildSystemPrompt_SmartTranslation_UsesShortCodeFallback()
+    public void BuildSystemPrompt_Translation_RemainsTranslationWhenSmartDetectionIsEnabled()
     {
         var service = CreateService(new AppSettings
         {
@@ -18,8 +18,9 @@ public class OpenAITranslationServicePromptTests
 
         var prompt = service.BuildSystemPrompt("English", ContentType.Translation, "bonjour");
 
-        Assert.Contains("If the input is code, explain it briefly in English instead.", prompt);
-        Assert.DoesNotContain("Exception: if the input is clearly code or a shell command", prompt);
+        Assert.Contains("Translate the input to English.", prompt);
+        Assert.Contains("You MUST always translate.", prompt);
+        Assert.DoesNotContain("If the input is code", prompt);
     }
 
     [Theory]
@@ -84,7 +85,7 @@ public class OpenAITranslationServicePromptTests
             () => fallbackUsed = true);
 
         Assert.Contains("Translate the input to French.", prompt);
-        Assert.Contains("explain it briefly in English instead.", prompt);
+        Assert.DoesNotContain("If the input is code", prompt);
         Assert.True(fallbackUsed);
     }
 
