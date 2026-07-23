@@ -14,6 +14,7 @@
     <Authors>YaHu</Authors>
     <Description>QuickTranslate - 智能快捷翻译工具</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\QuickTranslate.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
 
@@ -23,6 +24,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Resource Include="Assets\QuickTranslate.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Markdig" Version="0.41.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.*" />
   </ItemGroup>
 

@@ -6,6 +6,15 @@ using QuickTranslate.Models;
 namespace QuickTranslate.Services;
 
 /// <summary>
+/// Controls whether a request may restore a completed result from the process-local cache.
+/// </summary>
+public enum TranslationCacheReadMode
+{
+    UseCache,
+    BypassCache
+}
+
+/// <summary>
 /// Small, process-local cache for completed translation requests.
 /// </summary>
 public sealed class TranslationCacheService
@@ -60,6 +69,24 @@ public sealed class TranslationCacheService
 
     public bool TryGet(TranslationRequest request, out string result)
     {
+        return TryGet(request, TranslationCacheReadMode.UseCache, out result);
+    }
+
+    /// <summary>
+    /// Attempts to restore a completed result according to the requested read mode.
+    /// A bypass intentionally does not count as a cache miss and does not prevent a later <see cref="Set"/>.
+    /// </summary>
+    public bool TryGet(
+        TranslationRequest request,
+        TranslationCacheReadMode readMode,
+        out string result)
+    {
+        if (readMode == TranslationCacheReadMode.BypassCache)
+        {
+            result = string.Empty;
+            return false;
+        }
+
         var key = CreateKey(request);
         var now = _timeProvider.GetUtcNow();
 

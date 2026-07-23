@@ -9,6 +9,13 @@ internal sealed class LatestPresentationCoordinator
 
     public long Begin() => Interlocked.Increment(ref _presentationId);
 
+    public long Begin(long presentationId)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(presentationId);
+        Interlocked.Exchange(ref _presentationId, presentationId);
+        return presentationId;
+    }
+
     public bool IsCurrent(long presentationId) =>
         presentationId == Volatile.Read(ref _presentationId);
 }
