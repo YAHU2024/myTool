@@ -102,9 +102,26 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="9,6"/>
             <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Height" Value="34"/>
             <Setter Property="CaretBrush" Value="{StaticResource PrimaryBrush}"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Margin" Value="0,2,0,2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5"
+                                SnapsToDevicePixels="True">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Focusable="False"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True"><Setter Property="BorderBrush" Value="#526173"/></Trigger>
                 <Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/></Trigger>
@@ -118,8 +135,26 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="9,6"/>
             <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Height" Value="34"/>
             <Setter Property="CaretBrush" Value="{StaticResource PrimaryBrush}"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Margin" Value="0,2,0,2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5"
+                                SnapsToDevicePixels="True">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Focusable="False"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True"><Setter Property="BorderBrush" Value="#526173"/></Trigger>
                 <Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/></Trigger>
@@ -156,6 +191,7 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="9,6"/>
             <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Height" Value="34"/>
             <Setter Property="Margin" Value="0,2,0,2"/>
             <Setter Property="MaxDropDownHeight" Value="280"/>
             <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboBoxItem}"/>
@@ -206,6 +242,32 @@
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Margin" Value="0,3,0,3"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid x:Name="CheckRoot" Background="Transparent">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Border x:Name="FocusSurface" Grid.Column="0" Width="20" Height="20" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" CornerRadius="5"/>
+                            <Border x:Name="CheckSurface" Grid.Column="0" Width="16" Height="16" Background="#191E25" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Grid>
+                                    <Path x:Name="CheckMark" Data="M 3,8 L 6.5,11.5 L 13,4.5" Stroke="#102326" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed"/>
+                                    <Border x:Name="IndeterminateMark" Width="8" Height="2" Background="#102326" CornerRadius="1" Visibility="Collapsed"/>
+                                </Grid>
+                            </Border>
+                            <ContentPresenter Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True"><Setter TargetName="CheckSurface" Property="Background" Value="{StaticResource PrimaryBrush}"/><Setter TargetName="CheckSurface" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/><Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/></Trigger>
+                            <Trigger Property="IsChecked" Value="{x:Null}"><Setter TargetName="CheckSurface" Property="Background" Value="{StaticResource PrimaryBrush}"/><Setter TargetName="CheckSurface" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/><Setter TargetName="IndeterminateMark" Property="Visibility" Value="Visible"/></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="CheckSurface" Property="BorderBrush" Value="{StaticResource PrimaryHoverBrush}"/></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="FocusSurface" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="CheckRoot" Property="Opacity" Value="0.45"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="PrimaryButton" TargetType="Button">
             <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
@@ -321,15 +383,15 @@
                             <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="翻译提示词" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,6,12,0"/>
-                            <TextBox x:Name="CustomTranslationPromptTextBox" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource InputTextBox}" Height="72" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" ToolTip="自定义翻译提示词" TextChanged="Input_LostFocus"/>
+                            <TextBox x:Name="CustomTranslationPromptTextBox" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource InputTextBox}" Height="72" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" ToolTip="自定义翻译提示词" TextChanged="Input_LostFocus"/>
                             <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="留空时使用默认提示词，支持 {targetLang} 占位符。" Style="{StaticResource HintStyle}"/>
                             <TextBlock Grid.Row="2" Text="深度解析方案" Style="{StaticResource LabelStyle}"/>
                             <ComboBox x:Name="AnalysisPromptComboBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource DarkComboBox}" SelectionChanged="AnalysisPromptComboBox_SelectionChanged"/>
-                            <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" Margin="8,0,0,0"><Button x:Name="NewAnalysisPromptButton" Content="&#xE710;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource IconButton}" ToolTip="新建解析方案" Click="NewAnalysisPromptButton_Click"/><Button x:Name="CopyAnalysisPromptButton" Content="&#xE8C8;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource IconButton}" ToolTip="复制当前解析方案" Click="CopyAnalysisPromptButton_Click" Margin="4,0,0,0"/><Button x:Name="DeleteAnalysisPromptButton" Content="&#xE74D;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource DangerButton}" ToolTip="删除当前自定义解析方案" Click="DeleteAnalysisPromptButton_Click" Margin="4,0,0,0"/></StackPanel>
+                            <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" Margin="8,0,0,0"><Button x:Name="NewAnalysisPromptButton" Content="&#xE710;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource IconButton}" ToolTip="新建解析方案" Click="NewAnalysisPromptButton_Click"/><Button x:Name="CopyAnalysisPromptButton" Content="&#xE8C8;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource IconButton}" ToolTip="复制当前解析方案" Click="CopyAnalysisPromptButton_Click" Margin="4,0,0,0"/><Button x:Name="DeleteAnalysisPromptButton" Content="&#xE74D;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource DangerButton}" Width="30" Height="30" Padding="0" ToolTip="删除当前自定义解析方案" Click="DeleteAnalysisPromptButton_Click" Margin="4,0,0,0"/></StackPanel>
                             <TextBlock Grid.Row="3" Text="自定义解析方案" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,6,12,0"/>
                             <StackPanel x:Name="AnalysisPromptEditorPanel" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2">
                                 <TextBox x:Name="AnalysisPromptNameTextBox" Style="{StaticResource InputTextBox}" Height="34" ToolTip="自定义解析方案名称" TextChanged="AnalysisPromptEditor_TextChanged" LostFocus="AnalysisPromptEditor_LostFocus"/>
-                                <TextBox x:Name="AnalysisPromptTextBox" Style="{StaticResource InputTextBox}" Height="72" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" ToolTip="自定义深度解析提示词，支持 {targetLang} 占位符" TextChanged="AnalysisPromptEditor_TextChanged"/>
+                                <TextBox x:Name="AnalysisPromptTextBox" Style="{StaticResource InputTextBox}" Height="72" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" ToolTip="自定义深度解析提示词，支持 {targetLang} 占位符" TextChanged="AnalysisPromptEditor_TextChanged"/>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -353,7 +415,7 @@
                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="116"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="开机启动" Style="{StaticResource LabelStyle}"/><CheckBox x:Name="AutoStartCheckBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource DarkCheckBox}" Content="随 Windows 启动 QuickTranslate" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
                             <TextBlock Grid.Row="1" Text="全局快捷键" Style="{StaticResource LabelStyle}"/><CheckBox x:Name="HotKeyEnabledCheckBox" Grid.Row="1" Grid.Column="1" Style="{StaticResource DarkCheckBox}" Content="启用全局快捷键" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
-                            <TextBlock Grid.Row="2" Text="当前快捷键" Style="{StaticResource LabelStyle}"/><StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal"><TextBlock x:Name="HotKeyDisplayText" Foreground="{StaticResource TextBrush}" FontSize="13" VerticalAlignment="Center" Text="Alt+Q"/><Button x:Name="ChangeHotKeyButton" Style="{StaticResource SecondaryButton}" Content="修改" Margin="12,0,0,0" Click="ChangeHotKeyButton_Click"/><TextBlock x:Name="HotKeyCaptureHint" Foreground="#F0B35A" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" Visibility="Collapsed" Text="请按下新的快捷键组合"/></StackPanel>
+                            <TextBlock Grid.Row="2" Text="当前快捷键" Style="{StaticResource LabelStyle}"/><StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal"><TextBlock x:Name="HotKeyDisplayText" Foreground="{StaticResource TextBrush}" FontSize="13" VerticalAlignment="Center" Text="Alt+Q"/><Button x:Name="ChangeHotKeyButton" Style="{StaticResource SecondaryButton}" Content="修改" Padding="10,6" Margin="12,0,0,0" Click="ChangeHotKeyButton_Click"/><TextBlock x:Name="HotKeyCaptureHint" Foreground="#F0B35A" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" Visibility="Collapsed" Text="请按下新的快捷键组合"/></StackPanel>
                         </Grid>
                     </StackPanel>
                 </Border>
