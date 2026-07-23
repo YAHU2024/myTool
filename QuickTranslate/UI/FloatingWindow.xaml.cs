@@ -33,6 +33,21 @@ public partial class FloatingWindow : Window
     private Point _dragStartCursorPhysical;
     private Point _dragStartWindowPhysical;
     private bool _userMoved;
+    private bool _userResized;
+    private bool _isSystemSizing;
+    private HwndSource? _hwndSource;
+    private const int WmNchittest = 0x0084;
+    private const int WmEnterSizeMove = 0x0231;
+    private const int WmExitSizeMove = 0x0232;
+    private const int HtLeft = 10;
+    private const int HtRight = 11;
+    private const int HtTop = 12;
+    private const int HtTopLeft = 13;
+    private const int HtTopRight = 14;
+    private const int HtBottom = 15;
+    private const int HtBottomLeft = 16;
+    private const int HtBottomRight = 17;
+    private const int ResizeBorderPhysical = 8;
     private string _rawText = string.Empty;
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
@@ -50,6 +65,7 @@ public partial class FloatingWindow : Window
     public FloatingWindow()
     {
         InitializeComponent();
+        SourceInitialized += FloatingWindow_SourceInitialized;
         MarkdownDocumentHost.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
         MarkdownDocumentHost.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
         TitleBar.PreviewMouseLeftButtonDown += TitleBar_PreviewMouseLeftButtonDown;
@@ -88,6 +104,9 @@ public partial class FloatingWindow : Window
     {
         EndDragging(resetAutoHideTimer: false);
         _userMoved = false;
+        _userResized = false;
+        _isSystemSizing = false;
+        SizeToContent = SizeToContent.Height;
         base.Hide();
     }
 
@@ -220,7 +239,9 @@ public partial class FloatingWindow : Window
         var availableHeight = _placeAbove
             ? exclusionBounds.Top - gap - workArea.Top
             : workArea.Bottom - exclusionBounds.Bottom - gap;
-        TranslationScroller.MaxHeight = Math.Max(availableHeight / scale.Y - chromeHeightDip, 80);
+        TranslationScroller.MaxHeight = _userResized
+            ? double.PositiveInfinity
+            : Math.Max(availableHeight / scale.Y - chromeHeightDip, 80);
 
         Opacity = 0;
         IsHitTestVisible = false;
@@ -485,7 +506,7 @@ public partial class FloatingWindow : Window
         PinButton.ToolTip = IsPinned ? "取消固定" : "固定窗口";
     }
 
-    private bool CanAutoHide() => !IsPinned && !_isLoading && !_isMouseInside;
+    private bool CanAutoHide() => !IsPinned && !_isLoading && !_isMouseInside && !_isSystemSizing;
 
     private void ResetAutoHideTimer()
     {
@@ -506,7 +527,7 @@ public partial class FloatingWindow : Window
 
     private void PositionWindowAtAnchor()
     {
-        if (_isDragging || _userMoved || !_hasAnchor || ActualWidth <= 0 || ActualHeight <= 0)
+        if (_isDragging || _userMoved || _userResized || !_hasAnchor || ActualWidth <= 0 || ActualHeight <= 0)
             return;
 
         var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(_anchor.PreferredPoint);
@@ -523,6 +544,84 @@ public partial class FloatingWindow : Window
             return;
 
         Win32Api.SetWindowPos(hwnd, IntPtr.Zero, (int)Math.Round(rect.Left), (int)Math.Round(rect.Top), (int)Math.Round(rect.Width), (int)Math.Round(rect.Height), 0x0004 | 0x0010);
+    }
+
+    private void FloatingWindow_SourceInitialized(object? sender, EventArgs e)
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero)
+            return;
+
+        var style = Win32Api.GetWindowLongPtr(hwnd, Win32Api.GWL_STYLE).ToInt64();
+        if ((style & Win32Api.WS_THICKFRAME) == 0)
+        {
+            Win32Api.SetWindowLongPtr(hwnd, Win32Api.GWL_STYLE, new IntPtr(style | Win32Api.WS_THICKFRAME));
+            const uint swpNoMove = 0x0002;
+            const uint swpNoSize = 0x0001;
+            const uint swpNoZOrder = 0x0004;
+            const uint swpFrameChanged = 0x0020;
+            Win32Api.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, swpNoMove | swpNoSize | swpNoZOrder | swpFrameChanged);
+        }
+
+        _hwndSource = HwndSource.FromHwnd(hwnd);
+        _hwndSource?.AddHook(FloatingWindowWindowProc);
+    }
+
+    private IntPtr FloatingWindowWindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == WmEnterSizeMove)
+        {
+            // Keep the current auto-sized height as the starting point for manual resizing.
+            SizeToContent = SizeToContent.Manual;
+            _isSystemSizing = true;
+            _autoHideTimer.Stop();
+            TranslationScroller.MaxHeight = double.PositiveInfinity;
+            return IntPtr.Zero;
+        }
+
+        if (msg == WmExitSizeMove)
+        {
+            _userResized = true;
+            _isSystemSizing = false;
+            UpdateLayout();
+            ResetAutoHideTimer();
+            return IntPtr.Zero;
+        }
+
+        if (msg != WmNchittest || _isDragging || !IsHitTestVisible)
+            return IntPtr.Zero;
+
+        var screenX = unchecked((short)(long)lParam);
+        var screenY = unchecked((short)((long)lParam >> 16));
+        if (!Win32Api.GetWindowRect(hwnd, out var windowRect))
+            return IntPtr.Zero;
+
+        var border = ResizeBorderPhysical;
+        var left = screenX - windowRect.Left < border;
+        var right = windowRect.Right - screenX <= border;
+        var top = screenY - windowRect.Top < border;
+        var bottom = windowRect.Bottom - screenY <= border;
+
+        var hit = (left, right, top, bottom) switch
+        {
+            (true, false, true, false) => HtTopLeft,
+            (false, true, true, false) => HtTopRight,
+            (true, false, false, true) => HtBottomLeft,
+            (false, true, false, true) => HtBottomRight,
+            (_, false, true, false) => HtTop,
+            (_, false, false, true) => HtBottom,
+            (true, false, _, _) => HtLeft,
+            (false, true, _, _) => HtRight,
+            _ => 1
+        };
+
+        if (hit != 1)
+        {
+            handled = true;
+            return new IntPtr(hit);
+        }
+
+        return IntPtr.Zero;
     }
 
     private void TitleBar_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
