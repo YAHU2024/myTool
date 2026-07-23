@@ -29,6 +29,10 @@ public partial class FloatingWindow : Window
     private bool _isLoading;
     private bool _isProgrammaticScroll;
     private bool _isMarkdownExpanded;
+    private bool _isDragging;
+    private Point _dragStartCursorPhysical;
+    private Point _dragStartWindowPhysical;
+    private bool _userMoved;
     private string _rawText = string.Empty;
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
@@ -48,6 +52,10 @@ public partial class FloatingWindow : Window
         InitializeComponent();
         MarkdownDocumentHost.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
         MarkdownDocumentHost.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
+        TitleBar.PreviewMouseLeftButtonDown += TitleBar_PreviewMouseLeftButtonDown;
+        TitleBar.PreviewMouseMove += TitleBar_PreviewMouseMove;
+        TitleBar.PreviewMouseLeftButtonUp += TitleBar_PreviewMouseLeftButtonUp;
+        TitleBar.LostMouseCapture += TitleBar_LostMouseCapture;
 
         _autoHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _autoHideTimer.Tick += (_, _) =>
@@ -75,6 +83,13 @@ public partial class FloatingWindow : Window
     }
 
     internal FloatingWindowAnchor CurrentAnchor => _anchor;
+
+    public new void Hide()
+    {
+        EndDragging(resetAutoHideTimer: false);
+        _userMoved = false;
+        base.Hide();
+    }
 
     public long BeginReplacement()
     {
@@ -491,7 +506,7 @@ public partial class FloatingWindow : Window
 
     private void PositionWindowAtAnchor()
     {
-        if (!_hasAnchor || ActualWidth <= 0 || ActualHeight <= 0)
+        if (_isDragging || _userMoved || !_hasAnchor || ActualWidth <= 0 || ActualHeight <= 0)
             return;
 
         var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(_anchor.PreferredPoint);
@@ -508,6 +523,116 @@ public partial class FloatingWindow : Window
             return;
 
         Win32Api.SetWindowPos(hwnd, IntPtr.Zero, (int)Math.Round(rect.Left), (int)Math.Round(rect.Top), (int)Math.Round(rect.Width), (int)Math.Round(rect.Height), 0x0004 | 0x0010);
+    }
+
+    private void TitleBar_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left || IsInsideButton(e.OriginalSource as DependencyObject))
+            return;
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero ||
+            !Win32Api.GetCursorPos(out var cursor) ||
+            !Win32Api.GetWindowRect(hwnd, out var windowRect))
+        {
+            return;
+        }
+
+        _dragStartCursorPhysical = new Point(cursor.X, cursor.Y);
+        _dragStartWindowPhysical = new Point(windowRect.Left, windowRect.Top);
+        if (!Mouse.Capture(TitleBar, CaptureMode.Element))
+            return;
+
+        _isDragging = true;
+        _autoHideTimer.Stop();
+        e.Handled = true;
+    }
+
+    private void TitleBar_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isDragging)
+            return;
+
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            EndDragging();
+            return;
+        }
+
+        if (!Win32Api.GetCursorPos(out var cursor))
+            return;
+
+        var currentCursorPhysical = new Point(cursor.X, cursor.Y);
+        var deltaX = currentCursorPhysical.X - _dragStartCursorPhysical.X;
+        var deltaY = currentCursorPhysical.Y - _dragStartCursorPhysical.Y;
+        var newLeft = _dragStartWindowPhysical.X + deltaX;
+        var newTop = _dragStartWindowPhysical.Y + deltaY;
+
+        var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(currentCursorPhysical);
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (!workArea.IsEmpty && hwnd != IntPtr.Zero && Win32Api.GetWindowRect(hwnd, out var windowRect))
+        {
+            var width = windowRect.Right - windowRect.Left;
+            var height = windowRect.Bottom - windowRect.Top;
+            newLeft = Math.Clamp(newLeft, workArea.Left, Math.Max(workArea.Left, workArea.Right - width));
+            newTop = Math.Clamp(newTop, workArea.Top, Math.Max(workArea.Top, workArea.Bottom - height));
+
+            const uint swpNoSize = 0x0001;
+            const uint swpNoZOrder = 0x0004;
+            const uint swpNoActivate = 0x0010;
+            Win32Api.SetWindowPos(
+                hwnd,
+                IntPtr.Zero,
+                (int)Math.Round(newLeft),
+                (int)Math.Round(newTop),
+                0,
+                0,
+                swpNoSize | swpNoZOrder | swpNoActivate);
+        }
+
+        if (Math.Abs(deltaX) + Math.Abs(deltaY) > 2)
+            _userMoved = true;
+    }
+
+    private void TitleBar_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isDragging)
+            return;
+
+        EndDragging();
+    }
+
+    private void TitleBar_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (_isDragging)
+            EndDragging();
+    }
+
+    private void EndDragging(bool resetAutoHideTimer = true)
+    {
+        _isDragging = false;
+        if (Mouse.Captured == TitleBar)
+            Mouse.Capture(null);
+        if (resetAutoHideTimer)
+            ResetAutoHideTimer();
+    }
+
+    private static bool IsInsideButton(DependencyObject? source)
+    {
+        for (var current = source; current is not null; current = GetParent(current))
+        {
+            if (current is Button)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static DependencyObject? GetParent(DependencyObject child)
+    {
+        if (child is Visual or System.Windows.Media.Media3D.Visual3D)
+            return VisualTreeHelper.GetParent(child);
+        return LogicalTreeHelper.GetParent(child);
     }
 
     private static async Task WaitForCompositionFrameAsync()

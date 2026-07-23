@@ -128,7 +128,7 @@
         <Border.Effect><DropShadowEffect Color="Black" BlurRadius="12" ShadowDepth="2" Opacity="0.5"/></Border.Effect>
         <Grid>
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-            <Grid Grid.Row="0" Margin="0,0,0,6">
+            <Grid x:Name="TitleBar" Grid.Row="0" Margin="0,0,0,6" Background="Transparent" Cursor="SizeAll">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="TranslationModeButton" Style="{StaticResource ModeButton}" Content="翻译" ToolTip="严格翻译" Click="ModeButton_Click" Tag="ActiveTranslation"/>
