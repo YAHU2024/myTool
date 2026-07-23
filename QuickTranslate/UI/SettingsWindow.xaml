@@ -150,9 +150,13 @@
                 <TextBlock Text="API 配置" Foreground="#E0E0E0" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
                 <Grid>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="Auto"/>
                         <RowDefinition Height="10"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="10"/>
@@ -416,6 +420,20 @@
                         <TextBlock x:Name="HotKeyCaptureHint" Foreground="#FFA500" FontSize="12"
                                    VerticalAlignment="Center" Margin="12,0,0,0"
                                    Visibility="Collapsed" Text="请按新的快捷键..."/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="6" Grid.Column="0" Text="日志级别:" Style="{StaticResource LabelStyle}"/>
+                    <ComboBox x:Name="LogLevelComboBox" Grid.Row="6" Grid.Column="1"
+                              Style="{StaticResource DarkComboBox}" SelectionChanged="Setting_Changed"/>
+
+                    <TextBlock Grid.Row="8" Grid.Column="0" Text="日志保留:" Style="{StaticResource LabelStyle}"/>
+                    <StackPanel Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
+                        <TextBox x:Name="LogRetentionDaysTextBox" Width="70" Style="{StaticResource InputTextBox}"
+                                 LostFocus="Input_LostFocus"/>
+                        <TextBlock Text="天，总大小" Foreground="#A0A0C0" VerticalAlignment="Center" Margin="8,0,8,0"/>
+                        <TextBox x:Name="LogMaxTotalMegabytesTextBox" Width="80" Style="{StaticResource InputTextBox}"
+                                 LostFocus="Input_LostFocus"/>
+                        <TextBlock Text="MB" Foreground="#A0A0C0" VerticalAlignment="Center" Margin="8,0,0,0"/>
                     </StackPanel>
                 </Grid>
             </StackPanel>

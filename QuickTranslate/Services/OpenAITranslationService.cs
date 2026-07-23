@@ -1,4 +1,5 @@
 using System.IO;
+using System.Diagnostics;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -82,9 +83,15 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         ValidateRequest(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var operation = request.Kind == TranslationRequestKind.Analysis ? "解析" : "翻译";
-        var truncatedInput = request.Text.Length > 80 ? request.Text[..80] + "..." : request.Text;
-        Logger.Info("TranslationService", $"[{operation}] {request.ContentType} | {request.TargetLanguage} | \"{truncatedInput}\"");
+        var operation = request.Kind == TranslationRequestKind.Analysis ? "analysis" : "translation";
+        var startedAt = Stopwatch.GetTimestamp();
+        Logger.Info("TranslationService", "translation.started", new
+        {
+            operation,
+            content_type = request.ContentType.ToString(),
+            target_language = request.TargetLanguage,
+            text_len = request.Text.Length
+        });
 
         var requestBody = BuildRequestBody(request, stream: true);
         using var response = await SendAsync(
@@ -95,9 +102,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new HttpRequestException(
-                $"{operation}请求失败 ({(int)response.StatusCode}): {errorBody}");
+                $"{operation} request failed ({(int)response.StatusCode})");
         }
 
         var fullResult = new StringBuilder();
@@ -142,8 +148,15 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         }
 
         var result = fullResult.ToString().Trim();
-        var truncatedResult = result.Length > 100 ? result[..100] + "..." : result;
-        Logger.Info("TranslationService", $"[{operation}结果] \"{truncatedResult}\"");
+        Logger.Info("TranslationService", "translation.completed", new
+        {
+            operation,
+            content_type = request.ContentType.ToString(),
+            target_language = request.TargetLanguage,
+            text_len = request.Text.Length,
+            result_len = result.Length,
+            duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds
+        });
         return result;
     }
 
@@ -179,9 +192,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new HttpRequestException(
-                $"翻译请求失败 ({(int)response.StatusCode}): {errorBody}");
+                $"translation request failed ({(int)response.StatusCode})");
         }
 
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -26,10 +27,12 @@ public partial class App : Application
     private TrayIconManager? _trayIcon;
     private SettingsWindow? _settingsWindow;
     private HistoryWindow? _historyWindow;
+    private LogViewerWindow? _logViewerWindow;
     private TranslationDbContext? _dbContext;
     private readonly LatestRequestCoordinator _translationRequests = new();
     private readonly FloatingResultSessionCoordinator _resultSessions = new();
     private readonly TranslationCacheService _translationCache = new();
+    private readonly TranslationMetrics _translationMetrics = new();
     private long _selectionGeneration;
     private CancellationTokenSource? _selectionCts;
     private ForegroundWindowInfo? _pendingSelection;
@@ -68,8 +71,9 @@ public partial class App : Application
 #endif
         Logger.Init(
             minLevel: Logger.ParseLevel(_settings.LogLevel),
-            retentionDays: _settings.LogRetentionDays);
-        Logger.Info("App", $"应用启动, OS={Environment.OSVersion}, .NET={Environment.Version}");
+            retentionDays: _settings.LogRetentionDays,
+            maxTotalBytes: _settings.LogMaxTotalBytes);
+        Logger.Info("App", "app.started", new { os = Environment.OSVersion.ToString(), dotnet = Environment.Version.ToString() });
 
         // ★ 启动时清扫上次残留的剪贴板哨兵
         ClipboardHelper.CleanResidualOnStartup();
@@ -119,7 +123,12 @@ public partial class App : Application
         };
         AppDomain.CurrentDomain.UnhandledException += (s, args) =>
         {
-            Logger.Fatal("App", $"未处理异常(AppDomain): {args.ExceptionObject}");
+            var exception = args.ExceptionObject as Exception;
+            Logger.Fatal("App", "app.unhandled_exception", new
+            {
+                thread = "AppDomain",
+                error_type = exception?.GetType().Name ?? args.ExceptionObject.GetType().Name
+            }, exception);
         };
 
         // 初始化数据库
@@ -164,6 +173,7 @@ public partial class App : Application
         _trayIcon.SettingsRequested += OnSettingsRequested;
         _trayIcon.RestoreRequested += OnRestoreRequested;
         _trayIcon.HistoryRequested += OnHistoryRequested;
+        _trayIcon.LogsRequested += OnLogsRequested;
         _trayIcon.PauseToggled += OnPauseToggled;
         _trayIcon.HotKeyToggled += OnHotKeyToggled;
         _trayIcon.ExitRequested += OnExitRequested;
@@ -570,6 +580,7 @@ public partial class App : Application
             contentType,
             kind);
         var requestScope = BeginTranslationRequest();
+        var startedAt = Stopwatch.GetTimestamp();
 
         try
         {
@@ -577,9 +588,16 @@ public partial class App : Application
 
             if (_translationCache.TryGet(request, cacheReadMode, out var cachedResult))
             {
-                if (!IsCurrentRequest(requestScope) ||
-                    !_resultSessions.TryComplete(sessionIdentity, cachedResult))
+                if (!IsCurrentRequest(requestScope))
+                {
+                    _translationMetrics.RecordExpired();
                     return;
+                }
+                if (!_resultSessions.TryComplete(sessionIdentity, cachedResult))
+                {
+                    _translationMetrics.RecordExpired();
+                    return;
+                }
 
                 await ShowRequestResultAsync(
                     request,
@@ -593,7 +611,13 @@ public partial class App : Application
                     request.TargetLanguage,
                     request.ContentType,
                     request.ModelName);
-                Logger.Info("App", $"{operationName}缓存命中: {cachedResult.Length} 字");
+                _translationMetrics.RecordCompleted(TimeSpan.Zero, cacheHit: true);
+                Logger.Info("App", "translation.cache_hit", new
+                {
+                    operation = operationName,
+                    content_type = request.ContentType.ToString(),
+                    result_len = cachedResult.Length
+                });
                 return;
             }
 
@@ -621,9 +645,16 @@ public partial class App : Application
                 requestScope.Token);
 
             requestScope.Token.ThrowIfCancellationRequested();
-            if (!IsCurrentRequest(requestScope) ||
-                !_resultSessions.TryComplete(sessionIdentity, result))
+            if (!IsCurrentRequest(requestScope))
+            {
+                _translationMetrics.RecordExpired();
                 return;
+            }
+            if (!_resultSessions.TryComplete(sessionIdentity, result))
+            {
+                _translationMetrics.RecordExpired();
+                return;
+            }
 
             UpdateFloatingSessionView();
             _translationCache.Set(request, result);
@@ -633,16 +664,34 @@ public partial class App : Application
                 request.TargetLanguage,
                 request.ContentType,
                 request.ModelName);
-            Logger.Info("App", $"{operationName}完成: {result.Length} 字");
+            var duration = Stopwatch.GetElapsedTime(startedAt);
+            _translationMetrics.RecordCompleted(duration);
+            Logger.Info("App", "translation.presented", new
+            {
+                operation = operationName,
+                content_type = request.ContentType.ToString(),
+                result_len = result.Length,
+                duration_ms = duration.TotalMilliseconds
+            });
         }
         catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))
         {
             _resultSessions.TryCancel(sessionIdentity);
-            Logger.Debug("App", $"{operationName}已切换或取消, requestId={requestScope.RequestId}");
+            _translationMetrics.RecordCancelled();
+            Logger.Debug("App", "translation.cancelled", new { operation = operationName, request_id = requestScope.RequestId });
         }
         catch (Exception ex)
         {
-            Logger.Error("App", $"{operationName}出错", ex);
+            if (IsCurrentRequest(requestScope))
+                _translationMetrics.RecordFailed();
+            else
+                _translationMetrics.RecordExpired();
+            Logger.Error("App", "translation.failed", new
+            {
+                operation = operationName,
+                request_id = requestScope.RequestId,
+                error_type = ex.GetType().Name
+            }, ex);
             if (IsCurrentRequest(requestScope) &&
                 _resultSessions.TryFail(sessionIdentity, ex.Message) &&
                 _floatingWindow.IsPresentationCurrent(presentationId))
@@ -746,7 +795,7 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            Logger.Warn("App", $"UIA定位异常: {ex.Message}");
+            Logger.Warn("App", "selection.location_failed", new { error_type = ex.GetType().Name });
         }
 
         // Fallback stays in physical screen pixels, matching UIA and RedDotWindow.
@@ -822,6 +871,10 @@ public partial class App : Application
         _translationCache.Clear();
         _settings = settings;
         _translationService?.UpdateSettings(settings);
+        Logger.Configure(
+            Logger.ParseLevel(settings.LogLevel),
+            settings.LogRetentionDays,
+            settings.LogMaxTotalBytes);
 
         // 更新快捷键配置（后台线程执行，避免钩子 Stop/Start 阻塞 UI）
         if (_keyboardHook != null)
@@ -862,6 +915,22 @@ public partial class App : Application
             _historyWindow = new HistoryWindow();
             _historyWindow.Closed += (s, e) => _historyWindow = null;
             _historyWindow.Show();
+        });
+    }
+
+    private void OnLogsRequested()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_logViewerWindow != null)
+            {
+                _logViewerWindow.Activate();
+                return;
+            }
+
+            _logViewerWindow = new LogViewerWindow(_translationMetrics, _translationCache);
+            _logViewerWindow.Closed += (_, _) => _logViewerWindow = null;
+            _logViewerWindow.Show();
         });
     }
 

@@ -34,6 +34,11 @@ namespace QuickTranslate.Helpers
                     var settings = JsonSerializer.Deserialize<AppSettings>(json);
                     if (settings != null)
                     {
+                        settings.LogRetentionDays = Math.Clamp(settings.LogRetentionDays, 1, 3650);
+                        settings.LogMaxTotalBytes = Math.Clamp(
+                            settings.LogMaxTotalBytes,
+                            1 * 1024 * 1024,
+                            1024L * 1024 * 1024);
                         // 兼容旧版本共用的 CustomSystemPrompt，仅在新字段均未提供时迁移一次。
                         using var document = JsonDocument.Parse(json);
                         if (document.RootElement.TryGetProperty("CustomSystemPrompt", out var legacyPrompt) &&
@@ -75,7 +80,7 @@ namespace QuickTranslate.Helpers
             }
             catch (Exception ex)
             {
-                Logger.Warn("ConfigManager", $"保存配置失败: {ex.Message}");
+                Logger.Warn("ConfigManager", "config.save_failed", new { error_type = ex.GetType().Name });
             }
         }
     }

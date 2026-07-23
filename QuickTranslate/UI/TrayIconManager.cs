@@ -30,6 +30,8 @@ namespace QuickTranslate.UI
         /// </summary>
         public event Action? HistoryRequested;
 
+        public event Action? LogsRequested;
+
         /// <summary>
         /// 用户点击"暂停/恢复翻译"
         /// </summary>
@@ -81,11 +83,15 @@ namespace QuickTranslate.UI
             var historyItem = new ToolStripMenuItem("翻译历史");
             historyItem.Click += (s, e) => HistoryRequested?.Invoke();
 
+            var logsItem = new ToolStripMenuItem("日志查看");
+            logsItem.Click += (s, e) => LogsRequested?.Invoke();
+
             var exitItem = new ToolStripMenuItem("退出");
             exitItem.Click += (s, e) => ExitRequested?.Invoke();
 
             _contextMenu.Items.Add(settingsItem);
             _contextMenu.Items.Add(historyItem);
+            _contextMenu.Items.Add(logsItem);
             _contextMenu.Items.Add(new ToolStripSeparator());
             _contextMenu.Items.Add(_hotKeyToggleItem);
             _contextMenu.Items.Add(_pauseResumeItem);

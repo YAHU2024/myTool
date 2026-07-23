@@ -192,5 +192,10 @@ namespace QuickTranslate.Models
         /// 日志保留天数
         /// </summary>
         public int LogRetentionDays { get; set; } = 7;
+
+        /// <summary>
+        /// Maximum total size of managed log files in bytes.
+        /// </summary>
+        public long LogMaxTotalBytes { get; set; } = 50 * 1024 * 1024;
     }
 }

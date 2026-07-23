@@ -26,7 +26,7 @@ namespace QuickTranslate.Core
             }
             catch (Exception ex)
             {
-                Logger.Debug("TerminalDetector", $"Unable to capture foreground window: {ex.Message}");
+                Logger.Debug("TerminalDetector", "foreground.capture_failed", new { error_type = ex.GetType().Name });
                 return null;
             }
         }

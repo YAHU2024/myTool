@@ -33,7 +33,7 @@ Desktop.ini
 **/settings.json
 
 ## Agent and Claude files
-.agent
+.agents
 AGENTS.md
 .claude
 

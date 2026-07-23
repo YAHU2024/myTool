@@ -87,7 +87,12 @@ namespace QuickTranslate.Core
                     }
                     else
                     {
-                        Logger.Warn("SelectionLocator", $"STA线程UIA异常 ({failures}/{MaxUiaFailures}): {ex.Message}");
+                        Logger.Warn("SelectionLocator", "uia.sta_failed", new
+                        {
+                            failures,
+                            max_failures = MaxUiaFailures,
+                            error_type = ex.GetType().Name
+                        });
                     }
                     tcs.TrySetResult(null);
                 }
@@ -201,7 +206,7 @@ namespace QuickTranslate.Core
             }
             catch (Exception ex)
             {
-                Logger.Warn("SelectionLocator", $"UIA 获取选区失败: {ex.Message}");
+                Logger.Warn("SelectionLocator", "uia.selection_failed", new { error_type = ex.GetType().Name });
                 return null;
             }
         }
