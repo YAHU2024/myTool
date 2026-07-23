@@ -444,7 +444,6 @@ public partial class App : Application
         if (_floatingWindow is null)
             return;
 
-        _floatingWindow.ClearDetectionHint();
         await ExecuteSessionTransitionAsync(_resultSessions.SwitchMode(mode), "模式切换");
     }
 
@@ -453,7 +452,6 @@ public partial class App : Application
         if (_floatingWindow is null)
             return;
 
-        _floatingWindow.ClearDetectionHint();
         await ExecuteSessionTransitionAsync(
             _resultSessions.RefreshMode(),
             "重新生成",
@@ -464,7 +462,6 @@ public partial class App : Application
     {
         _resultSessions.DismissSession();
         CancelActiveTranslationRequest();
-        _floatingWindow?.ClearDetectionHint();
         _floatingWindow?.ResetPin();
         _floatingWindow?.Hide();
     }
@@ -490,7 +487,6 @@ public partial class App : Application
         DetectionResult? detection = null)
     {
         var transition = _resultSessions.StartSession(text, floatingAnchor, contentType, detection);
-        _floatingWindow?.ShowDetectionHint(detection);
         return ExecuteSessionTransitionAsync(transition, operationName);
     }
 

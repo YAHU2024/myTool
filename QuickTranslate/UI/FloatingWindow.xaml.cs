@@ -22,9 +22,9 @@ public partial class FloatingWindow : Window
 {
     private const double PlacementGapDip = 12;
     private readonly DispatcherTimer _autoHideTimer;
+    private readonly DispatcherTimer _scrollBarHideTimer;
     private readonly LatestPresentationCoordinator _presentations = new();
     private readonly AutoScrollController _autoScroll = new();
-    private DispatcherTimer? _detectionHintTimer;
     private bool _isMouseInside;
     private bool _isLoading;
     private bool _isProgrammaticScroll;
@@ -81,6 +81,13 @@ public partial class FloatingWindow : Window
             _autoHideTimer.Stop();
         };
 
+        _scrollBarHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.2) };
+        _scrollBarHideTimer.Tick += (_, _) =>
+        {
+            _scrollBarHideTimer.Stop();
+            TranslationScroller.Tag = false;
+        };
+
         MouseEnter += (_, _) =>
         {
             _isMouseInside = true;
@@ -103,6 +110,8 @@ public partial class FloatingWindow : Window
     public new void Hide()
     {
         EndDragging(resetAutoHideTimer: false);
+        _scrollBarHideTimer.Stop();
+        TranslationScroller.Tag = false;
         _userMoved = false;
         _userResized = false;
         _isSystemSizing = false;
@@ -175,34 +184,6 @@ public partial class FloatingWindow : Window
         IsPinned = false;
         UpdatePinVisual();
         ResetAutoHideTimer();
-    }
-
-    internal void ShowDetectionHint(DetectionResult? detection)
-    {
-        ClearDetectionHint();
-        if (detection is not { Confidence: DetectionConfidence.Low } ||
-            detection.ContentType is not (ContentType.Code or ContentType.Term))
-        {
-            return;
-        }
-
-        DetectionHintText.Text = detection.ContentType == ContentType.Code
-            ? "识别为命令；结果不对可切换到翻译"
-            : "识别为术语；结果不对可切换到翻译";
-        DetectionHint.Visibility = Visibility.Visible;
-        _detectionHintTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-        _detectionHintTimer.Tick += (_, _) =>
-        {
-            ClearDetectionHint();
-        };
-        _detectionHintTimer.Start();
-    }
-
-    public void ClearDetectionHint()
-    {
-        _detectionHintTimer?.Stop();
-        _detectionHintTimer = null;
-        DetectionHint.Visibility = Visibility.Collapsed;
     }
 
     private void HideLoadingIndicator()
@@ -318,7 +299,7 @@ public partial class FloatingWindow : Window
         try
         {
             Clipboard.SetText(metadata.Code);
-            ShowCopyFeedback(button, "复制代码");
+            ShowCopyFeedback(button, "\u29C9");
             e.Handled = true;
         }
         catch
@@ -395,17 +376,15 @@ public partial class FloatingWindow : Window
         {
             Clipboard.SetText(text);
             if (sender is Button btn)
-                ShowCopyFeedback(btn, "\u29C9", 11);
+                ShowCopyFeedback(btn, "\u29C9");
         }
         catch { /* Clipboard access can be temporarily unavailable. */ }
         ResetAutoHideTimer();
     }
 
-    private static void ShowCopyFeedback(Button button, object originalContent, double? feedbackFontSize = null)
+    private static void ShowCopyFeedback(Button button, object originalContent)
     {
-        button.Content = feedbackFontSize.HasValue
-            ? new TextBlock { Text = "\u2714", FontSize = feedbackFontSize.Value }
-            : (object)"\u2714";
+        button.Content = "\u2714";
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
         timer.Tick += (_, _) =>
         {
@@ -432,6 +411,7 @@ public partial class FloatingWindow : Window
 
     private void TranslationScroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        RevealScrollBarTemporarily();
         if (e.Delta > 0)
         {
             _autoScroll.PauseForUpwardNavigation();
@@ -442,6 +422,9 @@ public partial class FloatingWindow : Window
 
     private void TranslationScroller_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key is Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End)
+            RevealScrollBarTemporarily();
+
         if (e.Key is Key.Up or Key.PageUp or Key.Home)
         {
             _autoScroll.PauseForUpwardNavigation();
@@ -455,6 +438,7 @@ public partial class FloatingWindow : Window
         if (_isProgrammaticScroll || e.VerticalChange == 0)
             return;
 
+        RevealScrollBarTemporarily();
         _autoScroll.OnUserScrollPositionChanged(TranslationScroller.VerticalOffset, TranslationScroller.ViewportHeight, TranslationScroller.ExtentHeight);
         UpdateAutoScrollAffordance();
         RaiseScrollStateChanged();
@@ -486,6 +470,13 @@ public partial class FloatingWindow : Window
             return;
 
         ScrollStateChanged?.Invoke(_sessionId, _activeMode, TranslationScroller.VerticalOffset, _autoScroll.IsAutoScrollEnabled);
+    }
+
+    private void RevealScrollBarTemporarily()
+    {
+        TranslationScroller.Tag = true;
+        _scrollBarHideTimer.Stop();
+        _scrollBarHideTimer.Start();
     }
 
     private void UpdateAutoScrollAffordance() =>
