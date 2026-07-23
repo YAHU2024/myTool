@@ -123,6 +123,21 @@ namespace QuickTranslate.UI
         /// </summary>
         private static Icon CreateDefaultIcon()
         {
+            try
+            {
+                var resource = System.Windows.Application.GetResourceStream(
+                    new Uri("/QuickTranslate;component/Assets/QuickTranslate.ico", UriKind.Relative));
+                if (resource is not null)
+                {
+                    using var source = new Icon(resource.Stream);
+                    return new Icon(source, source.Size);
+                }
+            }
+            catch
+            {
+                // Fall back to the generated icon when the packaged resource is unavailable.
+            }
+
             var bmp = new Bitmap(32, 32);
             using (var g = Graphics.FromImage(bmp))
             {

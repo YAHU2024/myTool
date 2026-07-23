@@ -14,12 +14,17 @@
     <Authors>YaHu</Authors>
     <Description>QuickTranslate - 智能快捷翻译工具</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\QuickTranslate.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
 
   <ItemGroup>
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\QuickTranslate.ico" />
   </ItemGroup>
 
   <ItemGroup>
