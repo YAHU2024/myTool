@@ -57,7 +57,7 @@ public partial class FloatingWindow : Window
 
     public event Action<ContentType>? ModeRequested;
     public event Action? RefreshRequested;
-    public event Action? DismissRequested;
+    public event Action? HideRequested;
     public event Action<Guid, ContentType, double, bool>? ScrollStateChanged;
 
     public bool IsPinned { get; private set; }
@@ -525,7 +525,7 @@ public partial class FloatingWindow : Window
             return;
 
         e.Handled = true;
-        DismissRequested?.Invoke();
+        HideRequested?.Invoke();
         Hide();
     }
 

@@ -133,7 +133,7 @@ public partial class App : Application
         _floatingWindow = new FloatingWindow();
         _floatingWindow.ModeRequested += OnModeRequested;
         _floatingWindow.RefreshRequested += OnRefreshRequested;
-        _floatingWindow.DismissRequested += OnDismissRequested;
+        _floatingWindow.HideRequested += OnHideRequested;
         _floatingWindow.ScrollStateChanged += OnScrollStateChanged;
 
         // 初始化红点窗口（单例复用）
@@ -459,10 +459,8 @@ public partial class App : Application
             TranslationCacheReadMode.BypassCache);
     }
 
-    private void OnDismissRequested()
+    private void OnHideRequested()
     {
-        _resultSessions.DismissSession();
-        CancelActiveTranslationRequest();
         _floatingWindow?.ResetPin();
         _floatingWindow?.Hide();
     }
