@@ -79,7 +79,7 @@ namespace QuickTranslate.Core
             catch (Exception ex)
             {
                 // 进程可能已退出，忽略
-                Logger.Debug("BrowserDetector", $"检测前台进程失败: {ex.Message}");
+                Logger.Debug("BrowserDetector", "foreground.detect_failed", new { error_type = ex.GetType().Name });
                 return false;
             }
         }

@@ -140,6 +140,11 @@ namespace QuickTranslate.UI
             TerminalCopyModeComboBox.SelectedValuePath = "Value";
             TerminalCopyModeComboBox.SelectedValue = _settings.TerminalCopyMode;
             TerminalCopyMappingsTextBox.Text = _settings.TerminalCopyMappings;
+
+            LogLevelComboBox.ItemsSource = new[] { "Debug", "Info", "Warn", "Error", "Fatal" };
+            LogLevelComboBox.SelectedItem = Logger.ParseLevel(_settings.LogLevel).ToString();
+            LogRetentionDaysTextBox.Text = _settings.LogRetentionDays.ToString();
+            LogMaxTotalMegabytesTextBox.Text = Math.Max(1, _settings.LogMaxTotalBytes / (1024 * 1024)).ToString();
         }
 
         /// <summary>
@@ -476,6 +481,15 @@ namespace QuickTranslate.UI
             if (TerminalCopyModeComboBox.SelectedValue is string terminalMode)
                 _settings.TerminalCopyMode = terminalMode;
             _settings.TerminalCopyMappings = TerminalCopyMappingsTextBox.Text?.Trim() ?? string.Empty;
+
+            if (LogLevelComboBox.SelectedItem is string logLevel)
+                _settings.LogLevel = logLevel;
+            if (!int.TryParse(LogRetentionDaysTextBox.Text, out var retentionDays))
+                retentionDays = 7;
+            if (!long.TryParse(LogMaxTotalMegabytesTextBox.Text, out var maxMegabytes))
+                maxMegabytes = 50;
+            _settings.LogRetentionDays = Math.Clamp(retentionDays, 1, 3650);
+            _settings.LogMaxTotalBytes = Math.Clamp(maxMegabytes * 1024 * 1024, 1 * 1024 * 1024, 1024L * 1024 * 1024);
 
             var autoStart = AutoStartCheckBox.IsChecked ?? false;
             if (autoStart != _origAutoStart)

@@ -274,7 +274,7 @@ namespace QuickTranslate.Core
             }
             catch (Exception ex)
             {
-                Logger.Debug("SelectionDetector", $"定时器处理异常: {ex.Message}");
+                Logger.Debug("SelectionDetector", "selection.timer_failed", new { error_type = ex.GetType().Name });
             }
         }
 

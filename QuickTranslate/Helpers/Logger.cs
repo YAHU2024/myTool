@@ -1,248 +1,311 @@
-using System;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.IO;
-using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 
-namespace QuickTranslate.Helpers
+namespace QuickTranslate.Helpers;
+
+public enum LogLevel
 {
-    /// <summary>
-    /// 日志级别
-    /// </summary>
-    public enum LogLevel
+    Debug = 0,
+    Info = 1,
+    Warn = 2,
+    Error = 3,
+    Fatal = 4
+}
+
+/// <summary>
+/// Lightweight asynchronous JSONL logger. Legacy source/message calls remain supported.
+/// </summary>
+public static class Logger
+{
+    public static string LogDirectory => LogDir;
+
+    private static readonly string LogDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "QuickTranslate", "logs");
+    private static readonly ConcurrentQueue<string> Queue = new();
+    private static readonly ManualResetEventSlim Signal = new(false);
+    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
+    private static Thread? _writerThread;
+    private static volatile bool _isRunning;
+    private static LogLevel _minLevel = LogLevel.Info;
+    private static int _retentionDays = 7;
+    private static long _maxTotalBytes = 50 * 1024 * 1024;
+    private static string _currentDate = string.Empty;
+    private static int _fileIndex;
+    private const long MaxFileSize = 5 * 1024 * 1024;
+
+    public static void Init(
+        LogLevel minLevel = LogLevel.Info,
+        int retentionDays = 7,
+        long maxTotalBytes = 50 * 1024 * 1024)
     {
-        Debug = 0,
-        Info = 1,
-        Warn = 2,
-        Error = 3,
-        Fatal = 4
+        _minLevel = minLevel;
+        _retentionDays = Math.Clamp(retentionDays, 1, 3650);
+        _maxTotalBytes = Math.Clamp(maxTotalBytes, 1 * 1024 * 1024, 1024L * 1024 * 1024);
+        Directory.CreateDirectory(LogDir);
+        CleanupLogs();
+        _isRunning = true;
+
+        _writerThread = new Thread(WriterLoop)
+        {
+            IsBackground = true,
+            Name = "LogWriter"
+        };
+        _writerThread.Start();
     }
 
-    /// <summary>
-    /// 轻量级文件日志器 - 零外部依赖，后台异步写入，按天轮转 + 大小限制 + 自动清理。
-    /// 线程安全：任何线程（钩子线程、UI线程、STA工作线程）均可直接调用。
-    /// </summary>
-    public static class Logger
+    public static void Shutdown()
     {
-        /// <summary>
-        /// 日志目录路径（供退出追踪等场景使用）
-        /// </summary>
-        public static string LogDirectory => LogDir;
+        _isRunning = false;
+        Signal.Set();
+        _writerThread?.Join(2000);
+        FlushQueue();
+    }
 
-        private static readonly string LogDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "QuickTranslate", "logs");
+    public static void Configure(LogLevel minLevel, int retentionDays, long maxTotalBytes)
+    {
+        _minLevel = minLevel;
+        _retentionDays = Math.Clamp(retentionDays, 1, 3650);
+        _maxTotalBytes = Math.Clamp(maxTotalBytes, 1 * 1024 * 1024, 1024L * 1024 * 1024);
+        CleanupLogs();
+    }
 
-        private static readonly ConcurrentQueue<string> _queue = new();
-        private static readonly ManualResetEventSlim _signal = new(false);
-        private static Thread? _writerThread;
-        private static volatile bool _isRunning;
-        private static LogLevel _minLevel = LogLevel.Info;
-        private static int _retentionDays = 7;
+    public static void Debug(string source, string message) => Enqueue(LogLevel.Debug, source, message, null);
+    public static void Info(string source, string message) => Enqueue(LogLevel.Info, source, message, null);
+    public static void Warn(string source, string message) => Enqueue(LogLevel.Warn, source, message, null);
+    public static void Error(string source, string message, Exception? ex = null) =>
+        Enqueue(LogLevel.Error, source, message, ExceptionContext(ex));
+    public static void Fatal(string source, string message, Exception? ex = null)
+    {
+        Enqueue(LogLevel.Fatal, source, message, ExceptionContext(ex));
+        Signal.Set();
+        FlushQueue();
+    }
 
-        private const long MaxFileSize = 5 * 1024 * 1024; // 5MB
-        private static string _currentDate = "";
-        private static int _fileIndex;
+    public static void Debug(string source, string eventName, object? context) => Enqueue(LogLevel.Debug, source, eventName, ToContext(context));
+    public static void Info(string source, string eventName, object? context) => Enqueue(LogLevel.Info, source, eventName, ToContext(context));
+    public static void Warn(string source, string eventName, object? context) => Enqueue(LogLevel.Warn, source, eventName, ToContext(context));
+    public static void Error(string source, string eventName, object? context, Exception? ex = null) => Enqueue(LogLevel.Error, source, eventName, MergeContext(ToContext(context), ExceptionContext(ex)));
+    public static void Fatal(string source, string eventName, object? context, Exception? ex = null)
+    {
+        Enqueue(LogLevel.Fatal, source, eventName, MergeContext(ToContext(context), ExceptionContext(ex)));
+        Signal.Set();
+        FlushQueue();
+    }
 
-        /// <summary>
-        /// 初始化日志系统（在 App.OnStartup 中调用）
-        /// </summary>
-        public static void Init(LogLevel minLevel = LogLevel.Info, int retentionDays = 7)
+    public static LogLevel ParseLevel(string? level) => level?.ToLowerInvariant() switch
+    {
+        "debug" => LogLevel.Debug,
+        "info" => LogLevel.Info,
+        "warn" => LogLevel.Warn,
+        "error" => LogLevel.Error,
+        "fatal" => LogLevel.Fatal,
+        _ => LogLevel.Info
+    };
+
+    public static void CleanupLogs()
+    {
+        try
         {
-            _minLevel = minLevel;
-            _retentionDays = retentionDays;
-            _isRunning = true;
-
             if (!Directory.Exists(LogDir))
-                Directory.CreateDirectory(LogDir);
-
-            // 清理过期日志
-            CleanupExpiredLogs();
-
-            // 启动后台写入线程
-            _writerThread = new Thread(WriterLoop)
+                return;
+            var protectedPaths = new List<string>();
+            if (!string.IsNullOrEmpty(_currentDate))
+                protectedPaths.Add(BuildPath(_currentDate, _fileIndex));
+            if (_isRunning)
             {
-                IsBackground = true,
-                Name = "LogWriter"
-            };
-            _writerThread.Start();
+                protectedPaths.Add(Path.Combine(LogDir, "shutdown-trace.log"));
+                protectedPaths.Add(Path.Combine(LogDir, "watchdog.trace"));
+            }
+            CleanupDirectory(LogDir, _retentionDays, _maxTotalBytes, DateTime.UtcNow, protectedPaths);
+        }
+        catch
+        {
+            // Diagnostics must never affect the application.
+        }
+    }
+
+    internal static void CleanupDirectory(
+        string directory,
+        int retentionDays,
+        long maxTotalBytes,
+        DateTime utcNow,
+        IReadOnlyCollection<string>? protectedPaths = null)
+    {
+        if (!Directory.Exists(directory))
+            return;
+        var protectedSet = new HashSet<string>(
+            (protectedPaths ?? Array.Empty<string>()).Select(Path.GetFullPath),
+            StringComparer.OrdinalIgnoreCase);
+        var cutoff = utcNow.AddDays(-Math.Clamp(retentionDays, 1, 3650));
+        var files = GetManagedFiles(directory).OrderBy(file => file.LastWriteTimeUtc).ToList();
+
+        foreach (var file in files.Where(file => file.LastWriteTimeUtc < cutoff).ToArray())
+        {
+            if (!protectedSet.Contains(file.FullName))
+                TryDelete(file.FullName);
         }
 
-        /// <summary>
-        /// 关闭日志系统，确保残余日志写入磁盘（在 App.OnExit 中调用）
-        /// </summary>
-        public static void Shutdown()
+        files = GetManagedFiles(directory).OrderBy(file => file.LastWriteTimeUtc).ToList();
+        var total = files.Sum(file => file.Length);
+        foreach (var file in files)
         {
-            _isRunning = false;
-            _signal.Set(); // 唤醒写入线程
-            _writerThread?.Join(2000);
-            FlushQueue(); // 最终兜底写入
+            if (total <= maxTotalBytes)
+                break;
+            if (protectedSet.Contains(file.FullName))
+                continue;
+            if (TryDelete(file.FullName))
+                total -= file.Length;
         }
+    }
 
-        public static void Debug(string source, string message)
-            => Enqueue(LogLevel.Debug, source, message);
+    internal static string Serialize(LogEvent record) => JsonSerializer.Serialize(record, JsonOptions);
 
-        public static void Info(string source, string message)
-            => Enqueue(LogLevel.Info, source, message);
-
-        public static void Warn(string source, string message)
-            => Enqueue(LogLevel.Warn, source, message);
-
-        public static void Error(string source, string message, Exception? ex = null)
-            => Enqueue(LogLevel.Error, source, FormatException(message, ex));
-
-        public static void Fatal(string source, string message, Exception? ex = null)
+    internal static bool TryParse(string line, out LogEvent? record)
+    {
+        try
         {
-            Enqueue(LogLevel.Fatal, source, FormatException(message, ex));
-            // Fatal 立即同步刷盘，防止崩溃前日志丢失
-            _signal.Set();
-            FlushQueue();
+            record = JsonSerializer.Deserialize<LogEvent>(line, JsonOptions);
+            return record is not null;
         }
-
-        /// <summary>
-        /// 解析配置中的日志级别字符串
-        /// </summary>
-        public static LogLevel ParseLevel(string level)
+        catch
         {
-            return level?.ToLowerInvariant() switch
-            {
-                "debug" => LogLevel.Debug,
-                "info" => LogLevel.Info,
-                "warn" => LogLevel.Warn,
-                "error" => LogLevel.Error,
-                "fatal" => LogLevel.Fatal,
-                _ => LogLevel.Info
-            };
+            record = null;
+            return false;
         }
+    }
 
-        // ==================== 内部实现 ====================
+    private static void Enqueue(LogLevel level, string source, string eventName, IReadOnlyDictionary<string, object?>? context)
+    {
+        if (level < _minLevel)
+            return;
 
-        private static void Enqueue(LogLevel level, string source, string message)
-        {
-            if (level < _minLevel) return;
-
-            var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
-            var levelTag = level switch
-            {
-                LogLevel.Debug => "DBG",
-                LogLevel.Info => "INF",
-                LogLevel.Warn => "WRN",
-                LogLevel.Error => "ERR",
-                LogLevel.Fatal => "FTL",
-                _ => "???"
-            };
-
-            var line = $"{timestamp} [{levelTag}] [{source}] {message}";
-            _queue.Enqueue(line);
+        var record = new LogEvent(
+            DateTimeOffset.Now,
+            level,
+            string.IsNullOrWhiteSpace(source) ? "Unknown" : source,
+            string.IsNullOrWhiteSpace(eventName) ? "message" : eventName,
+            context ?? new Dictionary<string, object?>());
+        var line = Serialize(record);
+        Queue.Enqueue(line);
 
 #if DEBUG
-            // Debug 构建同时输出到终端，方便 dotnet run 时实时查看
-            Console.WriteLine(line);
+        Console.WriteLine(line);
 #endif
+        if (Queue.Count >= 50)
+            Signal.Set();
+    }
 
-            // 队列积压较多时立即唤醒写入线程
-            if (_queue.Count >= 50)
-                _signal.Set();
-        }
-
-        private static string FormatException(string message, Exception? ex)
+    private static void WriterLoop()
+    {
+        while (_isRunning)
         {
-            if (ex == null) return message;
-            return $"{message} | {ex.GetType().Name}: {ex.Message}";
-        }
-
-        /// <summary>
-        /// 后台写入循环：每 500ms 或收到信号时批量写入
-        /// </summary>
-        private static void WriterLoop()
-        {
-            while (_isRunning)
-            {
-                _signal.Wait(500);
-                _signal.Reset();
-                FlushQueue();
-            }
-        }
-
-        /// <summary>
-        /// 将队列中的日志批量写入文件
-        /// </summary>
-        private static void FlushQueue()
-        {
-            if (_queue.IsEmpty) return;
-
-            try
-            {
-                var filePath = GetLogFilePath();
-                using var writer = new StreamWriter(
-                    new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.Read));
-
-                while (_queue.TryDequeue(out var line))
-                {
-                    writer.WriteLine(line);
-                }
-            }
-            catch
-            {
-                // 日志写入失败不应影响主程序，静默丢弃
-            }
-        }
-
-        /// <summary>
-        /// 获取当前日志文件路径（按天分文件 + 大小轮转）
-        /// </summary>
-        private static string GetLogFilePath()
-        {
-            var today = DateTime.Now.ToString("yyyy-MM-dd");
-
-            // 日期变更，重置文件序号
-            if (_currentDate != today)
-            {
-                _currentDate = today;
-                _fileIndex = 0;
-            }
-
-            // 检查当前文件大小，超出则递增序号
-            var path = BuildPath(today, _fileIndex);
-            if (File.Exists(path) && new FileInfo(path).Length >= MaxFileSize)
-            {
-                _fileIndex++;
-                path = BuildPath(today, _fileIndex);
-            }
-
-            return path;
-        }
-
-        private static string BuildPath(string date, int index)
-        {
-            var name = index == 0
-                ? $"quicktranslate-{date}.log"
-                : $"quicktranslate-{date}-{index}.log";
-            return Path.Combine(LogDir, name);
-        }
-
-        /// <summary>
-        /// 清理过期日志文件
-        /// </summary>
-        private static void CleanupExpiredLogs()
-        {
-            try
-            {
-                var cutoff = DateTime.Now.AddDays(-_retentionDays);
-                var files = Directory.GetFiles(LogDir, "quicktranslate-*.log");
-
-                foreach (var file in files)
-                {
-                    if (File.GetCreationTime(file) < cutoff)
-                    {
-                        File.Delete(file);
-                    }
-                }
-            }
-            catch
-            {
-                // 清理失败不影响主程序
-            }
+            Signal.Wait(500);
+            Signal.Reset();
+            FlushQueue();
         }
     }
+
+    private static void FlushQueue()
+    {
+        if (Queue.IsEmpty)
+            return;
+
+        try
+        {
+            var filePath = GetLogFilePath();
+            using var writer = new StreamWriter(
+                new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.Read),
+                new System.Text.UTF8Encoding(false));
+            while (Queue.TryDequeue(out var line))
+                writer.WriteLine(line);
+        }
+        catch
+        {
+            // Logging is best effort and must not break the app.
+        }
+    }
+
+    private static string GetLogFilePath()
+    {
+        var today = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        if (_currentDate != today)
+        {
+            _currentDate = today;
+            _fileIndex = 0;
+        }
+
+        var path = BuildPath(today, _fileIndex);
+        if (File.Exists(path) && new FileInfo(path).Length >= MaxFileSize)
+            path = BuildPath(today, ++_fileIndex);
+        return path;
+    }
+
+    private static string BuildPath(string date, int index) => Path.Combine(
+        LogDir,
+        index == 0 ? $"quicktranslate-{date}.log" : $"quicktranslate-{date}-{index}.log");
+
+    private static IEnumerable<FileInfo> GetManagedFiles(string directory)
+    {
+        var paths = Directory.EnumerateFiles(directory, "quicktranslate-*.log")
+            .Concat(Directory.EnumerateFiles(directory, "shutdown-trace.log"))
+            .Concat(Directory.EnumerateFiles(directory, "watchdog.trace"));
+        return paths
+            .Select(path => new FileInfo(path))
+            .Where(file => file.Exists);
+    }
+
+    private static bool TryDelete(string path)
+    {
+        try { File.Delete(path); return true; }
+        catch { return false; }
+    }
+
+    private static Dictionary<string, object?> ToContext(object? context)
+    {
+        if (context is null)
+            return new Dictionary<string, object?>();
+        if (context is IReadOnlyDictionary<string, object?> dictionary)
+            return new Dictionary<string, object?>(dictionary);
+
+        try
+        {
+            using var document = JsonDocument.Parse(JsonSerializer.Serialize(context));
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                ? document.RootElement.EnumerateObject().ToDictionary(property => property.Name, property => (object?)property.Value.Clone())
+                : new Dictionary<string, object?> { ["value"] = document.RootElement.Clone() };
+        }
+        catch
+        {
+            return new Dictionary<string, object?> { ["context_error"] = "serialization_failed" };
+        }
+    }
+
+    internal static Dictionary<string, object?>? ExceptionContext(Exception? ex) => ex is null
+        ? null
+        : new Dictionary<string, object?>
+        {
+            ["exception_type"] = ex.GetType().Name
+        };
+
+    private static Dictionary<string, object?> MergeContext(
+        Dictionary<string, object?> context,
+        Dictionary<string, object?>? extra)
+    {
+        if (extra is null)
+            return context;
+        foreach (var pair in extra)
+            context[pair.Key] = pair.Value;
+        return context;
+    }
+
+    private static JsonSerializerOptions CreateJsonOptions() => new()
+    {
+        Converters = { new JsonStringEnumConverter() },
+        WriteIndented = false
+    };
 }

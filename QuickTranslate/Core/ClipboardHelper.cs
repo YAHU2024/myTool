@@ -133,7 +133,7 @@ namespace QuickTranslate.Core
                             }
                             catch (Exception ex)
                             {
-                                Logger.Warn("ClipboardHelper", $"[剪贴板] 读取异常: {ex.Message}");
+                                Logger.Warn("ClipboardHelper", "clipboard.read_failed", new { error_type = ex.GetType().Name });
                             }
                             break;
                         }
@@ -164,7 +164,7 @@ namespace QuickTranslate.Core
                             }
                             catch (Exception ex)
                             {
-                                Logger.Warn("ClipboardHelper", $"[剪贴板] 兜底读取异常: {ex.Message}");
+                                Logger.Warn("ClipboardHelper", "clipboard.fallback_read_failed", new { error_type = ex.GetType().Name });
                             }
                         }
                         else
@@ -205,7 +205,7 @@ namespace QuickTranslate.Core
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warn("ClipboardHelper", $"[剪贴板] 操作异常: {ex.Message}");
+                    Logger.Warn("ClipboardHelper", "clipboard.operation_failed", new { error_type = ex.GetType().Name });
                 }
                 finally
                 {
@@ -319,7 +319,7 @@ namespace QuickTranslate.Core
                     }
                     catch (Exception ex)
                     {
-                        Logger.Warn("ClipboardHelper", $"[哨兵生命周期] 启动时清扫异常: {ex.Message}");
+                        Logger.Warn("ClipboardHelper", "clipboard.sentinel_cleanup_failed", new { error_type = ex.GetType().Name });
                     }
                 });
                 t.SetApartmentState(ApartmentState.STA);
