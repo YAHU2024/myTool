@@ -18,14 +18,15 @@ public class OpenAITranslationServicePromptTests
 
         var prompt = service.BuildSystemPrompt("English", ContentType.Translation, "bonjour");
 
-        Assert.Contains("Translate the input to English.", prompt);
-        Assert.Contains("You MUST always translate.", prompt);
+        Assert.Contains("Translate the input into English.", prompt);
+        Assert.Contains("Always translate", prompt);
+        Assert.Contains("Output only the translation", prompt);
         Assert.DoesNotContain("If the input is code", prompt);
     }
 
     [Theory]
-    [InlineData(ContentType.Code, "code and command explanation assistant")]
-    [InlineData(ContentType.Term, "knowledge assistant")]
+    [InlineData(ContentType.Code, "terminal command")]
+    [InlineData(ContentType.Term, "main use")]
     public void BuildSystemPrompt_SmartContent_TakesPrecedenceOverCustomTranslationPrompt(
         ContentType contentType,
         string expectedPromptText)
@@ -84,7 +85,7 @@ public class OpenAITranslationServicePromptTests
             "Already English",
             () => fallbackUsed = true);
 
-        Assert.Contains("Translate the input to French.", prompt);
+        Assert.Contains("Translate the input into French.", prompt);
         Assert.DoesNotContain("If the input is code", prompt);
         Assert.True(fallbackUsed);
     }
@@ -101,8 +102,82 @@ public class OpenAITranslationServicePromptTests
 
         var prompt = service.BuildSystemPrompt("English", ContentType.Translation, "Already English");
 
-        Assert.Contains("Translate the input to English.", prompt);
-        Assert.Contains("If already in English, translate to French.", prompt);
+        Assert.Contains("Translate the input into English.", prompt);
+        Assert.Contains("If it is already in English, translate it into French.", prompt);
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_Code_PreservesCommandExplanationContractWithoutRepetition()
+    {
+        using var service = CreateService(new AppSettings());
+
+        var prompt = service.BuildSystemPrompt("简体中文", ContentType.Code, "git reset --hard");
+
+        Assert.Contains("code, script, SQL, configuration, or terminal command", prompt);
+        Assert.Contains("option, pipe, redirect, and important side effect", prompt);
+        Assert.Contains("Do not translate or reproduce the full source", prompt);
+        Assert.Contains("no preamble, labels, or markdown headers", prompt);
+        Assert.DoesNotContain("Do not output the source unchanged", prompt);
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_Term_PreservesConciseExplanationContract()
+    {
+        using var service = CreateService(new AppSettings());
+
+        var prompt = service.BuildSystemPrompt("简体中文", ContentType.Term, "dependency injection");
+
+        Assert.Contains("1-2 concise sentences", prompt);
+        Assert.Contains("what it is and its main use", prompt);
+        Assert.Contains("Output only the explanation", prompt);
+        Assert.DoesNotContain("Translate the input", prompt);
+    }
+
+    [Theory]
+    [InlineData("general", "grammar, structure, and relevant context")]
+    [InlineData("learner", "pronunciation when relevant")]
+    [InlineData("literary", "imagery, symbolism, context, and style")]
+    [InlineData("business", "industry terms, implications, and action items")]
+    public void CreateRequest_AnalysisPreset_PreservesDistinctContract(
+        string preset,
+        string expectedFocus)
+    {
+        using var service = CreateService(new AppSettings
+        {
+            AnalysisPreset = preset
+        });
+
+        var request = service.CreateRequest(
+            "Sample text",
+            "简体中文",
+            ContentType.Analysis,
+            TranslationRequestKind.Analysis);
+
+        Assert.Contains(expectedFocus, request.SystemPrompt);
+        Assert.Contains("Output only a clear, concise analysis", request.SystemPrompt);
+        Assert.DoesNotContain("Translate the input", request.SystemPrompt);
+    }
+
+    [Fact]
+    public void CreateRequest_WhitespaceCustomPrompts_UseDefaults()
+    {
+        using var service = CreateService(new AppSettings
+        {
+            AutoDetectLanguage = false,
+            CustomTranslationPrompt = "   ",
+            CustomAnalysisPrompt = "\t",
+            AnalysisPreset = "learner"
+        });
+
+        var translation = service.CreateRequest("bonjour", "English", ContentType.Translation);
+        var analysis = service.CreateRequest(
+            "bonjour",
+            "English",
+            ContentType.Analysis,
+            TranslationRequestKind.Analysis);
+
+        Assert.Contains("Translate the input into English", translation.SystemPrompt);
+        Assert.Contains("as a language tutor", analysis.SystemPrompt);
     }
 
     private static OpenAITranslationService CreateService(AppSettings settings)

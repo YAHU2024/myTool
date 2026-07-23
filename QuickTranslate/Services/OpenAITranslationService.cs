@@ -63,7 +63,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             fallbackUsed = promptResult.FallbackUsed;
         }
 
-        return new TranslationRequest(
+        var request = new TranslationRequest(
             kind,
             text,
             targetLang,
@@ -73,6 +73,15 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             settings.ModelName,
             prompt,
             fallbackUsed);
+        Logger.Debug(
+            "TranslationService",
+            "prompt.selected",
+            BuildPromptLogContext(
+                request,
+                !string.IsNullOrWhiteSpace(settings.CustomTranslationPrompt),
+                !string.IsNullOrWhiteSpace(settings.CustomAnalysisPrompt),
+                settings.AnalysisPreset));
+        return request;
     }
 
     public async Task<string> ExecuteStreamingAsync(
@@ -278,15 +287,15 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
         if (contentType == ContentType.Code)
         {
-            prompt = $"You are a code and command explanation assistant. Analyze the input as code, a script, SQL, configuration, or a terminal command. Explain what it does in {targetLang}. " +
-                     $"For terminal commands, explain each command, option, pipe, redirect, and important side effect in {targetLang}. " +
-                     "Do not translate the source code. Do not repeat the full source. Do not output the source unchanged. If a tiny snippet is necessary, quote only that snippet and explain it. " +
-                     "Return a concise explanation directly, without labels, preambles, or markdown headers.";
+            prompt = $"Explain this code, script, SQL, configuration, or terminal command in {targetLang}. " +
+                     "For commands, cover each command, option, pipe, redirect, and important side effect. " +
+                     "Do not translate or reproduce the full source; quote only tiny snippets when necessary. " +
+                     "Output a concise explanation with no preamble, labels, or markdown headers.";
         }
         else if (contentType == ContentType.Term)
         {
-            prompt = $"You are a knowledge assistant. Give a concise explanation of this term in {targetLang} (what it is, 1-2 sentences). " +
-                     "Output only the explanation directly. No prefixes, no markdown headers.";
+            prompt = $"Explain this term in {targetLang} in 1-2 concise sentences: what it is and its main use. " +
+                     "Output only the explanation; no preamble or markdown headers.";
         }
         else if (!string.IsNullOrWhiteSpace(settings.CustomTranslationPrompt))
         {
@@ -294,18 +303,14 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         }
         else if (settings.AutoDetectLanguage)
         {
-            prompt = $"You are a translator. Translate the input to {effectiveTarget}. " +
-                     "You MUST always translate. Never output the original text unchanged. Output only the translation.";
+            prompt = $"Translate the input into {effectiveTarget}. " +
+                     "Always translate; never return the original unchanged. Output only the translation.";
         }
         else
         {
-            prompt = $"Translate the input to {targetLang}. If already in {targetLang}, translate to {settings.FallbackLanguage}. " +
-                     "You MUST always translate. Never output the original text unchanged. Output only the translation.";
+            prompt = $"Translate the input into {targetLang}. If it is already in {targetLang}, translate it into {settings.FallbackLanguage}. " +
+                     "Always translate; never return the original unchanged. Output only the translation.";
         }
-
-        Logger.Debug(
-            "TranslationService",
-            $"[Prompt] type={contentType}, target={effectiveTarget}, fallback={settings.FallbackLanguage}, prompt={prompt}");
         return new PromptResult(prompt, sourceMatchesTarget);
     }
 
@@ -316,22 +321,10 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
         return settings.AnalysisPreset switch
         {
-            "learner" => $"You are a language tutor. Analyze the following text in {targetLang}. " +
-                "Provide: 1) Word-by-word breakdown, 2) Grammar explanation, " +
-                "3) Common usage patterns, 4) Pronunciation tips if applicable. " +
-                "Output only the analysis directly. No prefixes, no markdown headers.",
-            "literary" => $"You are a literary scholar. Analyze the following text in {targetLang}. " +
-                "Provide: 1) Rhetorical devices used, 2) Literary imagery and symbolism, " +
-                "3) Cultural and historical context, 4) Stylistic features. " +
-                "Output only the analysis directly. No prefixes, no markdown headers.",
-            "business" => $"You are a business communication expert. Analyze the following text in {targetLang}. " +
-                "Provide: 1) Core business meaning, 2) Industry terminology, " +
-                "3) Action items or implications, 4) Professional context. " +
-                "Output only the analysis directly. No prefixes, no markdown headers.",
-            _ => $"You are a knowledgeable analyst. Analyze the following text in {targetLang}. " +
-                "Provide: 1) Core meaning and key points, 2) Grammar and structure analysis, " +
-                "3) Context and background information. " +
-                "Output only the analysis directly. No prefixes, no markdown headers."
+            "learner" => $"Analyze this text in {targetLang} as a language tutor. Cover word meaning, grammar, common usage, and pronunciation when relevant. Output only a clear, concise analysis; no preamble or markdown headers.",
+            "literary" => $"Analyze this text in {targetLang} as a literary scholar. Cover rhetorical devices, imagery, symbolism, context, and style when relevant. Output only a clear, concise analysis; no preamble or markdown headers.",
+            "business" => $"Analyze this text in {targetLang} for business communication. Cover core meaning, industry terms, implications, and action items when relevant. Output only a clear, concise analysis; no preamble or markdown headers.",
+            _ => $"Analyze this text in {targetLang}. Cover its core meaning, key points, grammar, structure, and relevant context. Output only a clear, concise analysis; no preamble or markdown headers."
         };
     }
 
@@ -351,6 +344,25 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             "한국어" => hasHangul,
             "English" => !hasCjk && !hasKana && !hasHangul,
             _ => false
+        };
+    }
+
+    internal static IReadOnlyDictionary<string, object?> BuildPromptLogContext(
+        TranslationRequest request,
+        bool customTranslationPrompt,
+        bool customAnalysisPrompt,
+        string analysisPreset)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["content_type"] = request.ContentType.ToString(),
+            ["request_kind"] = request.Kind.ToString(),
+            ["target_language"] = request.TargetLanguage,
+            ["fallback_used"] = request.FallbackUsed,
+            ["custom_translation_prompt"] = customTranslationPrompt,
+            ["custom_analysis_prompt"] = customAnalysisPrompt,
+            ["analysis_preset"] = analysisPreset,
+            ["prompt_len"] = request.SystemPrompt.Length
         };
     }
 

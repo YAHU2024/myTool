@@ -1,5 +1,7 @@
 using System.Text.Json;
+using QuickTranslate.Core;
 using QuickTranslate.Helpers;
+using QuickTranslate.Models;
 using QuickTranslate.Services;
 using QuickTranslate.UI;
 using Xunit;
@@ -25,6 +27,42 @@ public sealed class LoggingAndMetricsTests
         Assert.True(Logger.TryParse(json, out var parsed));
         Assert.Equal("translation.completed", parsed!.EventName);
         Assert.Equal("TranslationService", parsed.Source);
+    }
+
+    [Fact]
+    public void PromptLogContext_ExcludesSourceAndPromptContent()
+    {
+        const string secretText = "secret selected text";
+        const string secretPrompt = "secret custom prompt";
+        var request = new TranslationRequest(
+            TranslationRequestKind.Translation,
+            secretText,
+            "English",
+            ContentType.Translation,
+            "https://example.invalid/v1",
+            "secret-api-key",
+            "test-model",
+            secretPrompt,
+            FallbackUsed: true);
+
+        var context = OpenAITranslationService.BuildPromptLogContext(
+            request,
+            customTranslationPrompt: true,
+            customAnalysisPrompt: false,
+            analysisPreset: "general");
+        var json = Logger.Serialize(new LogEvent(
+            DateTimeOffset.UtcNow,
+            LogLevel.Debug,
+            "TranslationService",
+            "prompt.selected",
+            context));
+
+        Assert.Contains("prompt.selected", json, StringComparison.Ordinal);
+        Assert.Contains("prompt_len", json, StringComparison.Ordinal);
+        Assert.Contains("custom_translation_prompt", json, StringComparison.Ordinal);
+        Assert.DoesNotContain(secretText, json, StringComparison.Ordinal);
+        Assert.DoesNotContain(secretPrompt, json, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-api-key", json, StringComparison.Ordinal);
     }
 
     [Fact]

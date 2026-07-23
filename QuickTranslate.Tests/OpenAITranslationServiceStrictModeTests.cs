@@ -20,8 +20,8 @@ public sealed class OpenAITranslationServiceStrictModeTests
 
         Assert.Equal(TranslationRequestKind.Translation, request.Kind);
         Assert.Equal(ContentType.Translation, request.ContentType);
-        Assert.Contains("You MUST always translate.", request.SystemPrompt);
-        Assert.DoesNotContain("code and command explanation assistant", request.SystemPrompt);
+        Assert.Contains("Always translate", request.SystemPrompt);
+        Assert.DoesNotContain("terminal command", request.SystemPrompt);
         Assert.DoesNotContain("If the input is code", request.SystemPrompt);
     }
 
@@ -38,7 +38,7 @@ public sealed class OpenAITranslationServiceStrictModeTests
 
         Assert.Equal(TranslationRequestKind.Translation, request.Kind);
         Assert.Equal(ContentType.Code, request.ContentType);
-        Assert.Contains("code and command explanation assistant", request.SystemPrompt);
+        Assert.Contains("terminal command", request.SystemPrompt);
         Assert.DoesNotContain("CUSTOM", request.SystemPrompt);
     }
 
@@ -55,7 +55,7 @@ public sealed class OpenAITranslationServiceStrictModeTests
 
         Assert.Equal(TranslationRequestKind.Translation, request.Kind);
         Assert.Equal(ContentType.Term, request.ContentType);
-        Assert.Contains("knowledge assistant", request.SystemPrompt);
+        Assert.Contains("main use", request.SystemPrompt);
         Assert.DoesNotContain("CUSTOM", request.SystemPrompt);
     }
 
