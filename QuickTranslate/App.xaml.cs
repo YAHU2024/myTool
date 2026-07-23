@@ -162,6 +162,7 @@ public partial class App : Application
         // 初始化系统托盘图标
         _trayIcon = new TrayIconManager();
         _trayIcon.SettingsRequested += OnSettingsRequested;
+        _trayIcon.RestoreRequested += OnRestoreRequested;
         _trayIcon.HistoryRequested += OnHistoryRequested;
         _trayIcon.PauseToggled += OnPauseToggled;
         _trayIcon.HotKeyToggled += OnHotKeyToggled;
@@ -863,6 +864,17 @@ public partial class App : Application
             _historyWindow = new HistoryWindow();
             _historyWindow.Closed += (s, e) => _historyWindow = null;
             _historyWindow.Show();
+        });
+    }
+
+    private void OnRestoreRequested()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_floatingWindow is null || _resultSessions.CurrentSession is null)
+                return;
+
+            _floatingWindow.ShowExistingResult();
         });
     }
 

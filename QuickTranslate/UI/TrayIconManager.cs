@@ -12,6 +12,7 @@ namespace QuickTranslate.UI
     {
         private readonly NotifyIcon _notifyIcon;
         private readonly ContextMenuStrip _contextMenu;
+        private readonly System.Windows.Forms.Timer _singleClickTimer;
         private readonly ToolStripMenuItem _pauseResumeItem;
         private readonly ToolStripMenuItem _hotKeyToggleItem;
         private bool _isPaused;
@@ -21,6 +22,8 @@ namespace QuickTranslate.UI
         /// 用户点击"设置"
         /// </summary>
         public event Action? SettingsRequested;
+
+        public event Action? RestoreRequested;
 
         /// <summary>
         /// 用户点击"翻译历史"
@@ -44,6 +47,13 @@ namespace QuickTranslate.UI
 
         public TrayIconManager()
         {
+            _singleClickTimer = new System.Windows.Forms.Timer { Interval = SystemInformation.DoubleClickTime };
+            _singleClickTimer.Tick += (_, _) =>
+            {
+                _singleClickTimer.Stop();
+                RestoreRequested?.Invoke();
+            };
+
             // 创建右键菜单
             _contextMenu = new ContextMenuStrip();
 
@@ -91,8 +101,21 @@ namespace QuickTranslate.UI
                 Visible = true
             };
 
+            _notifyIcon.MouseClick += (_, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    _singleClickTimer.Stop();
+                    _singleClickTimer.Start();
+                }
+            };
+
             // 双击托盘图标打开设置
-            _notifyIcon.DoubleClick += (s, e) => SettingsRequested?.Invoke();
+            _notifyIcon.DoubleClick += (s, e) =>
+            {
+                _singleClickTimer.Stop();
+                SettingsRequested?.Invoke();
+            };
         }
 
         /// <summary>
@@ -151,6 +174,8 @@ namespace QuickTranslate.UI
 
         public void Dispose()
         {
+            _singleClickTimer.Stop();
+            _singleClickTimer.Dispose();
             _notifyIcon.Visible = false;
             _notifyIcon.Dispose();
             _contextMenu.Dispose();

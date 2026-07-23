@@ -107,6 +107,19 @@ public partial class FloatingWindow : Window
 
     internal FloatingWindowAnchor CurrentAnchor => _anchor;
 
+    internal bool ShowExistingResult()
+    {
+        if (!_hasAnchor || string.IsNullOrWhiteSpace(_rawText))
+            return false;
+
+        Show();
+        UpdateLayout();
+        Opacity = 1;
+        IsHitTestVisible = true;
+        ResetAutoHideTimer();
+        return true;
+    }
+
     public new void Hide()
     {
         EndDragging(resetAutoHideTimer: false);
