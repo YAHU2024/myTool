@@ -318,10 +318,21 @@
                               Grid.ColumnSpan="2"
                               Checked="Setting_Changed" Unchecked="Setting_Changed"/>
 
-                    <TextBlock Grid.Row="8" Grid.Column="0" Text="解析风格:" Style="{StaticResource LabelStyle}"/>
-                    <ComboBox x:Name="AnalysisPresetComboBox" Grid.Row="8" Grid.Column="1"
+                    <TextBlock Grid.Row="8" Grid.Column="0" Text="解析方案:" Style="{StaticResource LabelStyle}"/>
+                    <ComboBox x:Name="AnalysisPromptComboBox" Grid.Row="8" Grid.Column="1"
                               Style="{StaticResource DarkComboBox}"
-                              SelectionChanged="AnalysisPresetComboBox_SelectionChanged"/>
+                              SelectionChanged="AnalysisPromptComboBox_SelectionChanged"/>
+                    <StackPanel Grid.Row="8" Grid.Column="2" Orientation="Horizontal" Margin="8,0,0,0">
+                        <Button x:Name="NewAnalysisPromptButton" Content="+" Width="32" Height="28" Padding="0"
+                                Style="{StaticResource EyeButton}" ToolTip="新建解析方案"
+                                Click="NewAnalysisPromptButton_Click"/>
+                        <Button x:Name="CopyAnalysisPromptButton" Content="&#xE8C8;" FontFamily="Segoe MDL2 Assets" Width="32" Height="28" Padding="0"
+                                Style="{StaticResource EyeButton}" ToolTip="复制当前解析方案"
+                                Click="CopyAnalysisPromptButton_Click"/>
+                        <Button x:Name="DeleteAnalysisPromptButton" Content="&#xE74D;" FontFamily="Segoe MDL2 Assets" Width="32" Height="28" Padding="0"
+                                Style="{StaticResource EyeButton}" ToolTip="删除当前自定义方案"
+                                Click="DeleteAnalysisPromptButton_Click"/>
+                    </StackPanel>
 
                     <TextBlock Grid.Row="10" Grid.Column="0" Text="翻译提示词:" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,4,12,0"/>
                     <TextBox x:Name="CustomTranslationPromptTextBox" Grid.Row="10" Grid.Column="1"
@@ -335,17 +346,21 @@
                                Text="提示：留空使用默认翻译提示词。支持 {targetLang} 占位符。"
                                Foreground="#666688" FontSize="11" Margin="0,2,0,0"/>
 
-                    <TextBlock Grid.Row="12" Grid.Column="0" Text="解析提示词:" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,4,12,0"/>
-                    <TextBox x:Name="CustomAnalysisPromptTextBox" Grid.Row="12" Grid.Column="1"
-                             Style="{StaticResource InputTextBox}"
-                             Height="60" TextWrapping="Wrap" AcceptsReturn="True"
-                             VerticalScrollBarVisibility="Auto"
-                             ToolTip="自定义深度解析提示词，留空使用解析风格预设。支持 {targetLang} 占位符"
-                             Grid.ColumnSpan="2"
-                             TextChanged="Input_LostFocus"/>
-                    <TextBlock Grid.Row="13" Grid.Column="1" Grid.ColumnSpan="2"
-                               Text="提示：仅用于点击[解析]后的深度解析；留空使用所选解析风格。"
-                               Foreground="#666688" FontSize="11" Margin="0,2,0,0"/>
+                    <TextBlock Grid.Row="12" Grid.Column="0" Text="自定义方案:" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,4,12,0"/>
+                    <StackPanel x:Name="AnalysisPromptEditorPanel" Grid.Row="12" Grid.Column="1" Grid.ColumnSpan="2">
+                        <TextBox x:Name="AnalysisPromptNameTextBox"
+                                 Style="{StaticResource InputTextBox}"
+                                 Height="30" Margin="0,0,0,6"
+                                 ToolTip="自定义解析方案名称"
+                                 TextChanged="AnalysisPromptEditor_TextChanged"
+                                 LostFocus="AnalysisPromptEditor_LostFocus"/>
+                        <TextBox x:Name="AnalysisPromptTextBox"
+                                 Style="{StaticResource InputTextBox}"
+                                 Height="60" TextWrapping="Wrap" AcceptsReturn="True"
+                                 VerticalScrollBarVisibility="Auto"
+                                 ToolTip="自定义深度解析提示词，支持 {targetLang} 占位符"
+                                 TextChanged="AnalysisPromptEditor_TextChanged"/>
+                    </StackPanel>
 
                     <TextBlock Grid.Row="14" Grid.Column="0" Text="浏览器翻译:" Style="{StaticResource LabelStyle}"/>
                     <CheckBox x:Name="EnableInBrowserCheckBox" Grid.Row="14" Grid.Column="1"

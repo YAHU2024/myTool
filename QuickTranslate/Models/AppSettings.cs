@@ -166,6 +166,16 @@ namespace QuickTranslate.Models
         public string AnalysisPreset { get; set; } = "general";
 
         /// <summary>
+        /// 当前生效的解析方案 ID（builtin:* 或 custom:*）。
+        /// </summary>
+        public string SelectedAnalysisPromptId { get; set; } = "builtin:general";
+
+        /// <summary>
+        /// 用户保存的解析方案。
+        /// </summary>
+        public List<AnalysisPromptProfile> AnalysisPromptProfiles { get; set; } = new();
+
+        /// <summary>
         /// 用户自定义的浏览器进程名（逗号分隔，补充内置列表）
         /// </summary>
         public string CustomBrowserProcesses { get; set; } = string.Empty;

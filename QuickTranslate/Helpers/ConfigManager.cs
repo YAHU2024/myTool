@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using QuickTranslate.Models;
+using QuickTranslate.Services;
 
 namespace QuickTranslate.Helpers
 {
@@ -39,18 +40,10 @@ namespace QuickTranslate.Helpers
                             settings.LogMaxTotalBytes,
                             1 * 1024 * 1024,
                             1024L * 1024 * 1024);
-                        // 兼容旧版本共用的 CustomSystemPrompt，仅在新字段均未提供时迁移一次。
                         using var document = JsonDocument.Parse(json);
-                        if (document.RootElement.TryGetProperty("CustomSystemPrompt", out var legacyPrompt) &&
-                            legacyPrompt.ValueKind == JsonValueKind.String &&
-                            !document.RootElement.TryGetProperty("CustomTranslationPrompt", out _) &&
-                            !document.RootElement.TryGetProperty("CustomAnalysisPrompt", out _))
-                        {
-                            var prompt = legacyPrompt.GetString() ?? string.Empty;
-                            settings.CustomTranslationPrompt = prompt;
-                            settings.CustomAnalysisPrompt = prompt;
+                        var shouldSave = MigratePromptSettings(settings, document.RootElement);
+                        if (shouldSave)
                             Save(settings);
-                        }
                         return settings;
                     }
                 }
@@ -82,6 +75,63 @@ namespace QuickTranslate.Helpers
             {
                 Logger.Warn("ConfigManager", "config.save_failed", new { error_type = ex.GetType().Name });
             }
+        }
+        internal static bool MigratePromptSettings(AppSettings settings, JsonElement root)
+        {
+            var changed = false;
+
+            // 兼容旧版本共用的 CustomSystemPrompt，仅在新字段均未提供时迁移一次。
+            if (root.TryGetProperty("CustomSystemPrompt", out var legacyPrompt) &&
+                legacyPrompt.ValueKind == JsonValueKind.String &&
+                !root.TryGetProperty("CustomTranslationPrompt", out _) &&
+                !root.TryGetProperty("CustomAnalysisPrompt", out _))
+            {
+                var prompt = legacyPrompt.GetString() ?? string.Empty;
+                settings.CustomTranslationPrompt = prompt;
+                settings.CustomAnalysisPrompt = prompt;
+                changed = true;
+            }
+
+            settings.AnalysisPromptProfiles ??= new List<AnalysisPromptProfile>();
+            if (!root.TryGetProperty("SelectedAnalysisPromptId", out _))
+            {
+                if (!string.IsNullOrWhiteSpace(settings.CustomAnalysisPrompt))
+                {
+                    var profile = new AnalysisPromptProfile
+                    {
+                        Id = $"custom:{Guid.NewGuid():N}",
+                        Name = "原自定义解析",
+                        Prompt = settings.CustomAnalysisPrompt
+                    };
+                    settings.AnalysisPromptProfiles.Add(profile);
+                    settings.SelectedAnalysisPromptId = profile.Id;
+                }
+                else
+                {
+                    settings.SelectedAnalysisPromptId = settings.AnalysisPreset switch
+                    {
+                        "learner" => "builtin:learner",
+                        "literary" => "builtin:literary",
+                        "business" => "builtin:business",
+                        _ => AnalysisPromptCatalog.GeneralId
+                    };
+                }
+
+                changed = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(settings.SelectedAnalysisPromptId) ||
+                (settings.SelectedAnalysisPromptId.StartsWith("custom:", StringComparison.Ordinal) &&
+                 !settings.AnalysisPromptProfiles.Any(profile =>
+                     string.Equals(profile.Id, settings.SelectedAnalysisPromptId, StringComparison.Ordinal))) ||
+                (!settings.SelectedAnalysisPromptId.StartsWith("custom:", StringComparison.Ordinal) &&
+                 !AnalysisPromptCatalog.IsBuiltIn(settings.SelectedAnalysisPromptId)))
+            {
+                settings.SelectedAnalysisPromptId = AnalysisPromptCatalog.GeneralId;
+                changed = true;
+            }
+
+            return changed;
         }
     }
 }

@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using Microsoft.Win32;
 using QuickTranslate.Helpers;
 using QuickTranslate.Models;
+using QuickTranslate.Services;
 
 namespace QuickTranslate.UI
 {
@@ -27,8 +28,6 @@ namespace QuickTranslate.UI
         private bool _origSmartContentType = false;
         private string _origFallbackLanguage = "English";
         private string _origCustomTranslationPrompt = string.Empty;
-        private string _origCustomAnalysisPrompt = string.Empty;
-        private string _origAnalysisPreset = "general";
         private byte _origHotKeyVK = 0x51;
         private bool _origHotKeyRequireAlt = true;
         private bool _origHotKeyRequireCtrl = false;
@@ -36,6 +35,10 @@ namespace QuickTranslate.UI
         private bool _origHotKeyEnabled = true;
         private bool _origEnableInBrowser = true;
         private string _origCustomBrowserProcesses = string.Empty;
+
+        private readonly List<AnalysisPromptProfile> _analysisPromptProfiles = new();
+        private string _selectedAnalysisPromptId = AnalysisPromptCatalog.GeneralId;
+        private string? _editingAnalysisPromptId;
 
         // 快捷键录入状态
         private bool _isCapturingHotKey = false;
@@ -65,8 +68,6 @@ namespace QuickTranslate.UI
             _origSmartContentType = _settings.SmartContentType;
             _origFallbackLanguage = _settings.FallbackLanguage;
             _origCustomTranslationPrompt = _settings.CustomTranslationPrompt;
-            _origCustomAnalysisPrompt = _settings.CustomAnalysisPrompt;
-            _origAnalysisPreset = _settings.AnalysisPreset;
             _origHotKeyVK = _settings.HotKeyVK;
             _origHotKeyRequireAlt = _settings.HotKeyRequireAlt;
             _origHotKeyRequireCtrl = _settings.HotKeyRequireCtrl;
@@ -103,21 +104,15 @@ namespace QuickTranslate.UI
             // 智能内容识别
             SmartContentTypeCheckBox.IsChecked = _settings.SmartContentType;
 
-            // 自定义提示词
+            // 自定义翻译提示词
             CustomTranslationPromptTextBox.Text = _settings.CustomTranslationPrompt;
-            CustomAnalysisPromptTextBox.Text = _settings.CustomAnalysisPrompt;
 
-            // 解析风格预设
-            AnalysisPresetComboBox.ItemsSource = new[]
-            {
-                new { Value = "general", Name = "通用解析" },
-                new { Value = "learner", Name = "语言学习" },
-                new { Value = "literary", Name = "文学赏析" },
-                new { Value = "business", Name = "商务场景" }
-            };
-            AnalysisPresetComboBox.DisplayMemberPath = "Name";
-            AnalysisPresetComboBox.SelectedValuePath = "Value";
-            AnalysisPresetComboBox.SelectedValue = _settings.AnalysisPreset;
+            _analysisPromptProfiles.Clear();
+            _analysisPromptProfiles.AddRange(
+                (_settings.AnalysisPromptProfiles ?? new List<AnalysisPromptProfile>())
+                    .Select(profile => profile.Clone()));
+            _selectedAnalysisPromptId = ResolveAnalysisPromptSelection(_settings.SelectedAnalysisPromptId);
+            RefreshAnalysisPromptComboBox();
 
             // 开机自启
             AutoStartCheckBox.IsChecked = _settings.AutoStart;
@@ -317,10 +312,86 @@ namespace QuickTranslate.UI
             _isDirty = true;
         }
 
-        private void AnalysisPresetComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void AnalysisPromptComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_isInitializing) return;
+            SaveAnalysisPromptEditor();
+            if (AnalysisPromptComboBox.SelectedValue is string selectedId)
+                _selectedAnalysisPromptId = selectedId;
+            LoadAnalysisPromptEditor();
             _isDirty = true;
+        }
+
+        private void NewAnalysisPromptButton_Click(object sender, RoutedEventArgs e)
+        {
+            SaveAnalysisPromptEditor();
+            var profile = new AnalysisPromptProfile
+            {
+                Id = $"custom:{Guid.NewGuid():N}",
+                Name = GetUniqueAnalysisPromptName("自定义解析"),
+                Prompt = AnalysisPromptCatalog.GetBuiltInOrGeneral(AnalysisPromptCatalog.GeneralId).PromptTemplate
+            };
+            _analysisPromptProfiles.Add(profile);
+            _selectedAnalysisPromptId = profile.Id;
+            RefreshAnalysisPromptComboBox();
+            _isDirty = true;
+        }
+
+        private void CopyAnalysisPromptButton_Click(object sender, RoutedEventArgs e)
+        {
+            SaveAnalysisPromptEditor();
+            var selectedChoice = AnalysisPromptComboBox.SelectedItem as AnalysisPromptChoice;
+            if (selectedChoice == null)
+                return;
+
+            var sourcePrompt = selectedChoice.IsBuiltIn
+                ? AnalysisPromptCatalog.GetBuiltInOrGeneral(selectedChoice.Id).PromptTemplate
+                : _analysisPromptProfiles.First(profile => profile.Id == selectedChoice.Id).Prompt;
+            var profile = new AnalysisPromptProfile
+            {
+                Id = $"custom:{Guid.NewGuid():N}",
+                Name = GetUniqueAnalysisPromptName($"{selectedChoice.Name} 副本"),
+                Prompt = sourcePrompt
+            };
+            _analysisPromptProfiles.Add(profile);
+            _selectedAnalysisPromptId = profile.Id;
+            RefreshAnalysisPromptComboBox();
+            _isDirty = true;
+        }
+
+        private void DeleteAnalysisPromptButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_selectedAnalysisPromptId.StartsWith("custom:", StringComparison.Ordinal))
+                return;
+
+            var profile = _analysisPromptProfiles.FirstOrDefault(item => item.Id == _selectedAnalysisPromptId);
+            if (profile == null)
+                return;
+            var result = MessageBox.Show(
+                $"确定要删除解析方案“{profile.Name}”吗？",
+                "删除解析方案",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (result != MessageBoxResult.Yes)
+                return;
+
+            _analysisPromptProfiles.Remove(profile);
+            _selectedAnalysisPromptId = AnalysisPromptCatalog.GeneralId;
+            RefreshAnalysisPromptComboBox();
+            _isDirty = true;
+        }
+
+        private void AnalysisPromptEditor_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isInitializing || _editingAnalysisPromptId == null)
+                return;
+            _isDirty = true;
+        }
+
+        private void AnalysisPromptEditor_LostFocus(object sender, RoutedEventArgs e)
+        {
+            SaveAnalysisPromptEditor();
+            RefreshAnalysisPromptComboBox();
         }
 
         /// <summary>
@@ -394,6 +465,9 @@ namespace QuickTranslate.UI
         /// </summary>
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
+            SaveAnalysisPromptEditor();
+            if (!ValidateAnalysisPromptProfiles())
+                return;
             ApplySettingsToModel();
             ConfigManager.Save(_settings);
             _onSettingsSaved?.Invoke(_settings);
@@ -425,6 +499,12 @@ namespace QuickTranslate.UI
 
                 if (result == MessageBoxResult.Yes)
                 {
+                    SaveAnalysisPromptEditor();
+                    if (!ValidateAnalysisPromptProfiles())
+                    {
+                        e.Cancel = true;
+                        return;
+                    }
                     ApplySettingsToModel();
                     ConfigManager.Save(_settings);
                     _onSettingsSaved?.Invoke(_settings);
@@ -469,10 +549,15 @@ namespace QuickTranslate.UI
                 _settings.FallbackLanguage = FallbackLanguageComboBox.SelectedItem.ToString() ?? _settings.FallbackLanguage;
 
             _settings.CustomTranslationPrompt = CustomTranslationPromptTextBox.Text?.Trim() ?? string.Empty;
-            _settings.CustomAnalysisPrompt = CustomAnalysisPromptTextBox.Text?.Trim() ?? string.Empty;
-
-            if (AnalysisPresetComboBox.SelectedValue is string preset)
-                _settings.AnalysisPreset = preset;
+            SaveAnalysisPromptEditor();
+            _settings.SelectedAnalysisPromptId = ResolveAnalysisPromptSelection(_selectedAnalysisPromptId);
+            _settings.AnalysisPromptProfiles = _analysisPromptProfiles
+                .Select(profile => profile.Clone())
+                .ToList();
+            _settings.CustomAnalysisPrompt = string.Empty;
+            _settings.AnalysisPreset = _settings.SelectedAnalysisPromptId.StartsWith("builtin:", StringComparison.Ordinal)
+                ? _settings.SelectedAnalysisPromptId["builtin:".Length..]
+                : "general";
 
             _settings.HotKeyEnabled = HotKeyEnabledCheckBox.IsChecked ?? true;
 
@@ -516,6 +601,105 @@ namespace QuickTranslate.UI
 
                 while (_settings.SavedConfigs.Count > 10)
                     _settings.SavedConfigs.RemoveAt(_settings.SavedConfigs.Count - 1);
+            }
+        }
+
+        private bool ValidateAnalysisPromptProfiles()
+        {
+            var invalidProfile = _analysisPromptProfiles.FirstOrDefault(profile =>
+                string.IsNullOrWhiteSpace(profile.Name) || string.IsNullOrWhiteSpace(profile.Prompt));
+            if (invalidProfile != null)
+            {
+                MessageBox.Show(
+                    "每个自定义解析方案都需要填写名称和提示词。",
+                    "解析方案不完整",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return false;
+            }
+
+            var duplicateName = _analysisPromptProfiles
+                .GroupBy(profile => profile.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(group => group.Count() > 1);
+            if (duplicateName != null)
+            {
+                MessageBox.Show(
+                    $"解析方案名称“{duplicateName.Key}”重复，请修改后再保存。",
+                    "解析方案名称重复",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return false;
+            }
+
+            return true;
+        }
+
+        private void RefreshAnalysisPromptComboBox()
+        {
+            var choices = AnalysisPromptCatalog.BuiltIns
+                .Select(prompt => new AnalysisPromptChoice(prompt.Id, prompt.Name, true))
+                .Concat(_analysisPromptProfiles.Select(profile =>
+                    new AnalysisPromptChoice(profile.Id, profile.Name, false)))
+                .ToArray();
+            AnalysisPromptComboBox.ItemsSource = choices;
+            AnalysisPromptComboBox.DisplayMemberPath = nameof(AnalysisPromptChoice.Name);
+            AnalysisPromptComboBox.SelectedValuePath = nameof(AnalysisPromptChoice.Id);
+            AnalysisPromptComboBox.SelectedValue = ResolveAnalysisPromptSelection(_selectedAnalysisPromptId);
+            LoadAnalysisPromptEditor();
+        }
+
+        private void LoadAnalysisPromptEditor()
+        {
+            var profile = _analysisPromptProfiles.FirstOrDefault(item => item.Id == _selectedAnalysisPromptId);
+            _editingAnalysisPromptId = profile?.Id;
+            AnalysisPromptEditorPanel.Visibility = profile == null ? Visibility.Collapsed : Visibility.Visible;
+            DeleteAnalysisPromptButton.IsEnabled = profile != null;
+            if (profile == null)
+            {
+                AnalysisPromptNameTextBox.Text = string.Empty;
+                AnalysisPromptTextBox.Text = string.Empty;
+                return;
+            }
+
+            AnalysisPromptNameTextBox.Text = profile.Name;
+            AnalysisPromptTextBox.Text = profile.Prompt;
+        }
+
+        private void SaveAnalysisPromptEditor()
+        {
+            if (_editingAnalysisPromptId == null)
+                return;
+            var profile = _analysisPromptProfiles.FirstOrDefault(item => item.Id == _editingAnalysisPromptId);
+            if (profile == null)
+                return;
+            profile.Name = string.IsNullOrWhiteSpace(AnalysisPromptNameTextBox.Text)
+                ? "未命名解析"
+                : AnalysisPromptNameTextBox.Text.Trim();
+            profile.Prompt = AnalysisPromptTextBox.Text?.Trim() ?? string.Empty;
+        }
+
+        private string ResolveAnalysisPromptSelection(string? selectedId)
+        {
+            if (AnalysisPromptCatalog.IsBuiltIn(selectedId))
+                return selectedId!;
+            if (selectedId?.StartsWith("custom:", StringComparison.Ordinal) == true &&
+                _analysisPromptProfiles.Any(profile => profile.Id == selectedId))
+                return selectedId;
+            return AnalysisPromptCatalog.GeneralId;
+        }
+
+        private string GetUniqueAnalysisPromptName(string baseName)
+        {
+            var names = new HashSet<string>(
+                _analysisPromptProfiles.Select(profile => profile.Name),
+                StringComparer.OrdinalIgnoreCase);
+            if (!names.Contains(baseName))
+                return baseName;
+            for (var suffix = 2; ; suffix++)
+            {
+                var candidate = $"{baseName} {suffix}";
+                if (!names.Contains(candidate))
+                    return candidate;
             }
         }
 
@@ -627,5 +811,7 @@ namespace QuickTranslate.UI
                 System.Diagnostics.Debug.WriteLine($"设置开机自启失败: {ex.Message}");
             }
         }
+
+        private sealed record AnalysisPromptChoice(string Id, string Name, bool IsBuiltIn);
     }
 }

@@ -79,8 +79,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             BuildPromptLogContext(
                 request,
                 !string.IsNullOrWhiteSpace(settings.CustomTranslationPrompt),
-                !string.IsNullOrWhiteSpace(settings.CustomAnalysisPrompt),
-                settings.AnalysisPreset));
+                settings.SelectedAnalysisPromptId.StartsWith("custom:", StringComparison.Ordinal),
+                settings.SelectedAnalysisPromptId));
         return request;
     }
 
@@ -316,16 +316,10 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
     private static string BuildAnalysisPrompt(string targetLang, PromptSettings settings)
     {
-        if (!string.IsNullOrWhiteSpace(settings.CustomAnalysisPrompt))
-            return settings.CustomAnalysisPrompt.Replace("{targetLang}", targetLang);
-
-        return settings.AnalysisPreset switch
-        {
-            "learner" => $"Analyze this text in {targetLang} as a language tutor. Cover word meaning, grammar, common usage, and pronunciation when relevant. Output only a clear, concise analysis; no preamble or markdown headers.",
-            "literary" => $"Analyze this text in {targetLang} as a literary scholar. Cover rhetorical devices, imagery, symbolism, context, and style when relevant. Output only a clear, concise analysis; no preamble or markdown headers.",
-            "business" => $"Analyze this text in {targetLang} for business communication. Cover core meaning, industry terms, implications, and action items when relevant. Output only a clear, concise analysis; no preamble or markdown headers.",
-            _ => $"Analyze this text in {targetLang}. Cover its core meaning, key points, grammar, structure, and relevant context. Output only a clear, concise analysis; no preamble or markdown headers."
-        };
+        return AnalysisPromptCatalog.Resolve(
+            settings.SelectedAnalysisPromptId,
+            settings.AnalysisPromptProfiles,
+            targetLang);
     }
 
     private static bool TextMatchesLanguage(string text, string lang)
@@ -406,11 +400,14 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         bool AutoDetectLanguage,
         bool SmartContentType,
         string CustomTranslationPrompt,
-        string CustomAnalysisPrompt,
-        string AnalysisPreset)
+        string SelectedAnalysisPromptId,
+        IReadOnlyList<AnalysisPromptProfile> AnalysisPromptProfiles)
     {
         public static PromptSettings From(AppSettings settings)
         {
+            var selectedAnalysisPromptId = string.IsNullOrWhiteSpace(settings.SelectedAnalysisPromptId)
+                ? AnalysisPromptCatalog.GeneralId
+                : settings.SelectedAnalysisPromptId;
             return new PromptSettings(
                 settings.ApiBaseUrl,
                 settings.ApiKey,
@@ -419,8 +416,10 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 settings.AutoDetectLanguage,
                 settings.SmartContentType,
                 settings.CustomTranslationPrompt,
-                settings.CustomAnalysisPrompt,
-                settings.AnalysisPreset);
+                selectedAnalysisPromptId,
+                (settings.AnalysisPromptProfiles ?? new List<AnalysisPromptProfile>())
+                    .Select(profile => profile.Clone())
+                    .ToArray());
         }
     }
 }

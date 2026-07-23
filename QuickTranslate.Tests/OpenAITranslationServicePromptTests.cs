@@ -144,7 +144,7 @@ public class OpenAITranslationServicePromptTests
     {
         using var service = CreateService(new AppSettings
         {
-            AnalysisPreset = preset
+            SelectedAnalysisPromptId = $"builtin:{preset}"
         });
 
         var request = service.CreateRequest(
@@ -159,14 +159,13 @@ public class OpenAITranslationServicePromptTests
     }
 
     [Fact]
-    public void CreateRequest_WhitespaceCustomPrompts_UseDefaults()
+    public void CreateRequest_MissingCustomAnalysisProfile_UsesGeneralDefault()
     {
         using var service = CreateService(new AppSettings
         {
             AutoDetectLanguage = false,
             CustomTranslationPrompt = "   ",
-            CustomAnalysisPrompt = "\t",
-            AnalysisPreset = "learner"
+            SelectedAnalysisPromptId = "custom:missing"
         });
 
         var translation = service.CreateRequest("bonjour", "English", ContentType.Translation);
@@ -177,7 +176,7 @@ public class OpenAITranslationServicePromptTests
             TranslationRequestKind.Analysis);
 
         Assert.Contains("Translate the input into English", translation.SystemPrompt);
-        Assert.Contains("as a language tutor", analysis.SystemPrompt);
+        Assert.Contains("grammar, structure, and relevant context", analysis.SystemPrompt);
     }
 
     private static OpenAITranslationService CreateService(AppSettings settings)

@@ -65,7 +65,16 @@ public sealed class OpenAITranslationServiceStrictModeTests
         using var service = CreateService(new AppSettings
         {
             CustomTranslationPrompt = "TRANSLATION {targetLang}",
-            CustomAnalysisPrompt = "ANALYSIS {targetLang}"
+            SelectedAnalysisPromptId = "custom:analysis",
+            AnalysisPromptProfiles =
+            [
+                new AnalysisPromptProfile
+                {
+                    Id = "custom:analysis",
+                    Name = "Analysis",
+                    Prompt = "ANALYSIS {targetLang}"
+                }
+            ]
         });
 
         var request = service.CreateRequest(
