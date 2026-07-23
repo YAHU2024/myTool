@@ -230,8 +230,8 @@ namespace QuickTranslate.UI
                 ApiKeyVisibleTextBox.Text = ApiKeyPasswordBox.Password;
                 ApiKeyPasswordBox.Visibility = Visibility.Collapsed;
                 ApiKeyVisibleTextBox.Visibility = Visibility.Visible;
-                EyeButton.Content = "🔒";
-                EyeButton.ToolTip = "隐藏 API Key";
+                EyeButton.Content = "\uE72E";
+                EyeButton.ToolTip = "隐藏 API 密钥";
             }
             else
             {
@@ -239,8 +239,8 @@ namespace QuickTranslate.UI
                 ApiKeyPasswordBox.Password = ApiKeyVisibleTextBox.Text;
                 ApiKeyVisibleTextBox.Visibility = Visibility.Collapsed;
                 ApiKeyPasswordBox.Visibility = Visibility.Visible;
-                EyeButton.Content = "👁";
-                EyeButton.ToolTip = "显示 API Key";
+                EyeButton.Content = "\uE890";
+                EyeButton.ToolTip = "显示 API 密钥";
             }
         }
 
@@ -262,7 +262,7 @@ namespace QuickTranslate.UI
 
                 // 显示绿色反馈
                 var domain = ExtractDomainShortName(config.ApiBaseUrl);
-                ModelFeedbackText.Text = $"✓ 已切换至 {config.ModelName}（{domain}）";
+                ModelFeedbackText.Text = $"已切换到 {config.ModelName}（{domain}）";
                 ModelFeedbackText.Visibility = Visibility.Visible;
                 _isDirty = true;
 
@@ -426,7 +426,7 @@ namespace QuickTranslate.UI
             ApiKeyVisibleTextBox.Text = string.Empty;
 
             // 显示反馈
-            ModelFeedbackText.Text = $"✓ 已删除 {modelName}";
+            ModelFeedbackText.Text = $"已删除 {modelName}";
             ModelFeedbackText.Visibility = Visibility.Visible;
             var timer = new System.Windows.Threading.DispatcherTimer
             {
@@ -492,7 +492,7 @@ namespace QuickTranslate.UI
             if (_isDirty)
             {
                 var result = MessageBox.Show(
-                    "您有未保存的修改，是否保存？",
+                    "设置尚未保存，是否保存后关闭？",
                     "QuickTranslate 设置",
                     MessageBoxButton.YesNoCancel,
                     MessageBoxImage.Question);
@@ -611,7 +611,7 @@ namespace QuickTranslate.UI
             if (invalidProfile != null)
             {
                 MessageBox.Show(
-                    "每个自定义解析方案都需要填写名称和提示词。",
+                    "请填写自定义解析方案的名称和提示词。",
                     "解析方案不完整",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
@@ -624,7 +624,7 @@ namespace QuickTranslate.UI
             if (duplicateName != null)
             {
                 MessageBox.Show(
-                    $"解析方案名称“{duplicateName.Key}”重复，请修改后再保存。",
+                    $"解析方案名称“{duplicateName.Key}”已存在，请使用其他名称。",
                     "解析方案名称重复",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
@@ -752,7 +752,7 @@ namespace QuickTranslate.UI
             // 至少需要一个修饰键
             if (!requireAlt && !requireCtrl && !requireShift)
             {
-                MessageBox.Show("快捷键必须包含至少一个修饰键（Ctrl/Alt/Shift）", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("快捷键必须包含 Ctrl、Alt 或 Shift 中的至少一个修饰键", "快捷键设置", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
