@@ -74,7 +74,7 @@ public sealed class MarkdownRendererTests
             var languageLabel = Assert.IsType<TextBlock>(header.Children[0]);
             Assert.Equal("csharp", languageLabel.Text);
             var copyButton = Assert.IsType<Button>(header.Children[1]);
-            Assert.Equal("复制代码", copyButton.Content);
+            Assert.Equal("\u29C9", copyButton.Content);
             Assert.Same(code, copyButton.Tag);
             Assert.False(copyButton.Focusable);
             Assert.False(copyButton.IsTabStop);

@@ -211,17 +211,16 @@ internal static class MarkdownRenderer
 
         var copyButton = new Button
         {
-            Content = "复制代码",
+            Content = "\u29C9",
             Tag = metadata,
-            ToolTip = "复制此代码块",
-            FontSize = 12,
-            Padding = new Thickness(7, 2, 7, 2),
-            Margin = new Thickness(0, 6, 6, 0),
+            ToolTip = "复制代码",
+            Margin = new Thickness(0, 4, 4, 0),
             Focusable = false,
             IsTabStop = false,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Top
         };
+        copyButton.SetResourceReference(FrameworkElement.StyleProperty, "IconToolbarButton");
         var header = new Grid();
         header.ColumnDefinitions.Add(new ColumnDefinition());
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });

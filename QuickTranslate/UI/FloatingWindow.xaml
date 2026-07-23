@@ -3,15 +3,18 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="QuickTranslate"
         WindowStyle="None"
-        ResizeMode="NoResize"
+        ResizeMode="CanResize"
         Topmost="True"
         ShowInTaskbar="False"
         ShowActivated="False"
         AllowsTransparency="True"
         Background="Transparent"
         Width="420"
+        MinWidth="400"
+        MaxWidth="900"
+        MinHeight="120"
+        MaxHeight="800"
         SizeToContent="Height"
-        MaxWidth="420"
         PreviewKeyDown="Window_PreviewKeyDown">
 
     <Window.Resources>
@@ -64,6 +67,15 @@
             </Style.Triggers>
         </Style>
 
+        <Style x:Key="IconToolbarButton" TargetType="{x:Type Button}" BasedOn="{StaticResource ToolbarButton}">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
         <Style x:Key="Win11Thumb" TargetType="{x:Type Thumb}">
             <Setter Property="OverridesDefaultStyle" Value="True"/>
             <Setter Property="IsTabStop" Value="False"/>
@@ -81,6 +93,7 @@
             <Setter Property="MinWidth" Value="4"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="Opacity" Value="0"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type ScrollBar}">
@@ -99,8 +112,8 @@
                 </Setter.Value>
             </Setter>
             <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="False"><Setter Property="Opacity" Value="0"/></Trigger>
                 <Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="1"/></Trigger>
+                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}}" Value="True"><Setter Property="Opacity" Value="1"/></DataTrigger>
             </Style.Triggers>
         </Style>
 
@@ -128,17 +141,17 @@
         <Border.Effect><DropShadowEffect Color="Black" BlurRadius="12" ShadowDepth="2" Opacity="0.5"/></Border.Effect>
         <Grid>
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-            <Grid Grid.Row="0" Margin="0,0,0,6">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal">
+            <Grid x:Name="TitleBar" Grid.Row="0" Margin="0,0,0,6" Background="Transparent" Cursor="SizeAll">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
                     <Button x:Name="TranslationModeButton" Style="{StaticResource ModeButton}" Content="翻译" ToolTip="严格翻译" Click="ModeButton_Click" Tag="ActiveTranslation"/>
                     <Button x:Name="CodeModeButton" Style="{StaticResource ModeButton}" Content="命令" ToolTip="解释代码、配置或命令" Click="ModeButton_Click"/>
                     <Button x:Name="TermModeButton" Style="{StaticResource ModeButton}" Content="术语" ToolTip="解释技术术语" Click="ModeButton_Click"/>
                     <Button x:Name="AnalysisModeButton" Style="{StaticResource ModeButton}" Content="解析" ToolTip="深度解析" Click="ModeButton_Click"/>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <Button Style="{StaticResource ToolbarButton}" Content="&#x21BB;" FontSize="16" ToolTip="重新生成" Click="RefreshButton_Click"/>
-                    <Button Style="{StaticResource ToolbarButton}" Content="&#x29C9;" FontSize="14" ToolTip="复制全部" Click="CopyAllButton_Click"/>
+                    <Button Style="{StaticResource IconToolbarButton}" Content="&#x29C9;" ToolTip="复制全部" Click="CopyAllButton_Click"/>
                     <Button x:Name="PinButton" Style="{StaticResource ToolbarButton}" Content="&#x1F4CC;" FontSize="13" ToolTip="固定窗口" Click="PinButton_Click"/>
                 </StackPanel>
             </Grid>
@@ -146,10 +159,11 @@
                 <Grid.Style>
                     <Style TargetType="{x:Type Grid}">
                         <Setter Property="MinHeight" Value="80"/>
-                        <Setter Property="MaxHeight" Value="420"/>
+                        <Setter Property="MaxHeight" Value="780"/>
                     </Style>
                 </Grid.Style>
-                <ScrollViewer x:Name="TranslationScroller" Style="{StaticResource Win11ScrollViewer}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxWidth="390" ScrollChanged="TranslationScroller_ScrollChanged" PreviewMouseWheel="TranslationScroller_PreviewMouseWheel" PreviewKeyDown="TranslationScroller_PreviewKeyDown">
+                <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <ScrollViewer Grid.Row="0" x:Name="TranslationScroller" Style="{StaticResource Win11ScrollViewer}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxWidth="870" ScrollChanged="TranslationScroller_ScrollChanged" PreviewMouseWheel="TranslationScroller_PreviewMouseWheel" PreviewKeyDown="TranslationScroller_PreviewKeyDown">
                     <Grid>
                         <TextBlock x:Name="TranslationTextBlock" Foreground="#F0F0F0" FontSize="16" FontFamily="Microsoft YaHei UI" TextWrapping="Wrap" Padding="0,0,6,0" Text=""/>
                         <RichTextBox x:Name="MarkdownDocumentHost" Visibility="Collapsed" IsReadOnly="True" IsDocumentEnabled="True" Focusable="False" BorderThickness="0" Background="Transparent" Padding="0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"/>
@@ -162,11 +176,8 @@
                         <Ellipse x:Name="LoadingDotThree" Width="4" Height="4" Fill="#B7C5FF" Margin="1"/>
                     </StackPanel>
                 </Border>
-                <Button x:Name="ResumeScrollButton" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,6" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="自动滚动已暂停" ToolTip="恢复自动滚动" Visibility="Collapsed" Click="ResumeScrollButton_Click"/>
-                <Button x:Name="ExpandMarkdownButton" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,38" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="展开全文" ToolTip="渲染完整结果" Visibility="Collapsed" Click="ExpandMarkdownButton_Click"/>
-                <Border x:Name="DetectionHint" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="4" Background="#E63A3A4A" CornerRadius="4" Padding="7,4" Visibility="Collapsed" IsHitTestVisible="False">
-                    <TextBlock x:Name="DetectionHintText" Foreground="#F0F0F0" FontSize="11"/>
-                </Border>
+                <Button x:Name="ResumeScrollButton" Grid.Row="1" HorizontalAlignment="Right" Margin="0,4,0,0" Padding="6,2" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="自动滚动已暂停" ToolTip="恢复自动滚动" Visibility="Collapsed" Click="ResumeScrollButton_Click"/>
+                <Button x:Name="ExpandMarkdownButton" Grid.Row="2" HorizontalAlignment="Right" Margin="0,4,0,0" Padding="6,2" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="展开全文" ToolTip="渲染完整结果" Visibility="Collapsed" Click="ExpandMarkdownButton_Click"/>
             </Grid>
         </Grid>
     </Border>

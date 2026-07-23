@@ -22,13 +22,32 @@ public partial class FloatingWindow : Window
 {
     private const double PlacementGapDip = 12;
     private readonly DispatcherTimer _autoHideTimer;
+    private readonly DispatcherTimer _scrollBarHideTimer;
     private readonly LatestPresentationCoordinator _presentations = new();
     private readonly AutoScrollController _autoScroll = new();
-    private DispatcherTimer? _detectionHintTimer;
     private bool _isMouseInside;
     private bool _isLoading;
     private bool _isProgrammaticScroll;
     private bool _isMarkdownExpanded;
+    private bool _isDragging;
+    private Point _dragStartCursorPhysical;
+    private Point _dragStartWindowPhysical;
+    private bool _userMoved;
+    private bool _userResized;
+    private bool _isSystemSizing;
+    private HwndSource? _hwndSource;
+    private const int WmNchittest = 0x0084;
+    private const int WmEnterSizeMove = 0x0231;
+    private const int WmExitSizeMove = 0x0232;
+    private const int HtLeft = 10;
+    private const int HtRight = 11;
+    private const int HtTop = 12;
+    private const int HtTopLeft = 13;
+    private const int HtTopRight = 14;
+    private const int HtBottom = 15;
+    private const int HtBottomLeft = 16;
+    private const int HtBottomRight = 17;
+    private const int ResizeBorderPhysical = 8;
     private string _rawText = string.Empty;
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
@@ -38,7 +57,7 @@ public partial class FloatingWindow : Window
 
     public event Action<ContentType>? ModeRequested;
     public event Action? RefreshRequested;
-    public event Action? DismissRequested;
+    public event Action? HideRequested;
     public event Action<Guid, ContentType, double, bool>? ScrollStateChanged;
 
     public bool IsPinned { get; private set; }
@@ -46,8 +65,13 @@ public partial class FloatingWindow : Window
     public FloatingWindow()
     {
         InitializeComponent();
+        SourceInitialized += FloatingWindow_SourceInitialized;
         MarkdownDocumentHost.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
         MarkdownDocumentHost.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
+        TitleBar.PreviewMouseLeftButtonDown += TitleBar_PreviewMouseLeftButtonDown;
+        TitleBar.PreviewMouseMove += TitleBar_PreviewMouseMove;
+        TitleBar.PreviewMouseLeftButtonUp += TitleBar_PreviewMouseLeftButtonUp;
+        TitleBar.LostMouseCapture += TitleBar_LostMouseCapture;
 
         _autoHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _autoHideTimer.Tick += (_, _) =>
@@ -55,6 +79,13 @@ public partial class FloatingWindow : Window
             if (CanAutoHide())
                 Hide();
             _autoHideTimer.Stop();
+        };
+
+        _scrollBarHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.2) };
+        _scrollBarHideTimer.Tick += (_, _) =>
+        {
+            _scrollBarHideTimer.Stop();
+            TranslationScroller.Tag = false;
         };
 
         MouseEnter += (_, _) =>
@@ -75,6 +106,31 @@ public partial class FloatingWindow : Window
     }
 
     internal FloatingWindowAnchor CurrentAnchor => _anchor;
+
+    internal bool ShowExistingResult()
+    {
+        if (!_hasAnchor || string.IsNullOrWhiteSpace(_rawText))
+            return false;
+
+        Show();
+        UpdateLayout();
+        Opacity = 1;
+        IsHitTestVisible = true;
+        ResetAutoHideTimer();
+        return true;
+    }
+
+    public new void Hide()
+    {
+        EndDragging(resetAutoHideTimer: false);
+        _scrollBarHideTimer.Stop();
+        TranslationScroller.Tag = false;
+        _userMoved = false;
+        _userResized = false;
+        _isSystemSizing = false;
+        SizeToContent = SizeToContent.Height;
+        base.Hide();
+    }
 
     public long BeginReplacement()
     {
@@ -143,34 +199,6 @@ public partial class FloatingWindow : Window
         ResetAutoHideTimer();
     }
 
-    internal void ShowDetectionHint(DetectionResult? detection)
-    {
-        ClearDetectionHint();
-        if (detection is not { Confidence: DetectionConfidence.Low } ||
-            detection.ContentType is not (ContentType.Code or ContentType.Term))
-        {
-            return;
-        }
-
-        DetectionHintText.Text = detection.ContentType == ContentType.Code
-            ? "识别为命令；结果不对可切换到翻译"
-            : "识别为术语；结果不对可切换到翻译";
-        DetectionHint.Visibility = Visibility.Visible;
-        _detectionHintTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-        _detectionHintTimer.Tick += (_, _) =>
-        {
-            ClearDetectionHint();
-        };
-        _detectionHintTimer.Start();
-    }
-
-    public void ClearDetectionHint()
-    {
-        _detectionHintTimer?.Stop();
-        _detectionHintTimer = null;
-        DetectionHint.Visibility = Visibility.Collapsed;
-    }
-
     private void HideLoadingIndicator()
     {
         LoadingIndicator.Visibility = Visibility.Collapsed;
@@ -205,7 +233,9 @@ public partial class FloatingWindow : Window
         var availableHeight = _placeAbove
             ? exclusionBounds.Top - gap - workArea.Top
             : workArea.Bottom - exclusionBounds.Bottom - gap;
-        TranslationScroller.MaxHeight = Math.Max(availableHeight / scale.Y - chromeHeightDip, 80);
+        TranslationScroller.MaxHeight = _userResized
+            ? double.PositiveInfinity
+            : Math.Max(availableHeight / scale.Y - chromeHeightDip, 80);
 
         Opacity = 0;
         IsHitTestVisible = false;
@@ -277,12 +307,12 @@ public partial class FloatingWindow : Window
 
     private void MarkdownCodeCopyButton_Click(object sender, RoutedEventArgs e)
     {
-        if (e.OriginalSource is not Button { Tag: MarkdownCodeBlock metadata })
+        if (e.OriginalSource is not Button { Tag: MarkdownCodeBlock metadata } button)
             return;
-
         try
         {
             Clipboard.SetText(metadata.Code);
+            ShowCopyFeedback(button, "\u29C9");
             e.Handled = true;
         }
         catch
@@ -354,12 +384,27 @@ public partial class FloatingWindow : Window
     private void CopyAllButton_Click(object sender, RoutedEventArgs e)
     {
         var text = _rawText;
-        if (!string.IsNullOrEmpty(text))
+        if (string.IsNullOrEmpty(text)) return;
+        try
         {
-            try { Clipboard.SetText(text); }
-            catch { /* Clipboard access can be temporarily unavailable. */ }
+            Clipboard.SetText(text);
+            if (sender is Button btn)
+                ShowCopyFeedback(btn, "\u29C9");
         }
+        catch { /* Clipboard access can be temporarily unavailable. */ }
         ResetAutoHideTimer();
+    }
+
+    private static void ShowCopyFeedback(Button button, object originalContent)
+    {
+        button.Content = "\u2714";
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+        timer.Tick += (_, _) =>
+        {
+            button.Content = originalContent;
+            timer.Stop();
+        };
+        timer.Start();
     }
 
     private void PinButton_Click(object sender, RoutedEventArgs e)
@@ -379,6 +424,7 @@ public partial class FloatingWindow : Window
 
     private void TranslationScroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        RevealScrollBarTemporarily();
         if (e.Delta > 0)
         {
             _autoScroll.PauseForUpwardNavigation();
@@ -389,6 +435,9 @@ public partial class FloatingWindow : Window
 
     private void TranslationScroller_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key is Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End)
+            RevealScrollBarTemporarily();
+
         if (e.Key is Key.Up or Key.PageUp or Key.Home)
         {
             _autoScroll.PauseForUpwardNavigation();
@@ -402,6 +451,7 @@ public partial class FloatingWindow : Window
         if (_isProgrammaticScroll || e.VerticalChange == 0)
             return;
 
+        RevealScrollBarTemporarily();
         _autoScroll.OnUserScrollPositionChanged(TranslationScroller.VerticalOffset, TranslationScroller.ViewportHeight, TranslationScroller.ExtentHeight);
         UpdateAutoScrollAffordance();
         RaiseScrollStateChanged();
@@ -435,6 +485,13 @@ public partial class FloatingWindow : Window
         ScrollStateChanged?.Invoke(_sessionId, _activeMode, TranslationScroller.VerticalOffset, _autoScroll.IsAutoScrollEnabled);
     }
 
+    private void RevealScrollBarTemporarily()
+    {
+        TranslationScroller.Tag = true;
+        _scrollBarHideTimer.Stop();
+        _scrollBarHideTimer.Start();
+    }
+
     private void UpdateAutoScrollAffordance() =>
         ResumeScrollButton.Visibility = _autoScroll.IsAutoScrollEnabled ? Visibility.Collapsed : Visibility.Visible;
 
@@ -453,7 +510,7 @@ public partial class FloatingWindow : Window
         PinButton.ToolTip = IsPinned ? "取消固定" : "固定窗口";
     }
 
-    private bool CanAutoHide() => !IsPinned && !_isLoading && !_isMouseInside;
+    private bool CanAutoHide() => !IsPinned && !_isLoading && !_isMouseInside && !_isSystemSizing;
 
     private void ResetAutoHideTimer()
     {
@@ -468,13 +525,13 @@ public partial class FloatingWindow : Window
             return;
 
         e.Handled = true;
-        DismissRequested?.Invoke();
+        HideRequested?.Invoke();
         Hide();
     }
 
     private void PositionWindowAtAnchor()
     {
-        if (!_hasAnchor || ActualWidth <= 0 || ActualHeight <= 0)
+        if (_isDragging || _userMoved || _userResized || !_hasAnchor || ActualWidth <= 0 || ActualHeight <= 0)
             return;
 
         var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(_anchor.PreferredPoint);
@@ -491,6 +548,194 @@ public partial class FloatingWindow : Window
             return;
 
         Win32Api.SetWindowPos(hwnd, IntPtr.Zero, (int)Math.Round(rect.Left), (int)Math.Round(rect.Top), (int)Math.Round(rect.Width), (int)Math.Round(rect.Height), 0x0004 | 0x0010);
+    }
+
+    private void FloatingWindow_SourceInitialized(object? sender, EventArgs e)
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero)
+            return;
+
+        var style = Win32Api.GetWindowLongPtr(hwnd, Win32Api.GWL_STYLE).ToInt64();
+        if ((style & Win32Api.WS_THICKFRAME) == 0)
+        {
+            Win32Api.SetWindowLongPtr(hwnd, Win32Api.GWL_STYLE, new IntPtr(style | Win32Api.WS_THICKFRAME));
+            const uint swpNoMove = 0x0002;
+            const uint swpNoSize = 0x0001;
+            const uint swpNoZOrder = 0x0004;
+            const uint swpFrameChanged = 0x0020;
+            Win32Api.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, swpNoMove | swpNoSize | swpNoZOrder | swpFrameChanged);
+        }
+
+        _hwndSource = HwndSource.FromHwnd(hwnd);
+        _hwndSource?.AddHook(FloatingWindowWindowProc);
+    }
+
+    private IntPtr FloatingWindowWindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == WmEnterSizeMove)
+        {
+            // Keep the current auto-sized height as the starting point for manual resizing.
+            SizeToContent = SizeToContent.Manual;
+            _isSystemSizing = true;
+            _autoHideTimer.Stop();
+            TranslationScroller.MaxHeight = double.PositiveInfinity;
+            return IntPtr.Zero;
+        }
+
+        if (msg == WmExitSizeMove)
+        {
+            _userResized = true;
+            _isSystemSizing = false;
+            UpdateLayout();
+            ResetAutoHideTimer();
+            return IntPtr.Zero;
+        }
+
+        if (msg != WmNchittest || _isDragging || !IsHitTestVisible)
+            return IntPtr.Zero;
+
+        var screenX = unchecked((short)(long)lParam);
+        var screenY = unchecked((short)((long)lParam >> 16));
+        if (!Win32Api.GetWindowRect(hwnd, out var windowRect))
+            return IntPtr.Zero;
+
+        var border = ResizeBorderPhysical;
+        var left = screenX - windowRect.Left < border;
+        var right = windowRect.Right - screenX <= border;
+        var top = screenY - windowRect.Top < border;
+        var bottom = windowRect.Bottom - screenY <= border;
+
+        var hit = (left, right, top, bottom) switch
+        {
+            (true, false, true, false) => HtTopLeft,
+            (false, true, true, false) => HtTopRight,
+            (true, false, false, true) => HtBottomLeft,
+            (false, true, false, true) => HtBottomRight,
+            (_, false, true, false) => HtTop,
+            (_, false, false, true) => HtBottom,
+            (true, false, _, _) => HtLeft,
+            (false, true, _, _) => HtRight,
+            _ => 1
+        };
+
+        if (hit != 1)
+        {
+            handled = true;
+            return new IntPtr(hit);
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private void TitleBar_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left || IsInsideButton(e.OriginalSource as DependencyObject))
+            return;
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero ||
+            !Win32Api.GetCursorPos(out var cursor) ||
+            !Win32Api.GetWindowRect(hwnd, out var windowRect))
+        {
+            return;
+        }
+
+        _dragStartCursorPhysical = new Point(cursor.X, cursor.Y);
+        _dragStartWindowPhysical = new Point(windowRect.Left, windowRect.Top);
+        if (!Mouse.Capture(TitleBar, CaptureMode.Element))
+            return;
+
+        _isDragging = true;
+        _autoHideTimer.Stop();
+        e.Handled = true;
+    }
+
+    private void TitleBar_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isDragging)
+            return;
+
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            EndDragging();
+            return;
+        }
+
+        if (!Win32Api.GetCursorPos(out var cursor))
+            return;
+
+        var currentCursorPhysical = new Point(cursor.X, cursor.Y);
+        var deltaX = currentCursorPhysical.X - _dragStartCursorPhysical.X;
+        var deltaY = currentCursorPhysical.Y - _dragStartCursorPhysical.Y;
+        var newLeft = _dragStartWindowPhysical.X + deltaX;
+        var newTop = _dragStartWindowPhysical.Y + deltaY;
+
+        var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(currentCursorPhysical);
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (!workArea.IsEmpty && hwnd != IntPtr.Zero && Win32Api.GetWindowRect(hwnd, out var windowRect))
+        {
+            var width = windowRect.Right - windowRect.Left;
+            var height = windowRect.Bottom - windowRect.Top;
+            newLeft = Math.Clamp(newLeft, workArea.Left, Math.Max(workArea.Left, workArea.Right - width));
+            newTop = Math.Clamp(newTop, workArea.Top, Math.Max(workArea.Top, workArea.Bottom - height));
+
+            const uint swpNoSize = 0x0001;
+            const uint swpNoZOrder = 0x0004;
+            const uint swpNoActivate = 0x0010;
+            Win32Api.SetWindowPos(
+                hwnd,
+                IntPtr.Zero,
+                (int)Math.Round(newLeft),
+                (int)Math.Round(newTop),
+                0,
+                0,
+                swpNoSize | swpNoZOrder | swpNoActivate);
+        }
+
+        if (Math.Abs(deltaX) + Math.Abs(deltaY) > 2)
+            _userMoved = true;
+    }
+
+    private void TitleBar_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isDragging)
+            return;
+
+        EndDragging();
+    }
+
+    private void TitleBar_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (_isDragging)
+            EndDragging();
+    }
+
+    private void EndDragging(bool resetAutoHideTimer = true)
+    {
+        _isDragging = false;
+        if (Mouse.Captured == TitleBar)
+            Mouse.Capture(null);
+        if (resetAutoHideTimer)
+            ResetAutoHideTimer();
+    }
+
+    private static bool IsInsideButton(DependencyObject? source)
+    {
+        for (var current = source; current is not null; current = GetParent(current))
+        {
+            if (current is Button)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static DependencyObject? GetParent(DependencyObject child)
+    {
+        if (child is Visual or System.Windows.Media.Media3D.Visual3D)
+            return VisualTreeHelper.GetParent(child);
+        return LogicalTreeHelper.GetParent(child);
     }
 
     private static async Task WaitForCompositionFrameAsync()
