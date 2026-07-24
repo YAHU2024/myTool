@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -21,6 +21,7 @@ public partial class App : Application
     private GlobalKeyboardHook? _keyboardHook;
     private SelectionDetector? _selectionDetector;
     private OpenAITranslationService? _translationService;
+    private ITtsService? _ttsService;
     private AppSettings? _settings;
     private FloatingWindow? _floatingWindow;
     private RedDotWindow? _redDotWindow;
@@ -144,6 +145,14 @@ public partial class App : Application
         _floatingWindow.RefreshRequested += OnRefreshRequested;
         _floatingWindow.HideRequested += OnHideRequested;
         _floatingWindow.ScrollStateChanged += OnScrollStateChanged;
+
+        _ttsService = new EdgeTtsService();
+        _floatingWindow.AttachTts(_ttsService);
+        _floatingWindow.ApplyTtsSettings(
+            _settings.TtsEnabled,
+            _settings.TtsVoice,
+            _settings.TtsRate,
+            _settings.TtsMaxChars);
 
         // 初始化红点窗口（单例复用）
         _redDotWindow = new RedDotWindow();
@@ -876,6 +885,14 @@ public partial class App : Application
             settings.LogRetentionDays,
             settings.LogMaxTotalBytes);
 
+        if (!settings.TtsEnabled)
+            _ = _ttsService?.StopAsync();
+        _floatingWindow?.ApplyTtsSettings(
+            settings.TtsEnabled,
+            settings.TtsVoice,
+            settings.TtsRate,
+            settings.TtsMaxChars);
+
         // 更新快捷键配置（后台线程执行，避免钩子 Stop/Start 阻塞 UI）
         if (_keyboardHook != null)
         {
@@ -1045,6 +1062,12 @@ public partial class App : Application
         _watchdogTimer?.Dispose();
 
         // 清理资源
+        if (_ttsService is not null)
+        {
+            try { _ttsService.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+            catch { /* best-effort */ }
+            _ttsService = null;
+        }
         _keyboardHook?.Dispose();
         _selectionDetector?.Dispose();
         _trayIcon?.Dispose();

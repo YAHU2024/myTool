@@ -152,6 +152,7 @@
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <Button Style="{StaticResource ToolbarButton}" Content="&#x21BB;" FontSize="16" ToolTip="重新生成" Click="RefreshButton_Click"/>
                     <Button Style="{StaticResource IconToolbarButton}" Content="&#x29C9;" ToolTip="复制全部" Click="CopyAllButton_Click"/>
+                    <Button x:Name="SpeakButton" Style="{StaticResource IconToolbarButton}" FontFamily="Segoe MDL2 Assets" Content="&#xE768;" ToolTip="朗读结果" Click="SpeakButton_Click" IsEnabled="False" Opacity="0.45"/>
                     <Button x:Name="PinButton" Style="{StaticResource ToolbarButton}" Content="&#x1F4CC;" FontSize="13" ToolTip="固定窗口" Click="PinButton_Click"/>
                 </StackPanel>
             </Grid>

@@ -207,5 +207,27 @@ namespace QuickTranslate.Models
         /// Maximum total size of managed log files in bytes.
         /// </summary>
         public long LogMaxTotalBytes { get; set; } = 50 * 1024 * 1024;
+
+        // ==================== Phase 14: TTS ====================
+
+        /// <summary>
+        /// Whether result speech is enabled.
+        /// </summary>
+        public bool TtsEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Edge voice name. Empty means automatic selection.
+        /// </summary>
+        public string TtsVoice { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Speech rate multiplier (UI exposes 0.9 / 1.0 / 1.1).
+        /// </summary>
+        public double TtsRate { get; set; } = 1.0;
+
+        /// <summary>
+        /// Maximum characters spoken per request (extra text is truncated).
+        /// </summary>
+        public int TtsMaxChars { get; set; } = 2000;
     }
 }

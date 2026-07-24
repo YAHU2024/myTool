@@ -376,3 +376,15 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 验证完成后删除生成的隔离输出目录，不要提交 `bin/`、`obj/` 或其他构建产物。
 
 自动化测试不能替代以下 Windows 桌面验证：托盘入口、日志窗口关闭/重开、日志刷新、真实文件轮转、设置即时生效、文件占用以及混合 DPI 下的窗口显示。
+
+## TTS events (Phase 14)
+
+| Event | Level | Context keys (no text body) |
+|------|-------|-----------------------------|
+| tts.speak.started | Info | text_len, voice, rate, speak_id, language_hint |
+| tts.speak.completed | Info | duration_ms, speak_id, audio_bytes |
+| tts.speak.cancelled | Info | speak_id |
+| tts.speak.failed | Error | speak_id, exception_type |
+| tts.speak.truncated | Warn | text_len, max_chars |
+
+Never log SSML, spoken text, tokens, cookies, or absolute temp paths.

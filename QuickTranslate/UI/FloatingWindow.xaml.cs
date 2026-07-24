@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using QuickTranslate.Core;
 using QuickTranslate.Helpers;
 using QuickTranslate.Models;
+using QuickTranslate.Services;
 
 namespace QuickTranslate.UI;
 
@@ -49,6 +50,15 @@ public partial class FloatingWindow : Window
     private const int HtBottomRight = 17;
     private const int ResizeBorderPhysical = 8;
     private string _rawText = string.Empty;
+    private ModeResultStatus _modeStatus = ModeResultStatus.NotStarted;
+    private ITtsService? _tts;
+    private bool _ttsEnabled = true;
+    private string _ttsVoice = string.Empty;
+    private double _ttsRate = 1.0;
+    private int _ttsMaxChars = 2000;
+    private bool _isTtsBusy;
+    private const string SpeakIcon = "\uE768";
+    private const string StopIcon = "\uE71A";
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
     private bool _placeAbove;
@@ -59,6 +69,8 @@ public partial class FloatingWindow : Window
     public event Action? RefreshRequested;
     public event Action? HideRequested;
     public event Action<Guid, ContentType, double, bool>? ScrollStateChanged;
+
+    internal bool IsTtsBusy => _isTtsBusy;
 
     public bool IsPinned { get; private set; }
 
@@ -107,6 +119,43 @@ public partial class FloatingWindow : Window
 
     internal FloatingWindowAnchor CurrentAnchor => _anchor;
 
+    internal void AttachTts(ITtsService tts)
+    {
+        if (_tts is not null)
+            _tts.StateChanged -= OnTtsStateChanged;
+        _tts = tts;
+        _tts.StateChanged += OnTtsStateChanged;
+        _isTtsBusy = _tts.IsBusy;
+        RefreshSpeakButton();
+    }
+
+    internal void ApplyTtsSettings(bool enabled, string? voice, double rate, int maxChars)
+    {
+        _ttsEnabled = enabled;
+        _ttsVoice = voice?.Trim() ?? string.Empty;
+        _ttsRate = rate;
+        _ttsMaxChars = maxChars > 0 ? maxChars : 2000;
+        RefreshSpeakButton();
+    }
+
+    private void OnTtsStateChanged()
+    {
+        var busy = _tts?.IsBusy == true;
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(OnTtsStateChanged);
+            return;
+        }
+
+        var wasBusy = _isTtsBusy;
+        _isTtsBusy = busy;
+        RefreshSpeakButton();
+        if (wasBusy && !busy)
+            ResetAutoHideTimer();
+        else if (!wasBusy && busy)
+            _autoHideTimer.Stop();
+    }
+
     internal bool ShowExistingResult()
     {
         if (!_hasAnchor || string.IsNullOrWhiteSpace(_rawText))
@@ -122,6 +171,7 @@ public partial class FloatingWindow : Window
 
     public new void Hide()
     {
+        _ = StopTtsAsync();
         EndDragging(resetAutoHideTimer: false);
         _scrollBarHideTimer.Stop();
         TranslationScroller.Tag = false;
@@ -156,8 +206,13 @@ public partial class FloatingWindow : Window
     {
         // Persist the currently visible mode before its view is replaced.
         RaiseScrollStateChanged();
+
+        if (_sessionId != sessionId || _activeMode != mode)
+            _ = StopTtsAsync();
+
         _sessionId = sessionId;
         _activeMode = mode;
+        _modeStatus = state.Status;
         SetActiveModeButton(mode);
         _rawText = state.RawText;
         _isMarkdownExpanded = false;
@@ -171,6 +226,7 @@ public partial class FloatingWindow : Window
         else
             ShowPlainText();
         SetLoading(state.Status == ModeResultStatus.Loading);
+        RefreshSpeakButton();
 
         var expectedSessionId = sessionId;
         var expectedMode = mode;
@@ -183,12 +239,19 @@ public partial class FloatingWindow : Window
 
     public void SetLoading(bool isLoading)
     {
+        if (isLoading)
+        {
+            _modeStatus = ModeResultStatus.Loading;
+            _ = StopTtsAsync();
+        }
+
         _isLoading = isLoading;
         LoadingIndicator.Visibility = isLoading ? Visibility.Visible : Visibility.Collapsed;
         if (isLoading)
             ((Storyboard)Resources["LoadingDotsStoryboard"]).Begin(this, true);
         else
             ((Storyboard)Resources["LoadingDotsStoryboard"]).Remove(this);
+        RefreshSpeakButton();
         ResetAutoHideTimer();
     }
 
@@ -216,6 +279,10 @@ public partial class FloatingWindow : Window
             return false;
 
         _rawText = translation;
+        if (!_isLoading)
+            _modeStatus = ModeResultStatus.Completed;
+        else
+            _modeStatus = ModeResultStatus.Loading;
         ShowPlainText();
         _autoScroll.BeginRequest();
         UpdateAutoScrollAffordance();
@@ -251,6 +318,7 @@ public partial class FloatingWindow : Window
         PositionWindowAtAnchor();
         Opacity = 1;
         IsHitTestVisible = true;
+        RefreshSpeakButton();
         ResetAutoHideTimer();
         return true;
     }
@@ -345,10 +413,12 @@ public partial class FloatingWindow : Window
 
     private void ResetForReplacement()
     {
+        _ = StopTtsAsync();
         _autoHideTimer.Stop();
         _isMouseInside = false;
         _sessionId = Guid.Empty;
         _activeMode = ContentType.Translation;
+        _modeStatus = ModeResultStatus.NotStarted;
         _autoScroll.BeginRequest();
         SetLoading(false);
         UpdateAutoScrollAffordance();
@@ -359,6 +429,7 @@ public partial class FloatingWindow : Window
         _isMarkdownExpanded = false;
         ShowPlainText();
         SetActiveModeButton(ContentType.Translation);
+        RefreshSpeakButton();
     }
 
     private void ModeButton_Click(object sender, RoutedEventArgs e)
@@ -395,6 +466,106 @@ public partial class FloatingWindow : Window
         ResetAutoHideTimer();
     }
 
+    
+    private async void SpeakButton_Click(object sender, RoutedEventArgs e)
+    {
+        ResetAutoHideTimer();
+        if (_tts is null)
+            return;
+
+        if (_tts.IsBusy || _isTtsBusy)
+        {
+            await StopTtsAsync().ConfigureAwait(true);
+            return;
+        }
+
+        if (!TtsTextSelector.CanSpeak(_modeStatus, _rawText, _ttsEnabled))
+            return;
+
+        var speechText = TtsTextSelector.NormalizeForSpeech(_rawText, _ttsMaxChars, out var truncated);
+        if (string.IsNullOrWhiteSpace(speechText))
+            return;
+
+        if (truncated)
+        {
+            Logger.Warn("FloatingWindow", "tts.speak.truncated", new Dictionary<string, object?>
+            {
+                ["text_len"] = _rawText.Length,
+                ["max_chars"] = _ttsMaxChars
+            });
+            SpeakButton.ToolTip = "文本过长，已截断朗读";
+        }
+
+        try
+        {
+            var voiceOverride = string.IsNullOrWhiteSpace(_ttsVoice) ? null : _ttsVoice;
+            await _tts.SpeakAsync(
+                speechText,
+                languageHint: null,
+                voiceOverride,
+                _ttsRate,
+                CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopped by lifecycle or user.
+        }
+        catch (Exception)
+        {
+            ShowSpeakFailureFeedback();
+        }
+        finally
+        {
+            RefreshSpeakButton();
+            ResetAutoHideTimer();
+        }
+    }
+
+    private Task StopTtsAsync()
+    {
+        if (_tts is null)
+            return Task.CompletedTask;
+        return _tts.StopAsync();
+    }
+
+    private void RefreshSpeakButton()
+    {
+        if (SpeakButton is null)
+            return;
+
+        var busy = _tts?.IsBusy == true || _isTtsBusy;
+        _isTtsBusy = busy;
+        var canSpeak = TtsTextSelector.CanSpeak(_modeStatus, _rawText, _ttsEnabled);
+
+        if (busy)
+        {
+            SpeakButton.Content = StopIcon;
+            SpeakButton.ToolTip = "停止朗读";
+            SpeakButton.IsEnabled = true;
+            SpeakButton.Opacity = 1.0;
+            return;
+        }
+
+        SpeakButton.Content = SpeakIcon;
+        SpeakButton.ToolTip = "朗读结果";
+        SpeakButton.IsEnabled = canSpeak;
+        SpeakButton.Opacity = canSpeak ? 1.0 : 0.45;
+    }
+
+    private void ShowSpeakFailureFeedback()
+    {
+        if (SpeakButton is null)
+            return;
+        SpeakButton.Content = "\u2716";
+        SpeakButton.ToolTip = "朗读失败";
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            RefreshSpeakButton();
+        };
+        timer.Start();
+    }
     private static void ShowCopyFeedback(Button button, object originalContent)
     {
         button.Content = "\u2714";
@@ -510,7 +681,7 @@ public partial class FloatingWindow : Window
         PinButton.ToolTip = IsPinned ? "取消固定" : "固定窗口";
     }
 
-    private bool CanAutoHide() => !IsPinned && !_isLoading && !_isMouseInside && !_isSystemSizing;
+    private bool CanAutoHide() => !IsPinned && !_isLoading && !_isMouseInside && !_isSystemSizing && !_isTtsBusy;
 
     private void ResetAutoHideTimer()
     {
