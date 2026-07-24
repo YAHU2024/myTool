@@ -7,448 +7,430 @@
         Title="QuickTranslate 设置" Height="700" Width="520"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanMinimize"
-        Background="#1E1E2E">
+        Background="#16191F"
+        Foreground="#F2F4F7"
+        FontFamily="Microsoft YaHei UI">
     <Window.Resources>
+        <SolidColorBrush x:Key="WindowBackground" Color="#16191F"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#20252D"/>
+        <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#29313B"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#343D49"/>
+        <SolidColorBrush x:Key="PrimaryBrush" Color="#4DB6AC"/>
+        <SolidColorBrush x:Key="PrimaryHoverBrush" Color="#66C7BD"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#F2F4F7"/>
+        <SolidColorBrush x:Key="MutedTextBrush" Color="#A4AFBC"/>
+        <SolidColorBrush x:Key="HintTextBrush" Color="#7F8B99"/>
+        <SolidColorBrush x:Key="DangerBrush" Color="#E66A73"/>
+
+        <Style x:Key="ScrollBarPageButton" TargetType="RepeatButton">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RepeatButton">
+                        <Border Background="Transparent"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ScrollBar">
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="MinWidth" Value="8"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid x:Name="ScrollRoot" Background="Transparent" Margin="2,0,0,0" Opacity="0.62">
+                            <Track x:Name="PART_Track" IsDirectionReversed="True" Focusable="False">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageUpCommand" Style="{StaticResource ScrollBarPageButton}"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb MinHeight="28" Background="#647180">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Border x:Name="ThumbSurface" Background="{TemplateBinding Background}" CornerRadius="3" Margin="1,0"/>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ThumbSurface" Property="Background" Value="#8995A3"/></Trigger>
+                                                    <Trigger Property="IsDragging" Value="True"><Setter TargetName="ThumbSurface" Property="Background" Value="{StaticResource PrimaryBrush}"/></Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageDownCommand" Style="{StaticResource ScrollBarPageButton}"/>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ScrollRoot" Property="Opacity" Value="1"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ScrollRoot" Property="Visibility" Value="Collapsed"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SectionBorder" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="16"/>
+        </Style>
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
         <Style x:Key="LabelStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#A0A0C0"/>
-            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Margin" Value="0,0,12,0"/>
         </Style>
+        <Style x:Key="HintStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource HintTextBrush}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
         <Style x:Key="InputTextBox" TargetType="TextBox">
-            <Setter Property="Background" Value="#2D2D3F"/>
-            <Setter Property="Foreground" Value="#E0E0E0"/>
-            <Setter Property="BorderBrush" Value="#444466"/>
+            <Setter Property="Background" Value="#191E25"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Padding" Value="9,6"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
-            <Setter Property="CaretBrush" Value="#E0E0E0"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="CaretBrush" Value="{StaticResource PrimaryBrush}"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,2,0,2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5"
+                                SnapsToDevicePixels="True">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Focusable="False"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True"><Setter Property="BorderBrush" Value="#526173"/></Trigger>
+                <Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/></Trigger>
+                <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="PasswordInput" TargetType="PasswordBox">
+            <Setter Property="Background" Value="#191E25"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="9,6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="CaretBrush" Value="{StaticResource PrimaryBrush}"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,2,0,2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5"
+                                SnapsToDevicePixels="True">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Focusable="False"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True"><Setter Property="BorderBrush" Value="#526173"/></Trigger>
+                <Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/></Trigger>
+                <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
+            </Style.Triggers>
+        </Style>
+        <ControlTemplate x:Key="ComboBoxEditableTextBox" TargetType="TextBox">
+            <ScrollViewer x:Name="PART_ContentHost" Background="Transparent" Focusable="False"/>
+        </ControlTemplate>
+        <Style x:Key="DarkComboBoxItem" TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Padding" Value="9,7"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="ItemSurface" Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="{StaticResource SurfaceHoverBrush}"/></Trigger>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="{StaticResource PrimaryBrush}"/><Setter Property="Foreground" Value="#102326"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="{StaticResource HintTextBrush}"/><Setter Property="Opacity" Value="0.65"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="DarkComboBox" TargetType="ComboBox">
-            <Setter Property="Background" Value="#2D2D3F"/>
-            <Setter Property="Foreground" Value="#000000"/>
-            <Setter Property="BorderBrush" Value="#444466"/>
+            <Setter Property="Background" Value="#191E25"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Padding" Value="9,6"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
-            <Setter Property="ItemContainerStyle">
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Margin" Value="0,2,0,2"/>
+            <Setter Property="MaxDropDownHeight" Value="280"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboBoxItem}"/>
+            <Setter Property="Template">
                 <Setter.Value>
-                    <Style TargetType="ComboBoxItem">
-                        <Setter Property="Foreground" Value="#1E1E2E"/>
-                        <Setter Property="FontSize" Value="13"/>
-                        <Setter Property="Padding" Value="8,4"/>
-                    </Style>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <Border x:Name="InputSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5"/>
+                            <Grid Margin="{TemplateBinding Padding}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="22"/></Grid.ColumnDefinitions>
+                                <ContentPresenter x:Name="ContentSite" Grid.Column="0" Panel.ZIndex="1" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" VerticalAlignment="Center" HorizontalAlignment="Left" IsHitTestVisible="False"/>
+                                <TextBox x:Name="PART_EditableTextBox" Grid.Column="0" Panel.ZIndex="1" Background="Transparent" Foreground="{TemplateBinding Foreground}" CaretBrush="{StaticResource PrimaryBrush}" BorderThickness="0" Padding="0" IsReadOnly="{TemplateBinding IsReadOnly}" HorizontalContentAlignment="Left" VerticalContentAlignment="Center" Template="{StaticResource ComboBoxEditableTextBox}" Visibility="Collapsed"/>
+                                <ToggleButton Grid.Column="0" Grid.ColumnSpan="2" Panel.ZIndex="0" Background="Transparent" BorderThickness="0" Focusable="False" ClickMode="Press" IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border Background="Transparent">
+                                                <TextBlock Text="&#xE70D;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource MutedTextBrush}" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,2,0"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                </ToggleButton>
+                            </Grid>
+                            <Popup x:Name="PART_Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
+                                <Border x:Name="DropDownSurface" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}" Background="#20252D" BorderBrush="#46515E" BorderThickness="1" CornerRadius="5" Padding="4" Margin="0,4,0,0">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CanContentScroll="True">
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEditable" Value="True"><Setter TargetName="ContentSite" Property="Visibility" Value="Collapsed"/><Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="InputSurface" Property="BorderBrush" Value="#526173"/></Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="InputSurface" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/></Trigger>
+                            <Trigger Property="IsDropDownOpen" Value="True"><Setter TargetName="InputSurface" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="InputSurface" Property="Opacity" Value="0.45"/><Setter Property="Foreground" Value="{StaticResource HintTextBrush}"/></Trigger>
+                            <Trigger Property="HasItems" Value="False"><Setter TargetName="DropDownSurface" Property="MinHeight" Value="40"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="DarkCheckBox" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Margin" Value="0,3,0,3"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid x:Name="CheckRoot" Background="Transparent">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Border x:Name="FocusSurface" Grid.Column="0" Width="20" Height="20" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" CornerRadius="5"/>
+                            <Border x:Name="CheckSurface" Grid.Column="0" Width="16" Height="16" Background="#191E25" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Grid>
+                                    <Path x:Name="CheckMark" Data="M 3,8 L 6.5,11.5 L 13,4.5" Stroke="#102326" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed"/>
+                                    <Border x:Name="IndeterminateMark" Width="8" Height="2" Background="#102326" CornerRadius="1" Visibility="Collapsed"/>
+                                </Grid>
+                            </Border>
+                            <ContentPresenter Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True"><Setter TargetName="CheckSurface" Property="Background" Value="{StaticResource PrimaryBrush}"/><Setter TargetName="CheckSurface" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/><Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/></Trigger>
+                            <Trigger Property="IsChecked" Value="{x:Null}"><Setter TargetName="CheckSurface" Property="Background" Value="{StaticResource PrimaryBrush}"/><Setter TargetName="CheckSurface" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/><Setter TargetName="IndeterminateMark" Property="Visibility" Value="Visible"/></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="CheckSurface" Property="BorderBrush" Value="{StaticResource PrimaryHoverBrush}"/></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="FocusSurface" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="CheckRoot" Property="Opacity" Value="0.45"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
         <Style x:Key="PrimaryButton" TargetType="Button">
-            <Setter Property="Background" Value="#7C3AED"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
+            <Setter Property="Foreground" Value="#102326"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="20,8"/>
+            <Setter Property="Padding" Value="18,8"/>
             <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" 
-                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#6D28D9"/>
-                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{StaticResource PrimaryHoverBrush}"/></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="BorderBrush" Value="White"/><Setter Property="BorderThickness" Value="1"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
         <Style x:Key="SecondaryButton" TargetType="Button">
-            <Setter Property="Background" Value="#2D2D3F"/>
-            <Setter Property="Foreground" Value="#A0A0C0"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Padding" Value="20,8"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="#444466"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" 
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="6" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#3D3D5F"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style x:Key="EyeButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#888899"/>
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Padding" Value="6"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Foreground" Value="#E0E0E0"/>
-                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{StaticResource SurfaceHoverBrush}"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/></Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
-        <Style x:Key="DarkCheckBox" TargetType="CheckBox">
-            <Setter Property="Foreground" Value="#E0E0E0"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
-            <Setter Property="Cursor" Value="Hand"/>
+        <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
+            <Setter Property="Width" Value="30"/><Setter Property="Height" Value="30"/><Setter Property="Padding" Value="0"/>
+        </Style>
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
+            <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
+            <Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#54282E"/><Setter Property="BorderBrush" Value="{StaticResource DangerBrush}"/></Trigger></Style.Triggers>
+        </Style>
+        <Style x:Key="ExpanderStyle" TargetType="Expander">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
         </Style>
     </Window.Resources>
 
-    <Grid Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="16"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-
-        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <Grid Margin="20">
+        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="16"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" KeyboardNavigation.TabNavigation="Continue">
             <StackPanel>
-                <Grid Margin="0,0,0,0">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="16"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="16"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="16"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-
-        <!-- API 配置 -->
-        <Border Grid.Row="0" Background="#252537" CornerRadius="8" Padding="16">
-            <StackPanel>
-                <TextBlock Text="API 配置" Foreground="#E0E0E0" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                <Grid>
-                    <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="10"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="10"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="10"/>
-                    <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="6"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="80"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Base URL:" Style="{StaticResource LabelStyle}"/>
-                    <TextBox x:Name="ApiBaseUrlTextBox" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
-                             Style="{StaticResource InputTextBox}"
-                             LostFocus="Input_LostFocus"/>
-
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="API Key:" Style="{StaticResource LabelStyle}"/>
-                    <Grid Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <PasswordBox x:Name="ApiKeyPasswordBox" Grid.Column="0"
-                                     Background="#2D2D3F" Foreground="#E0E0E0"
-                                     BorderBrush="#444466" BorderThickness="1"
-                                     Padding="8,6" FontSize="13" FontFamily="Microsoft YaHei UI"
-                                     CaretBrush="#E0E0E0"
-                                     PasswordChar="●"
-                                     LostFocus="Input_LostFocus"/>
-                        <TextBox x:Name="ApiKeyVisibleTextBox" Grid.Column="0"
-                                 Style="{StaticResource InputTextBox}"
-                                 Visibility="Collapsed"
-                                 LostFocus="Input_LostFocus"/>
-                        <Button x:Name="EyeButton" Grid.Column="1" 
-                                Style="{StaticResource EyeButton}"
-                                Content="👁" ToolTip="显示/隐藏 API Key"
-                                Click="EyeButton_Click" Margin="4,0,0,0"/>
-                    </Grid>
-
-                    <TextBlock Grid.Row="4" Grid.Column="0" Text="模型:" Style="{StaticResource LabelStyle}"/>
-                    <ComboBox x:Name="ModelComboBox" Grid.Row="4" Grid.Column="1"
-                              IsEditable="True" Style="{StaticResource DarkComboBox}"
-                              SelectionChanged="ModelComboBox_SelectionChanged"
-                              LostFocus="Input_LostFocus"/>
-                    <Button x:Name="DeleteConfigButton" Grid.Row="4" Grid.Column="2"
-                            Content="删除" Padding="10,4" FontSize="12" Margin="8,0,0,0"
-                            IsEnabled="False"
-                            Click="DeleteConfigButton_Click">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Background" Value="#2D2D3F"/>
-                                <Setter Property="Foreground" Value="#A0A0C0"/>
-                                <Setter Property="BorderThickness" Value="1"/>
-                                <Setter Property="BorderBrush" Value="#444466"/>
-                                <Setter Property="Cursor" Value="Hand"/>
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="Button">
-                                            <Border Background="{TemplateBinding Background}" 
-                                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                                    CornerRadius="4" Padding="{TemplateBinding Padding}">
-                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            </Border>
-                                            <ControlTemplate.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter Property="Background" Value="#FF4444"/>
-                                                    <Setter Property="Foreground" Value="White"/>
-                                                    <Setter Property="BorderBrush" Value="#FF4444"/>
-                                                </Trigger>
-                                                <Trigger Property="IsEnabled" Value="False">
-                                                    <Setter Property="Foreground" Value="#555566"/>
-                                                </Trigger>
-                                            </ControlTemplate.Triggers>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-
-                    <!-- 模型切换反馈 -->
-                    <TextBlock x:Name="ModelFeedbackText" Grid.Row="6" Grid.Column="1"
-                               Foreground="#6EE7A0" FontSize="11" Margin="0,2,0,0"
-                               Visibility="Collapsed"/>
-                </Grid>
-            </StackPanel>
-        </Border>
-
-        <!-- 翻译设置 -->
-        <Border Grid.Row="2" Background="#252537" CornerRadius="8" Padding="16">
-            <StackPanel>
-                <TextBlock Text="翻译设置" Foreground="#E0E0E0" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="80"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="目标语言:" Style="{StaticResource LabelStyle}"/>
-                    <ComboBox x:Name="LanguageComboBox" Grid.Row="0" Grid.Column="1" 
-                              Style="{StaticResource DarkComboBox}"
-                              SelectionChanged="LanguageComboBox_SelectionChanged"/>
-                    <TextBox x:Name="CustomLanguageTextBox" Grid.Row="0" Grid.Column="2" 
-                             Width="100" Margin="8,0,0,0"
-                             Style="{StaticResource InputTextBox}"
-                             Visibility="Collapsed"/>
-
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="翻译开关:" Style="{StaticResource LabelStyle}"/>
-                    <CheckBox x:Name="TranslationEnabledCheckBox" Grid.Row="2" Grid.Column="1"
-                              Style="{StaticResource DarkCheckBox}"
-                              Content="启用划词翻译和热键翻译"
-                              Grid.ColumnSpan="2"
-                              Checked="Setting_Changed" Unchecked="Setting_Changed"/>
-
-                    <TextBlock Grid.Row="4" Grid.Column="0" Text="语言检测:" Style="{StaticResource LabelStyle}"/>
-                    <CheckBox x:Name="AutoDetectLanguageCheckBox" Grid.Row="4" Grid.Column="1"
-                              Style="{StaticResource DarkCheckBox}"
-                              Content="自动检测语言方向（同语言→备选）"
-                              Checked="Setting_Changed" Unchecked="Setting_Changed"/>
-                    <StackPanel Grid.Row="4" Grid.Column="2" Orientation="Horizontal" Margin="8,0,0,0">
-                        <TextBlock Text="备选:" Foreground="#999999" FontSize="12" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                        <ComboBox x:Name="FallbackLanguageComboBox" Width="90"
-                                  Style="{StaticResource DarkComboBox}"
-                                  SelectionChanged="FallbackLanguageComboBox_SelectionChanged"/>
+                <Border Style="{StaticResource SectionBorder}" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="API 与模型" Style="{StaticResource SectionTitle}" Margin="0,0,0,14"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="API 地址" Style="{StaticResource LabelStyle}"/>
+                            <TextBox x:Name="ApiBaseUrlTextBox" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource InputTextBox}" LostFocus="Input_LostFocus"/>
+                            <TextBlock Grid.Row="1" Text="API 密钥" Style="{StaticResource LabelStyle}"/>
+                            <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <PasswordBox x:Name="ApiKeyPasswordBox" Grid.Column="0" Style="{StaticResource PasswordInput}" PasswordChar="●" LostFocus="Input_LostFocus"/>
+                                <TextBox x:Name="ApiKeyVisibleTextBox" Grid.Column="0" Style="{StaticResource InputTextBox}" Visibility="Collapsed" LostFocus="Input_LostFocus"/>
+                                <Button x:Name="EyeButton" Grid.Column="1" Style="{StaticResource IconButton}" Content="&#xE890;" FontFamily="Segoe MDL2 Assets" ToolTip="显示 API 密钥" Click="EyeButton_Click" Margin="6,2,0,2"/>
+                            </Grid>
+                            <TextBlock Grid.Row="2" Text="模型" Style="{StaticResource LabelStyle}"/>
+                            <ComboBox x:Name="ModelComboBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource DarkComboBox}" IsEditable="True" SelectionChanged="ModelComboBox_SelectionChanged" LostFocus="Input_LostFocus"/>
+                            <Button x:Name="DeleteConfigButton" Grid.Row="2" Grid.Column="2" Content="删除" Style="{StaticResource DangerButton}" Padding="10,6" Margin="8,2,0,2" IsEnabled="False" Click="DeleteConfigButton_Click" ToolTip="删除当前已保存的模型配置"/>
+                            <TextBlock x:Name="ModelFeedbackText" Grid.Row="3" Grid.Column="1" Foreground="#6DD6A5" FontSize="11" Margin="0,2,0,0" Visibility="Collapsed"/>
+                        </Grid>
                     </StackPanel>
+                </Border>
 
-                    <TextBlock Grid.Row="6" Grid.Column="0" Text="智能识别:" Style="{StaticResource LabelStyle}"/>
-                    <CheckBox x:Name="SmartContentTypeCheckBox" Grid.Row="6" Grid.Column="1"
-                              Style="{StaticResource DarkCheckBox}"
-                              Content="智能内容识别（代码/命令→解析，专有名词→解释）"
-                              Grid.ColumnSpan="2"
-                              Checked="Setting_Changed" Unchecked="Setting_Changed"/>
-
-                    <TextBlock Grid.Row="8" Grid.Column="0" Text="解析风格:" Style="{StaticResource LabelStyle}"/>
-                    <ComboBox x:Name="AnalysisPresetComboBox" Grid.Row="8" Grid.Column="1"
-                              Style="{StaticResource DarkComboBox}"
-                              SelectionChanged="AnalysisPresetComboBox_SelectionChanged"/>
-
-                    <TextBlock Grid.Row="10" Grid.Column="0" Text="翻译提示词:" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,4,12,0"/>
-                    <TextBox x:Name="CustomTranslationPromptTextBox" Grid.Row="10" Grid.Column="1"
-                             Style="{StaticResource InputTextBox}"
-                             Height="60" TextWrapping="Wrap" AcceptsReturn="True"
-                             VerticalScrollBarVisibility="Auto"
-                             ToolTip="自定义翻译提示词，留空使用默认。支持 {targetLang} 占位符"
-                             Grid.ColumnSpan="2"
-                             TextChanged="Input_LostFocus"/>
-                    <TextBlock Grid.Row="11" Grid.Column="1" Grid.ColumnSpan="2"
-                               Text="提示：留空使用默认翻译提示词。支持 {targetLang} 占位符。"
-                               Foreground="#666688" FontSize="11" Margin="0,2,0,0"/>
-
-                    <TextBlock Grid.Row="12" Grid.Column="0" Text="解析提示词:" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,4,12,0"/>
-                    <TextBox x:Name="CustomAnalysisPromptTextBox" Grid.Row="12" Grid.Column="1"
-                             Style="{StaticResource InputTextBox}"
-                             Height="60" TextWrapping="Wrap" AcceptsReturn="True"
-                             VerticalScrollBarVisibility="Auto"
-                             ToolTip="自定义深度解析提示词，留空使用解析风格预设。支持 {targetLang} 占位符"
-                             Grid.ColumnSpan="2"
-                             TextChanged="Input_LostFocus"/>
-                    <TextBlock Grid.Row="13" Grid.Column="1" Grid.ColumnSpan="2"
-                               Text="提示：仅用于点击[解析]后的深度解析；留空使用所选解析风格。"
-                               Foreground="#666688" FontSize="11" Margin="0,2,0,0"/>
-
-                    <TextBlock Grid.Row="14" Grid.Column="0" Text="浏览器翻译:" Style="{StaticResource LabelStyle}"/>
-                    <CheckBox x:Name="EnableInBrowserCheckBox" Grid.Row="14" Grid.Column="1"
-                              Style="{StaticResource DarkCheckBox}"
-                              Content="在浏览器中启用翻译（关闭后避免与翻译插件冲突）"
-                              Grid.ColumnSpan="2"
-                              Checked="Setting_Changed" Unchecked="Setting_Changed"/>
-
-                    <TextBlock Grid.Row="16" Grid.Column="0" Text="自定义浏览器:" Style="{StaticResource LabelStyle}" VerticalAlignment="Center"/>
-                    <TextBox x:Name="CustomBrowserProcessesTextBox" Grid.Row="16" Grid.Column="1"
-                             Style="{StaticResource InputTextBox}"
-                             ToolTip="补充内置浏览器列表，多个用逗号分隔，如: 360se,qqbrowser,sogou"
-                             Grid.ColumnSpan="2"
-                             LostFocus="Input_LostFocus"/>
-
-                    <TextBlock Grid.Row="18" Grid.Column="0" Text="终端取词:" Style="{StaticResource LabelStyle}"/>
-                    <ComboBox x:Name="TerminalCopyModeComboBox" Grid.Row="18" Grid.Column="1"
-                              Style="{StaticResource DarkComboBox}" Grid.ColumnSpan="2"
-                              SelectionChanged="TerminalCopyMode_SelectionChanged"/>
-
-                    <TextBlock Grid.Row="20" Grid.Column="0" Text="终端复制键:" Style="{StaticResource LabelStyle}"/>
-                    <TextBox x:Name="TerminalCopyMappingsTextBox" Grid.Row="20" Grid.Column="1"
-                             Style="{StaticResource InputTextBox}"
-                             ToolTip="按进程配置复制键，例如 WindowsTerminal=Ctrl+Shift+C;conhost=Ctrl+C"
-                             Grid.ColumnSpan="2" LostFocus="Input_LostFocus"/>
-                    <TextBlock Grid.Row="21" Grid.Column="1" Grid.ColumnSpan="2"
-                               Text="智能模式默认仅为 Windows Terminal 使用 Ctrl+Shift+C；其他终端请显式配置。"
-                               Foreground="#666688" FontSize="11" Margin="0,2,0,0"/>
-                </Grid>
-            </StackPanel>
-        </Border>
-
-        <!-- 系统设置 -->
-        <Border Grid.Row="4" Background="#252537" CornerRadius="8" Padding="16">
-            <StackPanel>
-                <TextBlock Text="系统设置" Foreground="#E0E0E0" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="80"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="开机自启:" Style="{StaticResource LabelStyle}"/>
-                    <CheckBox x:Name="AutoStartCheckBox" Grid.Row="0" Grid.Column="1"
-                              Style="{StaticResource DarkCheckBox}"
-                              Content="开机自动启动"
-                              Grid.ColumnSpan="2"
-                              Checked="Setting_Changed" Unchecked="Setting_Changed"/>
-
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="快捷键开关:" Style="{StaticResource LabelStyle}"/>
-                    <CheckBox x:Name="HotKeyEnabledCheckBox" Grid.Row="2" Grid.Column="1"
-                              Style="{StaticResource DarkCheckBox}"
-                              Content="启用快捷键"
-                              Grid.ColumnSpan="2"
-                              Checked="Setting_Changed" Unchecked="Setting_Changed"/>
-
-                    <TextBlock Grid.Row="4" Grid.Column="0" Text="快捷键:" Style="{StaticResource LabelStyle}"/>
-                    <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
-                        <TextBlock x:Name="HotKeyDisplayText" Foreground="#E0E0E0" FontSize="13"
-                                   VerticalAlignment="Center" Text="Alt+Q"/>
-                        <Button x:Name="ChangeHotKeyButton" Style="{StaticResource SecondaryButton}"
-                                Content="修改" Margin="12,0,0,0" Padding="12,6"
-                                Click="ChangeHotKeyButton_Click"/>
-                        <TextBlock x:Name="HotKeyCaptureHint" Foreground="#FFA500" FontSize="12"
-                                   VerticalAlignment="Center" Margin="12,0,0,0"
-                                   Visibility="Collapsed" Text="请按新的快捷键..."/>
+                <Border Style="{StaticResource SectionBorder}" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="翻译设置" Style="{StaticResource SectionTitle}" Margin="0,0,0,14"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="目标语言" Style="{StaticResource LabelStyle}"/>
+                            <ComboBox x:Name="LanguageComboBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource DarkComboBox}" SelectionChanged="LanguageComboBox_SelectionChanged"/>
+                            <TextBox x:Name="CustomLanguageTextBox" Grid.Row="0" Grid.Column="2" Width="100" Style="{StaticResource InputTextBox}" Visibility="Collapsed"/>
+                            <TextBlock Grid.Row="1" Text="翻译功能" Style="{StaticResource LabelStyle}"/>
+                            <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"><CheckBox x:Name="TranslationEnabledCheckBox" Style="{StaticResource DarkCheckBox}" Content="启用划词翻译和全局快捷键翻译" Checked="Setting_Changed" Unchecked="Setting_Changed"/></StackPanel>
+                            <TextBlock Grid.Row="2" Text="源语言识别" Style="{StaticResource LabelStyle}"/>
+                            <CheckBox x:Name="AutoDetectLanguageCheckBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource DarkCheckBox}" Content="自动判断翻译方向" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                            <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" Margin="8,0,0,0"><TextBlock Text="同语言时译为" Style="{StaticResource HintStyle}" VerticalAlignment="Center" Margin="0,0,6,0"/><ComboBox x:Name="FallbackLanguageComboBox" Width="92" Style="{StaticResource DarkComboBox}" SelectionChanged="FallbackLanguageComboBox_SelectionChanged"/></StackPanel>
+                            <TextBlock Grid.Row="3" Text="内容识别" Style="{StaticResource LabelStyle}"/>
+                            <CheckBox x:Name="SmartContentTypeCheckBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource DarkCheckBox}" Content="自动识别代码、命令和专有名词" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                            <TextBlock Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Text="识别后会使用对应的解析或解释方式。" Style="{StaticResource HintStyle}" Margin="0,0,0,3"/>
+                        </Grid>
                     </StackPanel>
+                </Border>
 
-                    <TextBlock Grid.Row="6" Grid.Column="0" Text="日志级别:" Style="{StaticResource LabelStyle}"/>
-                    <ComboBox x:Name="LogLevelComboBox" Grid.Row="6" Grid.Column="1"
-                              Style="{StaticResource DarkComboBox}" SelectionChanged="Setting_Changed"/>
+                <Expander Header="提示词与解析方案" Style="{StaticResource ExpanderStyle}" IsExpanded="False">
+                    <Border Style="{StaticResource SectionBorder}" Padding="16" Margin="0,4,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="翻译提示词" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,6,12,0"/>
+                            <TextBox x:Name="CustomTranslationPromptTextBox" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource InputTextBox}" Height="72" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" ToolTip="自定义翻译提示词" TextChanged="Input_LostFocus"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="留空时使用默认提示词，支持 {targetLang} 占位符。" Style="{StaticResource HintStyle}"/>
+                            <TextBlock Grid.Row="2" Text="深度解析方案" Style="{StaticResource LabelStyle}"/>
+                            <ComboBox x:Name="AnalysisPromptComboBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource DarkComboBox}" SelectionChanged="AnalysisPromptComboBox_SelectionChanged"/>
+                            <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" Margin="8,0,0,0"><Button x:Name="NewAnalysisPromptButton" Content="&#xE710;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource IconButton}" ToolTip="新建解析方案" Click="NewAnalysisPromptButton_Click"/><Button x:Name="CopyAnalysisPromptButton" Content="&#xE8C8;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource IconButton}" ToolTip="复制当前解析方案" Click="CopyAnalysisPromptButton_Click" Margin="4,0,0,0"/><Button x:Name="DeleteAnalysisPromptButton" Content="&#xE74D;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource DangerButton}" Width="30" Height="30" Padding="0" ToolTip="删除当前自定义解析方案" Click="DeleteAnalysisPromptButton_Click" Margin="4,0,0,0"/></StackPanel>
+                            <TextBlock Grid.Row="3" Text="自定义解析方案" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,6,12,0"/>
+                            <StackPanel x:Name="AnalysisPromptEditorPanel" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2">
+                                <TextBox x:Name="AnalysisPromptNameTextBox" Style="{StaticResource InputTextBox}" Height="34" ToolTip="自定义解析方案名称" TextChanged="AnalysisPromptEditor_TextChanged" LostFocus="AnalysisPromptEditor_LostFocus"/>
+                                <TextBox x:Name="AnalysisPromptTextBox" Style="{StaticResource InputTextBox}" Height="72" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" ToolTip="自定义深度解析提示词，支持 {targetLang} 占位符" TextChanged="AnalysisPromptEditor_TextChanged"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </Expander>
 
-                    <TextBlock Grid.Row="8" Grid.Column="0" Text="日志保留:" Style="{StaticResource LabelStyle}"/>
-                    <StackPanel Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
-                        <TextBox x:Name="LogRetentionDaysTextBox" Width="70" Style="{StaticResource InputTextBox}"
-                                 LostFocus="Input_LostFocus"/>
-                        <TextBlock Text="天，总大小" Foreground="#A0A0C0" VerticalAlignment="Center" Margin="8,0,8,0"/>
-                        <TextBox x:Name="LogMaxTotalMegabytesTextBox" Width="80" Style="{StaticResource InputTextBox}"
-                                 LostFocus="Input_LostFocus"/>
-                        <TextBlock Text="MB" Foreground="#A0A0C0" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <Expander Header="浏览器与终端" Style="{StaticResource ExpanderStyle}" IsExpanded="False">
+                    <Border Style="{StaticResource SectionBorder}" Padding="16" Margin="0,4,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="116"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="浏览器翻译" Style="{StaticResource LabelStyle}"/><CheckBox x:Name="EnableInBrowserCheckBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource DarkCheckBox}" Content="在浏览器中启用翻译" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                            <TextBlock Grid.Row="1" Text="其他浏览器进程" Style="{StaticResource LabelStyle}"/><StackPanel Grid.Row="1" Grid.Column="1"><TextBox x:Name="CustomBrowserProcessesTextBox" Style="{StaticResource InputTextBox}" ToolTip="补充内置浏览器列表" LostFocus="Input_LostFocus"/><TextBlock Text="补充内置浏览器列表，多个进程名使用逗号分隔。" Style="{StaticResource HintStyle}"/></StackPanel>
+                            <TextBlock Grid.Row="2" Text="终端取词模式" Style="{StaticResource LabelStyle}"/><ComboBox x:Name="TerminalCopyModeComboBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource DarkComboBox}" SelectionChanged="TerminalCopyMode_SelectionChanged"/>
+                            <TextBlock Grid.Row="3" Text="终端复制快捷键" Style="{StaticResource LabelStyle}"/><StackPanel Grid.Row="3" Grid.Column="1"><TextBox x:Name="TerminalCopyMappingsTextBox" Style="{StaticResource InputTextBox}" ToolTip="按进程配置复制快捷键" LostFocus="Input_LostFocus"/><TextBlock Text="智能模式仅为 Windows Terminal 默认使用 Ctrl+Shift+C；其他终端需要单独配置。" Style="{StaticResource HintStyle}"/></StackPanel>
+                        </Grid>
+                    </Border>
+                </Expander>
+
+                <Border Style="{StaticResource SectionBorder}" Margin="0,0,0,12">
+                    <StackPanel><TextBlock Text="系统与快捷键" Style="{StaticResource SectionTitle}" Margin="0,0,0,14"/>
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="116"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="开机启动" Style="{StaticResource LabelStyle}"/><CheckBox x:Name="AutoStartCheckBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource DarkCheckBox}" Content="随 Windows 启动 QuickTranslate" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                            <TextBlock Grid.Row="1" Text="全局快捷键" Style="{StaticResource LabelStyle}"/><CheckBox x:Name="HotKeyEnabledCheckBox" Grid.Row="1" Grid.Column="1" Style="{StaticResource DarkCheckBox}" Content="启用全局快捷键" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                            <TextBlock Grid.Row="2" Text="当前快捷键" Style="{StaticResource LabelStyle}"/><StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal"><TextBlock x:Name="HotKeyDisplayText" Foreground="{StaticResource TextBrush}" FontSize="13" VerticalAlignment="Center" Text="Alt+Q"/><Button x:Name="ChangeHotKeyButton" Style="{StaticResource SecondaryButton}" Content="修改" Padding="10,6" Margin="12,0,0,0" Click="ChangeHotKeyButton_Click"/><TextBlock x:Name="HotKeyCaptureHint" Foreground="#F0B35A" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" Visibility="Collapsed" Text="请按下新的快捷键组合"/></StackPanel>
+                        </Grid>
                     </StackPanel>
-                </Grid>
-            </StackPanel>
-        </Border>
+                </Border>
 
-                </Grid>
+                <Expander Header="日志与存储" Style="{StaticResource ExpanderStyle}" IsExpanded="False">
+                    <Border Style="{StaticResource SectionBorder}" Padding="16" Margin="0,4,0,0"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="116"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="日志级别" Style="{StaticResource LabelStyle}"/><ComboBox x:Name="LogLevelComboBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource DarkComboBox}" SelectionChanged="Setting_Changed"/>
+                        <TextBlock Grid.Row="1" Text="日志保留策略" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,8,12,0"/><StackPanel Grid.Row="1" Grid.Column="1"><StackPanel Orientation="Horizontal"><TextBlock Text="保留天数" Style="{StaticResource HintStyle}" Width="104" VerticalAlignment="Center"/><TextBox x:Name="LogRetentionDaysTextBox" Width="70" Style="{StaticResource InputTextBox}" LostFocus="Input_LostFocus"/></StackPanel><StackPanel Orientation="Horizontal"><TextBlock Text="最大占用空间（MB）" Style="{StaticResource HintStyle}" Width="104" VerticalAlignment="Center"/><TextBox x:Name="LogMaxTotalMegabytesTextBox" Width="80" Style="{StaticResource InputTextBox}" LostFocus="Input_LostFocus"/></StackPanel></StackPanel>
+                    </Grid></Border>
+                </Expander>
             </StackPanel>
         </ScrollViewer>
-
-        <!-- 底部按钮 -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Content="取 消" Style="{StaticResource SecondaryButton}" Margin="0,0,10,0"
-                    Click="CancelButton_Click"/>
-            <Button Content="保 存" Style="{StaticResource PrimaryButton}"
-                    Click="SaveButton_Click"/>
+            <Button Content="取消" Style="{StaticResource SecondaryButton}" Margin="0,0,10,0" Click="CancelButton_Click"/>
+            <Button Content="保存设置" Style="{StaticResource PrimaryButton}" Click="SaveButton_Click"/>
         </StackPanel>
     </Grid>
 </Window>
