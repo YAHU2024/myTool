@@ -11,7 +11,7 @@
 [![.NET 8](https://img.shields.io/badge/.NET-8-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/8.0)
 [![WPF Desktop](https://img.shields.io/badge/WPF-Desktop-0A52A1?style=flat-square&logo=windows&logoColor=white)](https://github.com/dotnet/wpf)
 [![C#](https://img.shields.io/badge/C%23-12-239120?style=flat-square&logo=csharp&logoColor=white)](https://learn.microsoft.com/dotnet/csharp)
-[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)]()
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-8B5CF6?style=flat-square)]()
 
 <br>
@@ -63,8 +63,8 @@
 
 ```powershell
 # 克隆仓库
-git clone https://github.com/<your-username>/QuickTranslate.git
-cd QuickTranslate\QuickTranslate
+git clone https://github.com/YAHU2024/myTool.git
+cd myTool\QuickTranslate
 
 # 还原依赖 & 启动
 dotnet run
