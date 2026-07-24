@@ -410,15 +410,34 @@
                     </Border>
                 </Expander>
 
+                <Expander Header="朗读" Style="{StaticResource ExpanderStyle}" IsExpanded="False">
+                    <Border Style="{StaticResource SectionBorder}" Padding="16" Margin="0,4,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="116"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="朗读结果" Style="{StaticResource LabelStyle}"/>
+                            <CheckBox x:Name="TtsEnabledCheckBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource DarkCheckBox}" Content="启用悬浮窗朗读（Edge TTS）" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                            <TextBlock Grid.Row="1" Text="朗读音色" Style="{StaticResource LabelStyle}"/>
+                            <ComboBox x:Name="TtsVoiceComboBox" Grid.Row="1" Grid.Column="1" Style="{StaticResource DarkComboBox}" SelectionChanged="Setting_Changed"/>
+                            <TextBlock Grid.Row="2" Text="朗读语速" Style="{StaticResource LabelStyle}"/>
+                            <ComboBox x:Name="TtsRateComboBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource DarkComboBox}" SelectionChanged="Setting_Changed"/>
+                        </Grid>
+                    </Border>
+                </Expander>
+
                 <Border Style="{StaticResource SectionBorder}" Margin="0,0,0,12">
                     <StackPanel><TextBlock Text="系统与快捷键" Style="{StaticResource SectionTitle}" Margin="0,0,0,14"/>
-                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="116"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="116"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="开机启动" Style="{StaticResource LabelStyle}"/><CheckBox x:Name="AutoStartCheckBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource DarkCheckBox}" Content="随 Windows 启动 QuickTranslate" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
                             <TextBlock Grid.Row="1" Text="全局快捷键" Style="{StaticResource LabelStyle}"/><CheckBox x:Name="HotKeyEnabledCheckBox" Grid.Row="1" Grid.Column="1" Style="{StaticResource DarkCheckBox}" Content="启用全局快捷键" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
                             <TextBlock Grid.Row="2" Text="当前快捷键" Style="{StaticResource LabelStyle}"/><StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal"><TextBlock x:Name="HotKeyDisplayText" Foreground="{StaticResource TextBrush}" FontSize="13" VerticalAlignment="Center" Text="Alt+Q"/><Button x:Name="ChangeHotKeyButton" Style="{StaticResource SecondaryButton}" Content="修改" Padding="10,6" Margin="12,0,0,0" Click="ChangeHotKeyButton_Click"/><TextBlock x:Name="HotKeyCaptureHint" Foreground="#F0B35A" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" Visibility="Collapsed" Text="请按下新的快捷键组合"/></StackPanel>
-                            <TextBlock Grid.Row="3" Text="朗读结果" Style="{StaticResource LabelStyle}" Margin="0,10,12,0"/><CheckBox x:Name="TtsEnabledCheckBox" Grid.Row="3" Grid.Column="1" Margin="0,10,0,0" Style="{StaticResource DarkCheckBox}" Content="启用悬浮窗朗读（Edge TTS）" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
-                            <TextBlock Grid.Row="4" Text="朗读音色" Style="{StaticResource LabelStyle}"/><ComboBox x:Name="TtsVoiceComboBox" Grid.Row="4" Grid.Column="1" Style="{StaticResource DarkComboBox}" SelectionChanged="Setting_Changed"/>
-                            <TextBlock Grid.Row="5" Text="朗读语速" Style="{StaticResource LabelStyle}"/><ComboBox x:Name="TtsRateComboBox" Grid.Row="5" Grid.Column="1" Style="{StaticResource DarkComboBox}" SelectionChanged="Setting_Changed"/>
                         </Grid>
                     </StackPanel>
                 </Border>
