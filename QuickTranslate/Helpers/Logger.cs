@@ -66,6 +66,30 @@ public static class Logger
         FlushQueue();
     }
 
+    /// <summary>
+    /// Best-effort synchronous breadcrumb for exit diagnosis. Survives UI-thread stalls
+    /// when the async JSONL writer may not flush. Never throws; never logs secrets.
+    /// Format: [yyyy-MM-dd HH:mm:ss.fff] {stage}[ {detail}]
+    /// </summary>
+    public static void WriteShutdownTrace(string stage, string? detail = null)
+    {
+        if (string.IsNullOrWhiteSpace(stage))
+            return;
+
+        try
+        {
+            Directory.CreateDirectory(LogDir);
+            var line = string.IsNullOrWhiteSpace(detail)
+                ? $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {stage.Trim()}\n"
+                : $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {stage.Trim()} {detail.Trim()}\n";
+            File.AppendAllText(Path.Combine(LogDir, "shutdown-trace.log"), line);
+        }
+        catch
+        {
+            // Diagnostics must never affect the application.
+        }
+    }
+
     public static void Configure(LogLevel minLevel, int retentionDays, long maxTotalBytes)
     {
         _minLevel = minLevel;

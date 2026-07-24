@@ -17,6 +17,7 @@ namespace QuickTranslate.UI
         private readonly ToolStripMenuItem _hotKeyToggleItem;
         private bool _isPaused;
         private bool _isHotKeyEnabled = true;
+        private bool _disposed;
 
         /// <summary>
         /// 用户点击"设置"
@@ -193,13 +194,47 @@ namespace QuickTranslate.UI
             _hotKeyToggleItem.Text = enabled ? "启用快捷键" : "禁用快捷键";
         }
 
+        /// <summary>
+        /// Hide the tray icon immediately. Safe to call more than once; full Dispose
+        /// also goes through this path so exit can drop the icon before slow cleanup.
+        /// </summary>
+        public void Hide()
+        {
+            if (_disposed)
+                return;
+
+            try { _singleClickTimer.Stop(); }
+            catch { /* ignore */ }
+
+            try { _contextMenu.Close(); }
+            catch { /* ignore */ }
+
+            try
+            {
+                // Visible=false is what removes the icon from the notification area
+                // before process teardown finishes (OnExit may still run for seconds).
+                _notifyIcon.Visible = false;
+                _notifyIcon.ContextMenuStrip = null;
+            }
+            catch { /* ignore */ }
+        }
+
         public void Dispose()
         {
-            _singleClickTimer.Stop();
-            _singleClickTimer.Dispose();
-            _notifyIcon.Visible = false;
-            _notifyIcon.Dispose();
-            _contextMenu.Dispose();
+            if (_disposed)
+                return;
+
+            Hide();
+            _disposed = true;
+
+            try { _singleClickTimer.Dispose(); }
+            catch { /* ignore */ }
+
+            try { _notifyIcon.Dispose(); }
+            catch { /* ignore */ }
+
+            try { _contextMenu.Dispose(); }
+            catch { /* ignore */ }
         }
     }
 }

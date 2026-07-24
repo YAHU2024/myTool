@@ -34,7 +34,8 @@
 1. 选择最新的 `quicktranslate-*.log`。
 2. 将级别切换为 `Error` 或 `Fatal`。
 3. 搜索 `app.`、`unhandled` 或相关模块名。
-4. 如果应用异常退出，再查看 `shutdown-trace.log` 和 `watchdog.trace`。
+4. 托盘退出排查：搜索 `tray.exit.requested`、`app.onexit.`、`tts.dispose.`（默认 Info 可见）。
+5. 如果应用异常退出，再查看 `shutdown-trace.log` 和 `watchdog.trace`。
 
 翻译没有结果：
 
@@ -122,7 +123,7 @@ quicktranslate-2026-07-23-2.log
 
 | 文件 | 用途 |
 | --- | --- |
-| `shutdown-trace.log` | 记录进程退出、控制台信号和非托管异常兜底信息 |
+| `shutdown-trace.log` | 同步短行：托盘退出面包屑、Dispatcher/ProcessExit、控制台信号与非托管异常兜底 |
 | `watchdog.trace` | 每两秒更新一次进程存活状态，用于判断异常终止时间 |
 
 辅助文件同样会显示在日志查看器中，并纳入保留和总大小策略。应用运行期间会保护当前主日志和正在使用的辅助文件，避免手动清理影响当前进程。
@@ -394,3 +395,37 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 `selection_mode`: `auto` | `manual`. `voice_source`: `auto` | `user` | `fallback`.
 
 Never log SSML, spoken text, tokens, cookies, or absolute temp paths.
+
+## Exit breadcrumbs
+
+Thin dual-channel stage marks for tray exit diagnosis. Exit semantics are unchanged; no hang detector, no TTS service-internal exit logs, no new settings.
+
+| Event | Level | Source | When | Context keys (metadata only) |
+| --- | --- | --- | --- | --- |
+| `tray.exit.requested` | Info | App | `OnExitRequested` entry, before `Shutdown` / `BeginInvoke(Shutdown)` | `dispatcher_access`, `thread_id` |
+| `app.onexit.begin` | Info | App | start of `OnExit` | `thread_id`, `has_tts` |
+| `tts.dispose.begin` | Info | App | only when `_ttsService is not null`, before `DisposeAsync().GetResult()` | `thread_id`, `dispatcher_access` |
+| `tts.dispose.end` | Info | App | TTS dispose returned successfully | `duration_ms`, `thread_id` |
+| `tts.dispose.failed` | Warn | App | TTS dispose threw (cleanup continues) | `duration_ms`, `exception_type` |
+| `app.onexit.complete` | Info | App | end of cleanup, replaces free-text “应用退出”, before `Logger.Shutdown()` | `duration_ms` |
+
+Each of the stages above also appends one best-effort line to `shutdown-trace.log` via `Logger.WriteShutdownTrace`:
+
+```text
+[yyyy-MM-dd HH:mm:ss.fff] tray.exit.requested dispatcher_access=False thread_id=12
+```
+
+Existing VEH / ConsoleCtrl / `Dispatcher.ShutdownFinished` / `ProcessExit` writers may still append raw lines to the same file.
+
+### How to read a hang
+
+| Observation | Likely stuck point |
+| --- | --- |
+| `tray.exit.requested` present, no `app.onexit.begin`, `watchdog.trace` still refreshing | Shutdown not entered (dispatcher queue / earlier hang) |
+| `app.onexit.begin` present, no `app.onexit.complete`, watchdog still alive | Stuck inside `OnExit` cleanup |
+| `tts.dispose.begin` without `tts.dispose.end` or `tts.dispose.failed` | Stuck in TTS dispose |
+| Full chain through `app.onexit.complete` but process remains | Hang after app cleanup (runtime / native teardown) |
+
+Privacy: only `thread_id`, `dispatcher_access`, `duration_ms`, `exception_type`, `has_tts` (and short stage labels). Never log paths, spoken text, SSML, tokens, or `Exception.Message`.
+
+Second-instance early `Shutdown()` is not required to emit the tray exit chain.
