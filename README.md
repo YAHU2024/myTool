@@ -1,137 +1,192 @@
-# QuickTranslate
+<div align="center">
 
-一款基于 .NET 8 WPF 的轻量级翻译工具，支持接入任意 OpenAI 兼容接口（OpenAI、智谱 GLM、硅基流动等），提供 SSE 流式实时翻译，内置智能内容识别与深度解析。
+# ⚡ QuickTranslate
 
-![.NET 8](https://img.shields.io/badge/.NET-8-512BD4)
-![WPF](https://img.shields.io/badge/WPF-Desktop-0A52A1)
-![License](https://img.shields.io/badge/license-MIT-green)
+**智能快捷翻译工具 · 划词即译 · 多模式深度解析**
 
-## 功能特性
+一款基于 .NET 8 WPF 的轻量级桌面翻译工具，接入任意 OpenAI 兼容接口，提供 SSE 流式实时翻译，内置智能内容识别与多模式深度解析。
 
-- **多模型支持** — 兼容所有 OpenAI Chat Completions 接口，开箱支持 OpenAI、智谱 GLM-4.7-Flash、硅基流动 Qwen3 等
-- **SSE 流式翻译** — 逐字实时显示翻译结果，首字响应快
-- **划词翻译** — 拖拽/双击/三击选词，红点引导交互，悬浮窗即时展示
-- **智能内容识别** — 自动区分普通文本、代码/命令、专有术语，路由到对应 Prompt 策略
-- **深度解析** — 兜底翻译场景显示可点击 `[解析]` 标签，一键触发目标语言深度解析（支持通用/语言学习/文学赏析/商务场景四种预设）
-- **14 种语言** — 简繁中文、英语、日语、韩语、法语、德语、西班牙语、俄语、葡萄牙语、意大利语、阿拉伯语、越南语、泰语
-- **语言自动检测** — 智能识别源语言方向，中文→英文，其他→目标语言
-- **浏览器内翻译** — 仅在浏览器窗口内触发，避免桌面环境误触发
-- **翻译历史** — SQLite 本地持久化，支持搜索、分页、Anki 导出，译文/解析分类型记录
-- **快捷键自定义** — 支持 Ctrl/Alt/Shift 组合键，全局热键触发
-- **多模型管理** — 已保存配置按域名分组，支持一键切换和删除
-- **自定义翻译/解析 Prompt** — 可分别配置翻译提示词，并管理多个内置/自定义深度解析方案，支持 `{targetLang}` 占位符
-- **深色主题** — 精心设计的深色 UI，长时间使用不刺眼
-- **单实例保护** — Mutex 防止多开，避免全局钩子冲突
-- **日志查看与诊断** — 托盘查看结构化日志、筛选事件、查看翻译指标并按策略清理
-- **本地配置** — API Key 等设置保存于 `%APPDATA%\QuickTranslate\settings.json`，不上传任何数据
+<br>
 
-## 快速开始
+[![.NET 8](https://img.shields.io/badge/.NET-8-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/8.0)
+[![WPF Desktop](https://img.shields.io/badge/WPF-Desktop-0A52A1?style=flat-square&logo=windows&logoColor=white)](https://github.com/dotnet/wpf)
+[![C#](https://img.shields.io/badge/C%23-12-239120?style=flat-square&logo=csharp&logoColor=white)](https://learn.microsoft.com/dotnet/csharp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-8B5CF6?style=flat-square)]()
+
+<br>
+
+</div>
+
+---
+
+## 📖 目录
+
+- [✨ 功能特性](#-功能特性)
+- [🚀 快速开始](#-快速开始)
+- [⚙️ 配置 API](#️-配置-api)
+- [📁 项目结构](#-项目结构)
+- [🗺️ 开发路线](#️-开发路线)
+- [📄 许可证](#-许可证)
+
+---
+
+## ✨ 功能特性
+
+<div align="center">
+
+| 类别 | 特性 |
+|:-----|:-----|
+| **🎯 核心翻译** | SSE 流式逐字输出 · 拖拽/双击/三击划词 · 红点引导交互 · 悬浮窗即时展示 · 14 种语言支持 · 语言自动检测 |
+| **🧠 智能识别** | 自动区分 `Translation` / `Code` / `Term`，路由专用 Prompt · 置信度诊断 · 浏览器/终端场景感知 |
+| **🔄 多模式会话** | 同文本：**翻译** · **命令解析** · **术语解释** · **深度解析** 四模式严格切换 · 已完成结果瞬时恢复 |
+| **📝 安全 Markdown** | 安全解析渲染 · 围栏代码块独立复制 · 表格/列表/引用 · 仅允许 `http/https` 链接 |
+| **📚 翻译历史** | SQLite 本地持久化 · 按时间/语言搜索筛选 · 分页浏览 · 双击复制 · Anki 格式导出 |
+| **🖥️ 系统集成** | 全局快捷键（自定义组合键） · 系统托盘常驻 · 开机自启 · 浏览器内触发 · 单实例保护 |
+| **🎨 深度解析** | 4 种内置预设（通用/语言学习/文学赏析/商务） · 自定义方案新建/复制/编辑/删除 · 多轮方案管理 |
+| **⚡ 性能优化** | LRU+TTL 语义缓存 · `latest-request-wins` 请求冲突防护 · 请求快照隔离 · 设置修改不影响运行中请求 |
+| **🔒 隐私安全** | 零污染剪贴板获取 · 日志脱敏（不记录原文/API Key/Prompt 正文） · 本地配置不上传 |
+| **📊 运维诊断** | 结构化 JSON Lines 日志 · 专用查看器 · 多文件切换 · 级别/关键字筛选 · P50/P95/P99 延迟指标 · 自动清理 |
+
+</div>
+
+---
+
+## 🚀 快速开始
 
 ### 环境要求
 
-- Windows 10 / 11
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- ✅ **Windows 10 / 11**
+- ✅ **[.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)**
 
 ### 运行
 
 ```powershell
+# 克隆仓库
 git clone https://github.com/<your-username>/QuickTranslate.git
 cd QuickTranslate\QuickTranslate
+
+# 还原依赖 & 启动
 dotnet run
 ```
 
-### 配置 API
+启动后自动最小化到 **系统托盘**，右键托盘图标即可开始配置。
 
-启动后最小化到系统托盘，右键托盘图标 → 「设置」打开配置窗口：
+---
 
-| 字段 | 说明 | 示例 |
-|------|------|------|
-| **Base URL** | API 接口地址 | `https://open.bigmodel.cn/api/paas/v4` |
-| **API Key** | 你的密钥 | `sk-xxxxxxxxxxxxxxxx` |
-| **Model** | 模型名称（下拉选择已保存模型或手动输入） | `glm-4.7-flash` |
+## ⚙️ 配置 API
 
-点击「保存」后即可使用。模型下拉框按域名分组显示已保存的配置，选中自动填充 URL 和 Key。
+右键托盘图标 → 「**设置**」打开配置窗口：
 
-日志功能的完整使用、隐私边界和开发接入说明见 [日志功能使用文档](docs/LOGGING.md)。
+| 字段 | 说明 | 示例值 |
+|:-----|:-----|:-------|
+| **`Base URL`** | API 接口地址 | `https://api.siliconflow.cn/v1` |
+| **`API Key`** | 你的密钥 | `sk-xxxxxxxxxxxxxxxx` |
+| **`Model`** | 模型名称 | `Qwen/Qwen3-8B` |
 
-### 常用 API 配置参考
+模型下拉框按域名分组展示已保存配置，选中自动填充 URL 和 Key。
 
 <details>
-<summary>硅基流动 Qwen/Qwen3-8B（推荐，免费）</summary>
+<summary><b>🔧 一键配置参考</b>（点击展开）</summary>
 
-| 字段 | 值 |
-|------|------|
-| Base URL | `https://api.siliconflow.cn/v1` |
-| Model | `Qwen/Qwen3-8B` |
+<br>
+
+| 服务商 | Base URL | Model |
+|:-------|:---------|:------|
+| **硅基流动** 🔥 推荐免费 | `https://api.siliconflow.cn/v1` | `Qwen/Qwen3-8B` |
+| **智谱 GLM** | `https://open.bigmodel.cn/api/paas/v4` | `glm-4.7-flash` |
+| **OpenAI** | `https://api.openai.com/v1` | `gpt-4o-mini` |
 
 </details>
 
-<details>
-<summary>智谱 GLM-4.7-Flash</summary>
+<br>
 
-| 字段 | 值 |
-|------|------|
-| Base URL | `https://open.bigmodel.cn/api/paas/v4` |
-| Model | `glm-4.7-flash` |
+> 📖 日志功能使用指南、隐私边界和开发接入见 [日志功能使用文档](docs/LOGGING.md)。
 
-</details>
+---
 
-<details>
-<summary>OpenAI</summary>
+## 📁 项目结构
 
-| 字段 | 值 |
-|------|------|
-| Base URL | `https://api.openai.com/v1` |
-| Model | `gpt-4o-mini` |
-
-</details>
-
-## 项目结构
-
-```
+```text
 QuickTranslate/
-├── Core/
-│   ├── GlobalKeyboardHook.cs         # 全局键盘钩子（独立消息循环线程，热键触发翻译）
-│   ├── SelectionDetector.cs          # 鼠标钩子检测拖拽/双击/三击选词
-│   ├── SelectionLocator.cs           # UI Automation 选区像素级定位
-│   ├── ClipboardHelper.cs            # 剪贴板操作（序列号检测 Ctrl+C + 零污染获取 + 恢复）
-│   ├── ContentTypeDetector.cs        # 智能内容类型识别（Translation/Code/Term/Analysis）
-│   └── BrowserDetector.cs            # 浏览器窗口检测（仅在浏览器内触发翻译）
-├── Database/
+├── 📂 Core/                          # 核心引擎
+│   ├── GlobalKeyboardHook.cs         # 全局键盘钩子（独立消息循环，热键触发）
+│   ├── SelectionDetector.cs          # 鼠标钩子 → 拖拽/双击/三击选词检测
+│   ├── SelectionLocator.cs           # UIA 像素级选区定位
+│   ├── ClipboardHelper.cs            # 零污染剪贴板（序列号检测 + 恢复）
+│   ├── ContentTypeDetector.cs        # 智能内容识别（Translation/Code/Term + 置信度）
+│   ├── BrowserDetector.cs            # 浏览器窗口感知
+│   ├── TerminalDetector.cs           # 终端窗口感知
+│   ├── CopyShortcut.cs               # 复制快捷键辅助
+│   ├── AutoScrollController.cs       # 流式自动滚动（用户操作暂停/恢复）
+│   ├── LatestRequestCoordinator.cs   # 请求协调（latest-request-wins）
+│   ├── LatestPresentationCoordinator.cs  # 展示身份协调
+│   └── FloatingResultSessionCoordinator.cs  # 多模式会话统一管理
+│
+├── 📂 Database/                      # 持久化层
 │   ├── TranslationRecord.cs          # 翻译历史记录模型
-│   └── TranslationDbContext.cs       # EF Core SQLite 数据库上下文（自动兼容新列）
-├── Services/
-│   ├── ITranslationService.cs        # 翻译服务接口（含流式翻译 + 流式解析）
-│   └── OpenAITranslationService.cs   # OpenAI 兼容接口实现（SSE 流式 + 兜底检测 + 解析 Prompt）
-├── Models/
-│   └── AppSettings.cs                # 配置模型（已保存配置、快捷键、解析预设等）
-├── Helpers/
-│   ├── ConfigManager.cs              # 配置持久化（JSON 读写）
-│   ├── Logger.cs                     # 轻量级异步文件日志器（按天轮转 + 自动清理）
+│   └── TranslationDbContext.cs       # EF Core SQLite 上下文
+│
+├── 📂 Services/                      # 业务服务
+│   ├── ITranslationService.cs        # 翻译服务接口（流式翻译 + 流式解析）
+│   ├── OpenAITranslationService.cs   # OpenAI 兼容接口（SSE + 四类 Prompt 路由）
+│   ├── TranslationCacheService.cs    # 语义缓存（LRU + 30min TTL）
+│   ├── TranslationMetrics.cs         # 指标统计（P50/P95/P99、缓存命中率）
+│   └── AnalysisPromptCatalog.cs      # 内置/自定义解析方案目录
+│
+├── 📂 Models/                        # 数据模型
+│   ├── AppSettings.cs                # 配置模型（多模型、快捷键、解析预设等）
+│   ├── TranslationRequest.cs         # 不可变请求快照
+│   ├── FloatingResultSession.cs      # 多模式会话状态模型
+│   └── AnalysisPromptProfile.cs      # 自定义解析方案
+│
+├── 📂 Helpers/                       # 工具类
+│   ├── ConfigManager.cs              # JSON 配置读写 + 旧配置迁移
+│   ├── Logger.cs                     # 异步日志器（JSON Lines、按天轮转、自动清理）
+│   ├── LogEvent.cs                   # 结构化日志事件模型
+│   ├── MarkdownRenderer.cs           # 安全 Markdown → FlowDocument 渲染
 │   ├── Win32Api.cs                   # Win32 P/Invoke 声明
 │   └── DpiHelper.cs                  # DPI 缩放坐标转换
-├── UI/
-│   ├── FloatingWindow.xaml/.cs       # 翻译结果悬浮窗（流式输出 + 可点击解析标签）
-│   ├── RedDotWindow.xaml/.cs         # 红点交互窗口
-│   ├── TrayIconManager.cs            # 系统托盘图标与右键菜单
-│   ├── SettingsWindow.xaml/.cs       # 设置窗口（多模型管理 + 解析预设选择）
-│   └── HistoryWindow.xaml/.cs        # 翻译历史查看窗口（译文/解析分列显示）
-├── MainWindow.xaml / .cs             # 隐藏主窗口（稳定 WPF Dispatcher 生命周期）
-└── App.xaml / .cs                    # 应用入口（单实例 Mutex + 事件调度 + 退出监控）
+│
+├── 📂 UI/                            # 用户界面
+│   ├── FloatingWindow.xaml/.cs       # 悬浮窗（多模式操作栏/流式/Markdown/图钉）
+│   ├── RedDotWindow.xaml/.cs         # 红点引导窗口
+│   ├── TrayIconManager.cs            # 系统托盘（深色渲染菜单）
+│   ├── SettingsWindow.xaml/.cs       # 设置窗口（模型管理 + 解析方案管理）
+│   ├── HistoryWindow.xaml/.cs        # 翻译历史查看
+│   ├── LogViewerWindow.xaml/.cs      # 日志查看器
+│   └── LogEntryReader.cs             # 日志读取与筛选
+│
+├── MainWindow.xaml / .cs             # 隐藏主窗口（稳定 WPF 生命周期）
+└── App.xaml / .cs                    # 应用入口（单实例 + 事件调度 + 退出监控）
 ```
 
-## 开发路线
+---
 
-| 期数 | 内容 | 状态 |
-|------|------|------|
-| 第一期 | 基础骨架 + 手动触发翻译 + 流式输出 | ✅ 已完成 |
-| 第二期 | 划词触发 + 红点交互 + 悬浮窗 + UIA 定位 + DPI 适配 | ✅ 已完成 |
-| 第三期 | 系统托盘 + 设置持久化 + 开机自启 | ✅ 已完成 |
-| 第四期 | 翻译历史 + 快捷键自定义 + 语言自动检测 + System Prompt 自定义 | ✅ 已完成 |
-| 第五期 | 稳定性加固：单实例保护 + 控制台信号防护 + 日志系统 + 剪贴板零污染改造 | ✅ 已完成 |
-| 第六期 | 智能内容识别 + 浏览器检测 + 多模型管理 + 兜底语言优化 | ✅ 已完成 |
-| 第七期 | 深度解析标签 + 解析预设系统 + 历史类型分列 + 性能优化（异步钩子） | ✅ 已完成 |
+## 🗺️ 开发路线
 
-## 许可证
+| 期数 | 核心内容 | 状态 |
+|:----:|:---------|:----:|
+| 📐 **第一期** | 基础骨架 + 手动触发翻译 + 流式输出 | ✅ |
+| 🖱️ **第二期** | 划词触发 + 红点交互 + 悬浮窗 + UIA 定位 + DPI 适配 | ✅ |
+| 🗂️ **第三期** | 系统托盘 + 设置持久化 + 开机自启 | ✅ |
+| 📋 **第四期** | 翻译历史 + 快捷键自定义 + 语言自动检测 + Prompt 自定义 | ✅ |
+| 🛡️ **第五期** | 单实例保护 + 信号防护 + 日志系统 + 剪贴板零污染 | ✅ |
+| 🧠 **第六期** | 智能内容识别 + 分类回归测试 + 浏览器检测 + 多模型管理 | ✅ |
+| 🚦 **第七期** | 请求生命周期重构 + 语义缓存 + `latest-request-wins` | ✅ |
+| 🎨 **第八期** | 多模式会话 + Markdown 渲染 + 流式视角控制 + 窗口拖拽缩放 | ✅ |
+| 📊 **第九期** | 结构化日志 + 日志查看器 + 级别筛选 + P50/P95/P99 指标 | ✅ |
+| 📝 **第十期** | 四类 Prompt 行为契约 + 内置/自定义解析方案管理 + 日志隐私 | ✅ |
+| 💬 **第十一期** | 解析追问功能（规划中） | 🔲 |
+| ⚡ **第十二期** | 性能优化（规划中） | 🔲 |
+| 🌐 **第十三期** | UI 统一与国际化（规划中） | 🔲 |
 
-MIT License
+---
+
+## 📄 许可证
+
+<div align="center">
+
+**MIT License** — 自由使用、修改和分发。
+
+</div>
