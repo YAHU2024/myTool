@@ -1013,6 +1013,12 @@ public partial class App : Application
             "tray.exit.requested",
             $"dispatcher_access={dispatcherAccess} thread_id={threadId}");
 
+        // Hide the tray icon immediately on the menu click thread. Full Dispose
+        // still runs at the start of OnExit on the WPF dispatcher; Hide is
+        // idempotent so the icon does not linger during TTS/hook cleanup.
+        try { _trayIcon?.Hide(); }
+        catch { /* best-effort */ }
+
         // Tray menu is WinForms; always hop to the WPF dispatcher for shutdown.
         if (dispatcherAccess)
             Shutdown();
@@ -1088,6 +1094,12 @@ public partial class App : Application
         // 停止看门狗
         _watchdogTimer?.Dispose();
 
+        // Prefer tray teardown before slow work so the icon never outlives the
+        // user-visible exit click (also covers non-tray Shutdown paths).
+        try { _trayIcon?.Dispose(); }
+        catch { /* best-effort */ }
+        _trayIcon = null;
+
         // 清理资源
         // NOTE: This runs on the WPF UI thread. EdgeTtsService must not post+wait
         // on the same dispatcher here (CheckAccess inline path), or exit deadlocks.
@@ -1135,7 +1147,6 @@ public partial class App : Application
         }
         _keyboardHook?.Dispose();
         _selectionDetector?.Dispose();
-        _trayIcon?.Dispose();
         _translationService?.Dispose();
         _dbContext?.Dispose();
 
