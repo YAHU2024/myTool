@@ -139,8 +139,14 @@
 
     <Border Background="#E81E1E2E" CornerRadius="8" Padding="12,8" Margin="4">
         <Border.Effect><DropShadowEffect Color="Black" BlurRadius="12" ShadowDepth="2" Opacity="0.5"/></Border.Effect>
+        <!-- Footer rows are Auto so status/expand keep space; body (*) shrinks first when the window is short. -->
         <Grid>
-            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*" MinHeight="40"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
             <Grid x:Name="TitleBar" Grid.Row="0" Margin="0,0,0,6" Background="Transparent" Cursor="SizeAll">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal">
@@ -156,15 +162,8 @@
                     <Button x:Name="PinButton" Style="{StaticResource ToolbarButton}" Content="&#x1F4CC;" FontSize="13" ToolTip="固定窗口" Click="PinButton_Click"/>
                 </StackPanel>
             </Grid>
-            <Grid Grid.Row="1">
-                <Grid.Style>
-                    <Style TargetType="{x:Type Grid}">
-                        <Setter Property="MinHeight" Value="80"/>
-                        <Setter Property="MaxHeight" Value="780"/>
-                    </Style>
-                </Grid.Style>
-                <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                <ScrollViewer Grid.Row="0" x:Name="TranslationScroller" Style="{StaticResource Win11ScrollViewer}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxWidth="870" ScrollChanged="TranslationScroller_ScrollChanged" PreviewMouseWheel="TranslationScroller_PreviewMouseWheel" PreviewKeyDown="TranslationScroller_PreviewKeyDown">
+            <Grid Grid.Row="1" MinHeight="40" MaxHeight="780">
+                <ScrollViewer x:Name="TranslationScroller" Style="{StaticResource Win11ScrollViewer}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxWidth="870" MinHeight="40" ScrollChanged="TranslationScroller_ScrollChanged" PreviewMouseWheel="TranslationScroller_PreviewMouseWheel" PreviewKeyDown="TranslationScroller_PreviewKeyDown">
                     <Grid>
                         <TextBlock x:Name="TranslationTextBlock" Foreground="#F0F0F0" FontSize="16" FontFamily="Microsoft YaHei UI" TextWrapping="Wrap" Padding="0,0,6,0" Text=""/>
                         <RichTextBox x:Name="MarkdownDocumentHost" Visibility="Collapsed" IsReadOnly="True" IsDocumentEnabled="True" Focusable="False" BorderThickness="0" Background="Transparent" Padding="0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"/>
@@ -177,18 +176,18 @@
                         <Ellipse x:Name="LoadingDotThree" Width="4" Height="4" Fill="#B7C5FF" Margin="1"/>
                     </StackPanel>
                 </Border>
-                <Border x:Name="StatusMessageBar" Grid.Row="1" Margin="0,6,0,0" CornerRadius="4" Padding="8,4" Visibility="Collapsed" Background="#2A3348">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="StatusMessageText" Grid.Column="0" FontFamily="Microsoft YaHei UI" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="#B7C5FF" Text=""/>
-                        <Button x:Name="StatusMessageActionButton" Grid.Column="1" Margin="8,0,0,0" Padding="6,1" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="" Visibility="Collapsed" Click="StatusMessageActionButton_Click"/>
-                    </Grid>
-                </Border>
-                <Button x:Name="ExpandMarkdownButton" Grid.Row="2" HorizontalAlignment="Right" Margin="0,4,0,0" Padding="6,2" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="展开全文" ToolTip="渲染完整结果" Visibility="Collapsed" Click="ExpandMarkdownButton_Click"/>
             </Grid>
+            <Border x:Name="StatusMessageBar" Grid.Row="2" Margin="0,6,0,0" CornerRadius="4" Padding="8,4" Visibility="Collapsed" Background="#2A3348">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="StatusMessageText" Grid.Column="0" FontFamily="Microsoft YaHei UI" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="#B7C5FF" Text=""/>
+                    <Button x:Name="StatusMessageActionButton" Grid.Column="1" Margin="8,0,0,0" Padding="6,1" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="" Visibility="Collapsed" Click="StatusMessageActionButton_Click"/>
+                </Grid>
+            </Border>
+            <Button x:Name="ExpandMarkdownButton" Grid.Row="3" HorizontalAlignment="Right" Margin="0,4,0,0" Padding="6,2" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="展开全文" ToolTip="渲染完整结果" Visibility="Collapsed" Click="ExpandMarkdownButton_Click"/>
         </Grid>
     </Border>
 </Window>

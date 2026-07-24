@@ -22,6 +22,7 @@ namespace QuickTranslate.UI;
 public partial class FloatingWindow : Window
 {
     private const double PlacementGapDip = 12;
+    private const double DefaultWindowMinHeight = 120;
     private readonly DispatcherTimer _autoHideTimer;
     private readonly DispatcherTimer _scrollBarHideTimer;
     private readonly LatestPresentationCoordinator _presentations = new();
@@ -185,6 +186,7 @@ public partial class FloatingWindow : Window
         _isSystemSizing = false;
         SizeToContent = SizeToContent.Height;
         ClearAllStatusMessages();
+        MinHeight = DefaultWindowMinHeight;
         base.Hide();
     }
 
@@ -350,6 +352,7 @@ public partial class FloatingWindow : Window
     {
         MarkdownDocumentHost.Visibility = Visibility.Collapsed;
         ExpandMarkdownButton.Visibility = Visibility.Collapsed;
+        EnsureFooterFitsWindow();
         TranslationTextBlock.Visibility = Visibility.Visible;
         TranslationTextBlock.Text = _rawText;
     }
@@ -373,6 +376,7 @@ public partial class FloatingWindow : Window
         TranslationTextBlock.Visibility = Visibility.Collapsed;
         MarkdownDocumentHost.Visibility = Visibility.Visible;
         ExpandMarkdownButton.Visibility = result.IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
+        EnsureFooterFitsWindow();
         UpdateLayout();
         PositionWindowAtAnchor();
         if (_autoScroll.IsAutoScrollEnabled)
@@ -793,6 +797,61 @@ public partial class FloatingWindow : Window
             StatusMessageActionButton.Content = string.Empty;
             StatusMessageActionButton.Visibility = Visibility.Collapsed;
             _statusAction = null;
+        }
+
+        EnsureFooterFitsWindow();
+    }
+
+    /// <summary>
+    /// Keeps Auto footer rows (status / expand) visible when the user has shrunk the window.
+    /// Body (*) yields first; under manual sizing we only raise MinHeight/Height by chrome+footer, not full document height.
+    /// </summary>
+    private void EnsureFooterFitsWindow()
+    {
+        if (!IsLoaded)
+            return;
+
+        UpdateLayout();
+
+        // Outer Border: Padding 8*2 + Margin 4*2.
+        const double borderVerticalChrome = 24;
+        const double bodyMinHeight = 40;
+
+        var title = TitleBar?.ActualHeight ?? 0;
+        if (TitleBar is not null)
+            title += TitleBar.Margin.Top + TitleBar.Margin.Bottom;
+
+        var status = 0.0;
+        if (StatusMessageBar is { Visibility: Visibility.Visible })
+        {
+            status = StatusMessageBar.ActualHeight + StatusMessageBar.Margin.Top + StatusMessageBar.Margin.Bottom;
+            // First layout pass can still report 0 right after Visibility flip.
+            if (status < 1)
+                status = 34;
+        }
+
+        var expand = 0.0;
+        if (ExpandMarkdownButton is { Visibility: Visibility.Visible })
+        {
+            expand = ExpandMarkdownButton.ActualHeight + ExpandMarkdownButton.Margin.Top + ExpandMarkdownButton.Margin.Bottom;
+            if (expand < 1)
+                expand = 26;
+        }
+
+        var needed = borderVerticalChrome + title + bodyMinHeight + status + expand;
+        if (needed <= 0 || double.IsNaN(needed))
+            return;
+
+        var minHeight = Math.Max(DefaultWindowMinHeight, needed);
+        if (Math.Abs(MinHeight - minHeight) > 0.5)
+            MinHeight = minHeight;
+
+        // Auto height already grows with content; manual (user-resized) may need an explicit bump.
+        if (SizeToContent == SizeToContent.Manual
+            && !double.IsNaN(Height)
+            && Height + 0.5 < minHeight)
+        {
+            Height = minHeight;
         }
     }
 
