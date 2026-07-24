@@ -140,6 +140,36 @@ namespace QuickTranslate.UI
             LogLevelComboBox.SelectedItem = Logger.ParseLevel(_settings.LogLevel).ToString();
             LogRetentionDaysTextBox.Text = _settings.LogRetentionDays.ToString();
             LogMaxTotalMegabytesTextBox.Text = Math.Max(1, _settings.LogMaxTotalBytes / (1024 * 1024)).ToString();
+
+            TtsEnabledCheckBox.IsChecked = _settings.TtsEnabled;
+            TtsVoiceComboBox.ItemsSource = new[]
+            {
+                new { Value = "", Name = "自动（按文本语言）" },
+                new { Value = "zh-CN-XiaoxiaoNeural", Name = "晓晓（中文）" },
+                new { Value = "zh-CN-YunxiNeural", Name = "云希（中文）" },
+                new { Value = "en-US-JennyNeural", Name = "Jenny（英文）" },
+                new { Value = "en-US-GuyNeural", Name = "Guy（英文）" }
+            };
+            TtsVoiceComboBox.DisplayMemberPath = "Name";
+            TtsVoiceComboBox.SelectedValuePath = "Value";
+            var voice = _settings.TtsVoice ?? string.Empty;
+            if (TtsVoiceComboBox.Items.Cast<object>().All(item =>
+                    item.GetType().GetProperty("Value")?.GetValue(item)?.ToString() != voice))
+                voice = string.Empty;
+            TtsVoiceComboBox.SelectedValue = voice;
+
+            TtsRateComboBox.ItemsSource = new[]
+            {
+                new { Value = 0.9, Name = "0.9x" },
+                new { Value = 1.0, Name = "1.0x" },
+                new { Value = 1.1, Name = "1.1x" }
+            };
+            TtsRateComboBox.DisplayMemberPath = "Name";
+            TtsRateComboBox.SelectedValuePath = "Value";
+            var rate = _settings.TtsRate;
+            if (rate is not (0.9 or 1.0 or 1.1))
+                rate = 1.0;
+            TtsRateComboBox.SelectedValue = rate;
         }
 
         /// <summary>
@@ -576,6 +606,16 @@ namespace QuickTranslate.UI
             _settings.LogRetentionDays = Math.Clamp(retentionDays, 1, 3650);
             _settings.LogMaxTotalBytes = Math.Clamp(maxMegabytes * 1024 * 1024, 1 * 1024 * 1024, 1024L * 1024 * 1024);
 
+            _settings.TtsEnabled = TtsEnabledCheckBox.IsChecked ?? true;
+            _settings.TtsVoice = TtsVoiceComboBox.SelectedValue as string ?? string.Empty;
+            if (TtsRateComboBox.SelectedValue is double ttsRate)
+                _settings.TtsRate = ttsRate;
+            else if (TtsRateComboBox.SelectedValue is not null &&
+                     double.TryParse(TtsRateComboBox.SelectedValue.ToString(), out var parsedRate))
+                _settings.TtsRate = parsedRate;
+            if (_settings.TtsMaxChars <= 0)
+                _settings.TtsMaxChars = 2000;
+
             var autoStart = AutoStartCheckBox.IsChecked ?? false;
             if (autoStart != _origAutoStart)
             {
@@ -815,3 +855,4 @@ namespace QuickTranslate.UI
         private sealed record AnalysisPromptChoice(string Id, string Name, bool IsBuiltIn);
     }
 }
+

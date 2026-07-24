@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using QuickTranslate.Core;
 using QuickTranslate.Helpers;
 using QuickTranslate.Models;
+using QuickTranslate.Services;
 
 namespace QuickTranslate.UI;
 
@@ -21,6 +22,7 @@ namespace QuickTranslate.UI;
 public partial class FloatingWindow : Window
 {
     private const double PlacementGapDip = 12;
+    private const double DefaultWindowMinHeight = 120;
     private readonly DispatcherTimer _autoHideTimer;
     private readonly DispatcherTimer _scrollBarHideTimer;
     private readonly LatestPresentationCoordinator _presentations = new();
@@ -49,6 +51,20 @@ public partial class FloatingWindow : Window
     private const int HtBottomRight = 17;
     private const int ResizeBorderPhysical = 8;
     private string _rawText = string.Empty;
+    private ModeResultStatus _modeStatus = ModeResultStatus.NotStarted;
+    private ITtsService? _tts;
+    private bool _ttsEnabled = true;
+    private string _ttsVoice = string.Empty;
+    private double _ttsRate = 1.0;
+    private int _ttsMaxChars = 2000;
+    private bool _isTtsBusy;
+    private DateTime _lastSpeakClickUtc = DateTime.MinValue;
+    private const string SpeakIcon = "\uE768";
+    private const string StopIcon = "\uE71A";
+    private DispatcherTimer? _statusMessageTimer;
+    private StatusMessageEntry? _persistentStatus;
+    private StatusMessageEntry? _transientStatus;
+    private Action? _statusAction;
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
     private bool _placeAbove;
@@ -59,6 +75,8 @@ public partial class FloatingWindow : Window
     public event Action? RefreshRequested;
     public event Action? HideRequested;
     public event Action<Guid, ContentType, double, bool>? ScrollStateChanged;
+
+    internal bool IsTtsBusy => _isTtsBusy;
 
     public bool IsPinned { get; private set; }
 
@@ -107,6 +125,43 @@ public partial class FloatingWindow : Window
 
     internal FloatingWindowAnchor CurrentAnchor => _anchor;
 
+    internal void AttachTts(ITtsService tts)
+    {
+        if (_tts is not null)
+            _tts.StateChanged -= OnTtsStateChanged;
+        _tts = tts;
+        _tts.StateChanged += OnTtsStateChanged;
+        _isTtsBusy = _tts.IsBusy;
+        RefreshSpeakButton();
+    }
+
+    internal void ApplyTtsSettings(bool enabled, string? voice, double rate, int maxChars)
+    {
+        _ttsEnabled = enabled;
+        _ttsVoice = voice?.Trim() ?? string.Empty;
+        _ttsRate = rate;
+        _ttsMaxChars = maxChars > 0 ? maxChars : 2000;
+        RefreshSpeakButton();
+    }
+
+    private void OnTtsStateChanged()
+    {
+        var busy = _tts?.IsBusy == true;
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(OnTtsStateChanged);
+            return;
+        }
+
+        var wasBusy = _isTtsBusy;
+        _isTtsBusy = busy;
+        RefreshSpeakButton();
+        if (wasBusy && !busy)
+            ResetAutoHideTimer();
+        else if (!wasBusy && busy)
+            _autoHideTimer.Stop();
+    }
+
     internal bool ShowExistingResult()
     {
         if (!_hasAnchor || string.IsNullOrWhiteSpace(_rawText))
@@ -122,6 +177,7 @@ public partial class FloatingWindow : Window
 
     public new void Hide()
     {
+        _ = StopTtsAsync();
         EndDragging(resetAutoHideTimer: false);
         _scrollBarHideTimer.Stop();
         TranslationScroller.Tag = false;
@@ -129,6 +185,8 @@ public partial class FloatingWindow : Window
         _userResized = false;
         _isSystemSizing = false;
         SizeToContent = SizeToContent.Height;
+        ClearAllStatusMessages();
+        MinHeight = DefaultWindowMinHeight;
         base.Hide();
     }
 
@@ -156,8 +214,13 @@ public partial class FloatingWindow : Window
     {
         // Persist the currently visible mode before its view is replaced.
         RaiseScrollStateChanged();
+
+        if (_sessionId != sessionId || _activeMode != mode)
+            _ = StopTtsAsync();
+
         _sessionId = sessionId;
         _activeMode = mode;
+        _modeStatus = state.Status;
         SetActiveModeButton(mode);
         _rawText = state.RawText;
         _isMarkdownExpanded = false;
@@ -171,6 +234,7 @@ public partial class FloatingWindow : Window
         else
             ShowPlainText();
         SetLoading(state.Status == ModeResultStatus.Loading);
+        RefreshSpeakButton();
 
         var expectedSessionId = sessionId;
         var expectedMode = mode;
@@ -183,12 +247,19 @@ public partial class FloatingWindow : Window
 
     public void SetLoading(bool isLoading)
     {
+        if (isLoading)
+        {
+            _modeStatus = ModeResultStatus.Loading;
+            _ = StopTtsAsync();
+        }
+
         _isLoading = isLoading;
         LoadingIndicator.Visibility = isLoading ? Visibility.Visible : Visibility.Collapsed;
         if (isLoading)
             ((Storyboard)Resources["LoadingDotsStoryboard"]).Begin(this, true);
         else
             ((Storyboard)Resources["LoadingDotsStoryboard"]).Remove(this);
+        RefreshSpeakButton();
         ResetAutoHideTimer();
     }
 
@@ -216,6 +287,10 @@ public partial class FloatingWindow : Window
             return false;
 
         _rawText = translation;
+        if (!_isLoading)
+            _modeStatus = ModeResultStatus.Completed;
+        else
+            _modeStatus = ModeResultStatus.Loading;
         ShowPlainText();
         _autoScroll.BeginRequest();
         UpdateAutoScrollAffordance();
@@ -251,6 +326,7 @@ public partial class FloatingWindow : Window
         PositionWindowAtAnchor();
         Opacity = 1;
         IsHitTestVisible = true;
+        RefreshSpeakButton();
         ResetAutoHideTimer();
         return true;
     }
@@ -276,6 +352,7 @@ public partial class FloatingWindow : Window
     {
         MarkdownDocumentHost.Visibility = Visibility.Collapsed;
         ExpandMarkdownButton.Visibility = Visibility.Collapsed;
+        EnsureFooterFitsWindow();
         TranslationTextBlock.Visibility = Visibility.Visible;
         TranslationTextBlock.Text = _rawText;
     }
@@ -299,6 +376,7 @@ public partial class FloatingWindow : Window
         TranslationTextBlock.Visibility = Visibility.Collapsed;
         MarkdownDocumentHost.Visibility = Visibility.Visible;
         ExpandMarkdownButton.Visibility = result.IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
+        EnsureFooterFitsWindow();
         UpdateLayout();
         PositionWindowAtAnchor();
         if (_autoScroll.IsAutoScrollEnabled)
@@ -345,10 +423,12 @@ public partial class FloatingWindow : Window
 
     private void ResetForReplacement()
     {
+        _ = StopTtsAsync();
         _autoHideTimer.Stop();
         _isMouseInside = false;
         _sessionId = Guid.Empty;
         _activeMode = ContentType.Translation;
+        _modeStatus = ModeResultStatus.NotStarted;
         _autoScroll.BeginRequest();
         SetLoading(false);
         UpdateAutoScrollAffordance();
@@ -359,6 +439,7 @@ public partial class FloatingWindow : Window
         _isMarkdownExpanded = false;
         ShowPlainText();
         SetActiveModeButton(ContentType.Translation);
+        RefreshSpeakButton();
     }
 
     private void ModeButton_Click(object sender, RoutedEventArgs e)
@@ -395,6 +476,123 @@ public partial class FloatingWindow : Window
         ResetAutoHideTimer();
     }
 
+    
+
+    private async void SpeakButton_Click(object sender, RoutedEventArgs e)
+    {
+        ResetAutoHideTimer();
+        if (_tts is null)
+            return;
+
+        if (_tts.IsBusy || _isTtsBusy)
+        {
+            await StopTtsAsync().ConfigureAwait(true);
+            return;
+        }
+
+        // Debounce idle re-clicks so latest-wins churn is less likely.
+        var now = DateTime.UtcNow;
+        if ((now - _lastSpeakClickUtc).TotalMilliseconds < 300)
+            return;
+        _lastSpeakClickUtc = now;
+
+        if (!TtsTextSelector.CanSpeak(_modeStatus, _rawText, _ttsEnabled))
+            return;
+
+        var speechText = TtsTextSelector.NormalizeForSpeech(_rawText, _ttsMaxChars, out var truncated);
+        if (string.IsNullOrWhiteSpace(speechText))
+            return;
+
+        if (truncated)
+        {
+            Logger.Warn("FloatingWindow", "tts.speak.truncated", new Dictionary<string, object?>
+            {
+                ["text_len"] = _rawText.Length,
+                ["max_chars"] = _ttsMaxChars
+            });
+            ShowTransientStatus("文本过长，已截断朗读", FloatingStatusKind.Warning);
+        }
+
+        string? successHint = null;
+        try
+        {
+            var voiceOverride = string.IsNullOrWhiteSpace(_ttsVoice) ? null : _ttsVoice;
+            await _tts.SpeakAsync(
+                speechText,
+                languageHint: null,
+                voiceOverride,
+                _ttsRate,
+                CancellationToken.None).ConfigureAwait(true);
+
+            if (_tts is EdgeTtsService edgeTts)
+                successHint = edgeTts.TakeLastUiHint();
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopped by lifecycle or user.
+        }
+        catch (TtsSpeakException ex)
+        {
+            ShowSpeakFailureFeedback(ex.ErrorKind, ex.SelectionMode);
+        }
+        catch (Exception)
+        {
+            var mode = string.IsNullOrWhiteSpace(_ttsVoice)
+                ? TtsTextSelector.SelectionAuto
+                : TtsTextSelector.SelectionManual;
+            ShowSpeakFailureFeedback(TtsSpeakException.Protocol, mode);
+        }
+        finally
+        {
+            RefreshSpeakButton();
+            if (!string.IsNullOrEmpty(successHint))
+                ShowTransientStatus(successHint, FloatingStatusKind.Success);
+            ResetAutoHideTimer();
+        }
+    }
+    private Task StopTtsAsync()
+    {
+        if (_tts is null)
+            return Task.CompletedTask;
+        return _tts.StopAsync();
+    }
+
+    private void RefreshSpeakButton()
+    {
+        if (SpeakButton is null)
+            return;
+
+        var busy = _tts?.IsBusy == true || _isTtsBusy;
+        _isTtsBusy = busy;
+        var canSpeak = TtsTextSelector.CanSpeak(_modeStatus, _rawText, _ttsEnabled);
+
+        if (busy)
+        {
+            SpeakButton.Content = StopIcon;
+            SpeakButton.ToolTip = "停止朗读";
+            SpeakButton.IsEnabled = true;
+            SpeakButton.Opacity = 1.0;
+            return;
+        }
+
+        SpeakButton.Content = SpeakIcon;
+        SpeakButton.ToolTip = "朗读结果";
+        SpeakButton.IsEnabled = canSpeak;
+        SpeakButton.Opacity = canSpeak ? 1.0 : 0.45;
+    }
+
+
+    private void ShowSpeakFailureFeedback(string? errorKind = null, string? selectionMode = null)
+    {
+        var mode = selectionMode
+            ?? (string.IsNullOrWhiteSpace(_ttsVoice)
+                ? TtsTextSelector.SelectionAuto
+                : TtsTextSelector.SelectionManual);
+        var message = TtsSpeakException.UserFacingMessage(
+            errorKind ?? TtsSpeakException.Protocol,
+            mode);
+        ShowTransientStatus(message, FloatingStatusKind.Error);
+    }
     private static void ShowCopyFeedback(Button button, object originalContent)
     {
         button.Content = "\u2714";
@@ -414,7 +612,14 @@ public partial class FloatingWindow : Window
         ResetAutoHideTimer();
     }
 
-    private void ResumeScrollButton_Click(object sender, RoutedEventArgs e)
+    private void StatusMessageActionButton_Click(object sender, RoutedEventArgs e)
+    {
+        var action = _statusAction;
+        action?.Invoke();
+        ResetAutoHideTimer();
+    }
+
+    private void ResumeAutoScrollFromStatus()
     {
         _autoScroll.Resume();
         UpdateAutoScrollAffordance();
@@ -492,8 +697,186 @@ public partial class FloatingWindow : Window
         _scrollBarHideTimer.Start();
     }
 
-    private void UpdateAutoScrollAffordance() =>
-        ResumeScrollButton.Visibility = _autoScroll.IsAutoScrollEnabled ? Visibility.Collapsed : Visibility.Visible;
+    private void UpdateAutoScrollAffordance()
+    {
+        if (_autoScroll.IsAutoScrollEnabled)
+        {
+            if (_persistentStatus?.Token == FloatingStatusMessage.AutoScrollToken)
+            {
+                _persistentStatus = null;
+                if (_transientStatus is null)
+                    RenderStatusBar();
+            }
+            return;
+        }
+
+        _persistentStatus = new StatusMessageEntry(
+            FloatingStatusMessage.AutoScrollToken,
+            "自动滚动已暂停",
+            FloatingStatusKind.Info,
+            "恢复",
+            ResumeAutoScrollFromStatus);
+
+        if (_transientStatus is null)
+            RenderStatusBar();
+    }
+
+    private void ShowTransientStatus(string message, FloatingStatusKind kind, TimeSpan? duration = null)
+    {
+        if (string.IsNullOrWhiteSpace(message) || StatusMessageBar is null)
+            return;
+
+        _transientStatus = new StatusMessageEntry(
+            FloatingStatusMessage.TransientToken,
+            message.Trim(),
+            kind,
+            actionText: null,
+            action: null);
+
+        var timer = EnsureStatusTimer();
+        timer.Stop();
+        timer.Interval = FloatingStatusMessage.ResolveDuration(kind, duration);
+        timer.Start();
+        RenderStatusBar();
+    }
+
+    private void ClearAllStatusMessages()
+    {
+        _statusMessageTimer?.Stop();
+        _persistentStatus = null;
+        _transientStatus = null;
+        _statusAction = null;
+        RenderStatusBar();
+    }
+
+    private DispatcherTimer EnsureStatusTimer()
+    {
+        if (_statusMessageTimer is not null)
+            return _statusMessageTimer;
+
+        _statusMessageTimer = new DispatcherTimer();
+        _statusMessageTimer.Tick += (_, _) =>
+        {
+            _statusMessageTimer.Stop();
+            _transientStatus = null;
+            RenderStatusBar();
+        };
+        return _statusMessageTimer;
+    }
+
+    private void RenderStatusBar()
+    {
+        if (StatusMessageBar is null || StatusMessageText is null || StatusMessageActionButton is null)
+            return;
+
+        var entry = _transientStatus ?? _persistentStatus;
+        if (entry is null)
+        {
+            StatusMessageBar.Visibility = Visibility.Collapsed;
+            StatusMessageText.Text = string.Empty;
+            StatusMessageActionButton.Visibility = Visibility.Collapsed;
+            StatusMessageActionButton.Content = string.Empty;
+            _statusAction = null;
+            return;
+        }
+
+        var (bg, fg) = FloatingStatusMessage.GetColors(entry.Kind);
+        StatusMessageBar.Background = new SolidColorBrush(bg);
+        StatusMessageText.Foreground = new SolidColorBrush(fg);
+        StatusMessageText.Text = entry.Message;
+        StatusMessageBar.Visibility = Visibility.Visible;
+
+        if (!string.IsNullOrWhiteSpace(entry.ActionText) && entry.Action is not null)
+        {
+            StatusMessageActionButton.Content = entry.ActionText;
+            StatusMessageActionButton.Visibility = Visibility.Visible;
+            _statusAction = entry.Action;
+        }
+        else
+        {
+            StatusMessageActionButton.Content = string.Empty;
+            StatusMessageActionButton.Visibility = Visibility.Collapsed;
+            _statusAction = null;
+        }
+
+        EnsureFooterFitsWindow();
+    }
+
+    /// <summary>
+    /// Keeps Auto footer rows (status / expand) visible when the user has shrunk the window.
+    /// Body (*) yields first; under manual sizing we only raise MinHeight/Height by chrome+footer, not full document height.
+    /// </summary>
+    private void EnsureFooterFitsWindow()
+    {
+        if (!IsLoaded)
+            return;
+
+        UpdateLayout();
+
+        // Outer Border: Padding 8*2 + Margin 4*2.
+        const double borderVerticalChrome = 24;
+        const double bodyMinHeight = 40;
+
+        var title = TitleBar?.ActualHeight ?? 0;
+        if (TitleBar is not null)
+            title += TitleBar.Margin.Top + TitleBar.Margin.Bottom;
+
+        var status = 0.0;
+        if (StatusMessageBar is { Visibility: Visibility.Visible })
+        {
+            status = StatusMessageBar.ActualHeight + StatusMessageBar.Margin.Top + StatusMessageBar.Margin.Bottom;
+            // First layout pass can still report 0 right after Visibility flip.
+            if (status < 1)
+                status = 34;
+        }
+
+        var expand = 0.0;
+        if (ExpandMarkdownButton is { Visibility: Visibility.Visible })
+        {
+            expand = ExpandMarkdownButton.ActualHeight + ExpandMarkdownButton.Margin.Top + ExpandMarkdownButton.Margin.Bottom;
+            if (expand < 1)
+                expand = 26;
+        }
+
+        var needed = borderVerticalChrome + title + bodyMinHeight + status + expand;
+        if (needed <= 0 || double.IsNaN(needed))
+            return;
+
+        var minHeight = Math.Max(DefaultWindowMinHeight, needed);
+        if (Math.Abs(MinHeight - minHeight) > 0.5)
+            MinHeight = minHeight;
+
+        // Auto height already grows with content; manual (user-resized) may need an explicit bump.
+        if (SizeToContent == SizeToContent.Manual
+            && !double.IsNaN(Height)
+            && Height + 0.5 < minHeight)
+        {
+            Height = minHeight;
+        }
+    }
+
+    private sealed class StatusMessageEntry
+    {
+        public StatusMessageEntry(
+            string token,
+            string message,
+            FloatingStatusKind kind,
+            string? actionText,
+            Action? action)
+        {
+            Token = token;
+            Message = message;
+            Kind = kind;
+            ActionText = actionText;
+            Action = action;
+        }
+
+        public string Token { get; }
+        public string Message { get; }
+        public FloatingStatusKind Kind { get; }
+        public string? ActionText { get; }
+        public Action? Action { get; }
+    }
 
     private void SetActiveModeButton(ContentType activeMode)
     {
@@ -510,7 +893,7 @@ public partial class FloatingWindow : Window
         PinButton.ToolTip = IsPinned ? "取消固定" : "固定窗口";
     }
 
-    private bool CanAutoHide() => !IsPinned && !_isLoading && !_isMouseInside && !_isSystemSizing;
+    private bool CanAutoHide() => !IsPinned && !_isLoading && !_isMouseInside && !_isSystemSizing && !_isTtsBusy;
 
     private void ResetAutoHideTimer()
     {
@@ -752,3 +1135,4 @@ public partial class FloatingWindow : Window
         finally { CompositionTarget.Rendering -= handler; }
     }
 }
+

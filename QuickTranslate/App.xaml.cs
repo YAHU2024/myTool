@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -21,6 +21,7 @@ public partial class App : Application
     private GlobalKeyboardHook? _keyboardHook;
     private SelectionDetector? _selectionDetector;
     private OpenAITranslationService? _translationService;
+    private ITtsService? _ttsService;
     private AppSettings? _settings;
     private FloatingWindow? _floatingWindow;
     private RedDotWindow? _redDotWindow;
@@ -144,6 +145,14 @@ public partial class App : Application
         _floatingWindow.RefreshRequested += OnRefreshRequested;
         _floatingWindow.HideRequested += OnHideRequested;
         _floatingWindow.ScrollStateChanged += OnScrollStateChanged;
+
+        _ttsService = new EdgeTtsService();
+        _floatingWindow.AttachTts(_ttsService);
+        _floatingWindow.ApplyTtsSettings(
+            _settings.TtsEnabled,
+            _settings.TtsVoice,
+            _settings.TtsRate,
+            _settings.TtsMaxChars);
 
         // 初始化红点窗口（单例复用）
         _redDotWindow = new RedDotWindow();
@@ -876,6 +885,14 @@ public partial class App : Application
             settings.LogRetentionDays,
             settings.LogMaxTotalBytes);
 
+        if (!settings.TtsEnabled)
+            _ = _ttsService?.StopAsync();
+        _floatingWindow?.ApplyTtsSettings(
+            settings.TtsEnabled,
+            settings.TtsVoice,
+            settings.TtsRate,
+            settings.TtsMaxChars);
+
         // 更新快捷键配置（后台线程执行，避免钩子 Stop/Start 阻塞 UI）
         if (_keyboardHook != null)
         {
@@ -985,7 +1002,28 @@ public partial class App : Application
     /// </summary>
     private void OnExitRequested()
     {
-        Shutdown();
+        var dispatcherAccess = Dispatcher.CheckAccess();
+        var threadId = Environment.CurrentManagedThreadId;
+        Logger.Info("App", "tray.exit.requested", new
+        {
+            dispatcher_access = dispatcherAccess,
+            thread_id = threadId
+        });
+        Logger.WriteShutdownTrace(
+            "tray.exit.requested",
+            $"dispatcher_access={dispatcherAccess} thread_id={threadId}");
+
+        // Hide the tray icon immediately on the menu click thread. Full Dispose
+        // still runs at the start of OnExit on the WPF dispatcher; Hide is
+        // idempotent so the icon does not linger during TTS/hook cleanup.
+        try { _trayIcon?.Hide(); }
+        catch { /* best-effort */ }
+
+        // Tray menu is WinForms; always hop to the WPF dispatcher for shutdown.
+        if (dispatcherAccess)
+            Shutdown();
+        else
+            Dispatcher.BeginInvoke(new Action(Shutdown));
     }
 
     /// <summary>
@@ -1036,6 +1074,18 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        var onExitWatch = Stopwatch.StartNew();
+        var threadId = Environment.CurrentManagedThreadId;
+        var hasTts = _ttsService is not null;
+        Logger.Info("App", "app.onexit.begin", new
+        {
+            thread_id = threadId,
+            has_tts = hasTts
+        });
+        Logger.WriteShutdownTrace(
+            "app.onexit.begin",
+            $"thread_id={threadId} has_tts={hasTts}");
+
         CancelActiveTranslationRequest();
         Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
@@ -1044,10 +1094,59 @@ public partial class App : Application
         // 停止看门狗
         _watchdogTimer?.Dispose();
 
+        // Prefer tray teardown before slow work so the icon never outlives the
+        // user-visible exit click (also covers non-tray Shutdown paths).
+        try { _trayIcon?.Dispose(); }
+        catch { /* best-effort */ }
+        _trayIcon = null;
+
         // 清理资源
+        // NOTE: This runs on the WPF UI thread. EdgeTtsService must not post+wait
+        // on the same dispatcher here (CheckAccess inline path), or exit deadlocks.
+        if (_ttsService is not null)
+        {
+            var disposeWatch = Stopwatch.StartNew();
+            var disposeThreadId = Environment.CurrentManagedThreadId;
+            var disposeDispatcherAccess = Dispatcher.CheckAccess();
+            Logger.Info("App", "tts.dispose.begin", new
+            {
+                thread_id = disposeThreadId,
+                dispatcher_access = disposeDispatcherAccess
+            });
+            Logger.WriteShutdownTrace(
+                "tts.dispose.begin",
+                $"thread_id={disposeThreadId} dispatcher_access={disposeDispatcherAccess}");
+
+            try
+            {
+                _ttsService.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                disposeWatch.Stop();
+                Logger.Info("App", "tts.dispose.end", new
+                {
+                    duration_ms = disposeWatch.Elapsed.TotalMilliseconds,
+                    thread_id = disposeThreadId
+                });
+                Logger.WriteShutdownTrace(
+                    "tts.dispose.end",
+                    $"duration_ms={disposeWatch.Elapsed.TotalMilliseconds:F1} thread_id={disposeThreadId}");
+            }
+            catch (Exception ex)
+            {
+                disposeWatch.Stop();
+                Logger.Warn("App", "tts.dispose.failed", new
+                {
+                    duration_ms = disposeWatch.Elapsed.TotalMilliseconds,
+                    exception_type = ex.GetType().Name
+                });
+                Logger.WriteShutdownTrace(
+                    "tts.dispose.failed",
+                    $"duration_ms={disposeWatch.Elapsed.TotalMilliseconds:F1} exception_type={ex.GetType().Name}");
+            }
+
+            _ttsService = null;
+        }
         _keyboardHook?.Dispose();
         _selectionDetector?.Dispose();
-        _trayIcon?.Dispose();
         _translationService?.Dispose();
         _dbContext?.Dispose();
 
@@ -1059,7 +1158,14 @@ public partial class App : Application
         }
         catch { }
 
-        Logger.Info("App", "应用退出");
+        onExitWatch.Stop();
+        Logger.Info("App", "app.onexit.complete", new
+        {
+            duration_ms = onExitWatch.Elapsed.TotalMilliseconds
+        });
+        Logger.WriteShutdownTrace(
+            "app.onexit.complete",
+            $"duration_ms={onExitWatch.Elapsed.TotalMilliseconds:F1}");
         Logger.Shutdown();
         base.OnExit(e);
     }
