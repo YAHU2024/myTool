@@ -57,8 +57,13 @@ public partial class FloatingWindow : Window
     private double _ttsRate = 1.0;
     private int _ttsMaxChars = 2000;
     private bool _isTtsBusy;
+    private DateTime _lastSpeakClickUtc = DateTime.MinValue;
     private const string SpeakIcon = "\uE768";
     private const string StopIcon = "\uE71A";
+    private DispatcherTimer? _statusMessageTimer;
+    private StatusMessageEntry? _persistentStatus;
+    private StatusMessageEntry? _transientStatus;
+    private Action? _statusAction;
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
     private bool _placeAbove;
@@ -179,6 +184,7 @@ public partial class FloatingWindow : Window
         _userResized = false;
         _isSystemSizing = false;
         SizeToContent = SizeToContent.Height;
+        ClearAllStatusMessages();
         base.Hide();
     }
 
@@ -467,6 +473,7 @@ public partial class FloatingWindow : Window
     }
 
     
+
     private async void SpeakButton_Click(object sender, RoutedEventArgs e)
     {
         ResetAutoHideTimer();
@@ -478,6 +485,12 @@ public partial class FloatingWindow : Window
             await StopTtsAsync().ConfigureAwait(true);
             return;
         }
+
+        // Debounce idle re-clicks so latest-wins churn is less likely.
+        var now = DateTime.UtcNow;
+        if ((now - _lastSpeakClickUtc).TotalMilliseconds < 300)
+            return;
+        _lastSpeakClickUtc = now;
 
         if (!TtsTextSelector.CanSpeak(_modeStatus, _rawText, _ttsEnabled))
             return;
@@ -493,9 +506,10 @@ public partial class FloatingWindow : Window
                 ["text_len"] = _rawText.Length,
                 ["max_chars"] = _ttsMaxChars
             });
-            SpeakButton.ToolTip = "文本过长，已截断朗读";
+            ShowTransientStatus("文本过长，已截断朗读", FloatingStatusKind.Warning);
         }
 
+        string? successHint = null;
         try
         {
             var voiceOverride = string.IsNullOrWhiteSpace(_ttsVoice) ? null : _ttsVoice;
@@ -505,22 +519,33 @@ public partial class FloatingWindow : Window
                 voiceOverride,
                 _ttsRate,
                 CancellationToken.None).ConfigureAwait(true);
+
+            if (_tts is EdgeTtsService edgeTts)
+                successHint = edgeTts.TakeLastUiHint();
         }
         catch (OperationCanceledException)
         {
             // Stopped by lifecycle or user.
         }
+        catch (TtsSpeakException ex)
+        {
+            ShowSpeakFailureFeedback(ex.ErrorKind, ex.SelectionMode);
+        }
         catch (Exception)
         {
-            ShowSpeakFailureFeedback();
+            var mode = string.IsNullOrWhiteSpace(_ttsVoice)
+                ? TtsTextSelector.SelectionAuto
+                : TtsTextSelector.SelectionManual;
+            ShowSpeakFailureFeedback(TtsSpeakException.Protocol, mode);
         }
         finally
         {
             RefreshSpeakButton();
+            if (!string.IsNullOrEmpty(successHint))
+                ShowTransientStatus(successHint, FloatingStatusKind.Success);
             ResetAutoHideTimer();
         }
     }
-
     private Task StopTtsAsync()
     {
         if (_tts is null)
@@ -552,19 +577,17 @@ public partial class FloatingWindow : Window
         SpeakButton.Opacity = canSpeak ? 1.0 : 0.45;
     }
 
-    private void ShowSpeakFailureFeedback()
+
+    private void ShowSpeakFailureFeedback(string? errorKind = null, string? selectionMode = null)
     {
-        if (SpeakButton is null)
-            return;
-        SpeakButton.Content = "\u2716";
-        SpeakButton.ToolTip = "朗读失败";
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
-        timer.Tick += (_, _) =>
-        {
-            timer.Stop();
-            RefreshSpeakButton();
-        };
-        timer.Start();
+        var mode = selectionMode
+            ?? (string.IsNullOrWhiteSpace(_ttsVoice)
+                ? TtsTextSelector.SelectionAuto
+                : TtsTextSelector.SelectionManual);
+        var message = TtsSpeakException.UserFacingMessage(
+            errorKind ?? TtsSpeakException.Protocol,
+            mode);
+        ShowTransientStatus(message, FloatingStatusKind.Error);
     }
     private static void ShowCopyFeedback(Button button, object originalContent)
     {
@@ -585,7 +608,14 @@ public partial class FloatingWindow : Window
         ResetAutoHideTimer();
     }
 
-    private void ResumeScrollButton_Click(object sender, RoutedEventArgs e)
+    private void StatusMessageActionButton_Click(object sender, RoutedEventArgs e)
+    {
+        var action = _statusAction;
+        action?.Invoke();
+        ResetAutoHideTimer();
+    }
+
+    private void ResumeAutoScrollFromStatus()
     {
         _autoScroll.Resume();
         UpdateAutoScrollAffordance();
@@ -663,8 +693,131 @@ public partial class FloatingWindow : Window
         _scrollBarHideTimer.Start();
     }
 
-    private void UpdateAutoScrollAffordance() =>
-        ResumeScrollButton.Visibility = _autoScroll.IsAutoScrollEnabled ? Visibility.Collapsed : Visibility.Visible;
+    private void UpdateAutoScrollAffordance()
+    {
+        if (_autoScroll.IsAutoScrollEnabled)
+        {
+            if (_persistentStatus?.Token == FloatingStatusMessage.AutoScrollToken)
+            {
+                _persistentStatus = null;
+                if (_transientStatus is null)
+                    RenderStatusBar();
+            }
+            return;
+        }
+
+        _persistentStatus = new StatusMessageEntry(
+            FloatingStatusMessage.AutoScrollToken,
+            "自动滚动已暂停",
+            FloatingStatusKind.Info,
+            "恢复",
+            ResumeAutoScrollFromStatus);
+
+        if (_transientStatus is null)
+            RenderStatusBar();
+    }
+
+    private void ShowTransientStatus(string message, FloatingStatusKind kind, TimeSpan? duration = null)
+    {
+        if (string.IsNullOrWhiteSpace(message) || StatusMessageBar is null)
+            return;
+
+        _transientStatus = new StatusMessageEntry(
+            FloatingStatusMessage.TransientToken,
+            message.Trim(),
+            kind,
+            actionText: null,
+            action: null);
+
+        var timer = EnsureStatusTimer();
+        timer.Stop();
+        timer.Interval = FloatingStatusMessage.ResolveDuration(kind, duration);
+        timer.Start();
+        RenderStatusBar();
+    }
+
+    private void ClearAllStatusMessages()
+    {
+        _statusMessageTimer?.Stop();
+        _persistentStatus = null;
+        _transientStatus = null;
+        _statusAction = null;
+        RenderStatusBar();
+    }
+
+    private DispatcherTimer EnsureStatusTimer()
+    {
+        if (_statusMessageTimer is not null)
+            return _statusMessageTimer;
+
+        _statusMessageTimer = new DispatcherTimer();
+        _statusMessageTimer.Tick += (_, _) =>
+        {
+            _statusMessageTimer.Stop();
+            _transientStatus = null;
+            RenderStatusBar();
+        };
+        return _statusMessageTimer;
+    }
+
+    private void RenderStatusBar()
+    {
+        if (StatusMessageBar is null || StatusMessageText is null || StatusMessageActionButton is null)
+            return;
+
+        var entry = _transientStatus ?? _persistentStatus;
+        if (entry is null)
+        {
+            StatusMessageBar.Visibility = Visibility.Collapsed;
+            StatusMessageText.Text = string.Empty;
+            StatusMessageActionButton.Visibility = Visibility.Collapsed;
+            StatusMessageActionButton.Content = string.Empty;
+            _statusAction = null;
+            return;
+        }
+
+        var (bg, fg) = FloatingStatusMessage.GetColors(entry.Kind);
+        StatusMessageBar.Background = new SolidColorBrush(bg);
+        StatusMessageText.Foreground = new SolidColorBrush(fg);
+        StatusMessageText.Text = entry.Message;
+        StatusMessageBar.Visibility = Visibility.Visible;
+
+        if (!string.IsNullOrWhiteSpace(entry.ActionText) && entry.Action is not null)
+        {
+            StatusMessageActionButton.Content = entry.ActionText;
+            StatusMessageActionButton.Visibility = Visibility.Visible;
+            _statusAction = entry.Action;
+        }
+        else
+        {
+            StatusMessageActionButton.Content = string.Empty;
+            StatusMessageActionButton.Visibility = Visibility.Collapsed;
+            _statusAction = null;
+        }
+    }
+
+    private sealed class StatusMessageEntry
+    {
+        public StatusMessageEntry(
+            string token,
+            string message,
+            FloatingStatusKind kind,
+            string? actionText,
+            Action? action)
+        {
+            Token = token;
+            Message = message;
+            Kind = kind;
+            ActionText = actionText;
+            Action = action;
+        }
+
+        public string Token { get; }
+        public string Message { get; }
+        public FloatingStatusKind Kind { get; }
+        public string? ActionText { get; }
+        public Action? Action { get; }
+    }
 
     private void SetActiveModeButton(ContentType activeMode)
     {
@@ -923,3 +1076,4 @@ public partial class FloatingWindow : Window
         finally { CompositionTarget.Rendering -= handler; }
     }
 }
+

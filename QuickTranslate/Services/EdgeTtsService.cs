@@ -1,4 +1,5 @@
-﻿using System.IO;
+using System.IO;
+using System.Net.WebSockets;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -11,6 +12,11 @@ namespace QuickTranslate.Services;
 /// </summary>
 public sealed class EdgeTtsService : ITtsService
 {
+    internal const int MaxAttemptsPerVoice = 2;
+    private const int MediaOpenTimeoutMs = 5_000;
+    private const int RetryDelayMinMs = 200;
+    private const int RetryDelayMaxMs = 400;
+
     private readonly EdgeTtsClient _client;
     private readonly Dispatcher _dispatcher;
     private readonly object _gate = new();
@@ -20,6 +26,7 @@ public sealed class EdgeTtsService : ITtsService
     private long _speakId;
     private bool _isBusy;
     private bool _disposed;
+    private string? _lastUiHint;
 
     public EdgeTtsService(EdgeTtsClient? client = null, Dispatcher? dispatcher = null)
     {
@@ -33,6 +40,19 @@ public sealed class EdgeTtsService : ITtsService
     }
 
     public event Action? StateChanged;
+
+    /// <summary>
+    /// One-shot short UI tip from the last speak (no spoken text). Null if none.
+    /// </summary>
+    public string? TakeLastUiHint()
+    {
+        lock (_gate)
+        {
+            var hint = _lastUiHint;
+            _lastUiHint = null;
+            return hint;
+        }
+    }
 
     public async Task SpeakAsync(
         string text,
@@ -53,6 +73,7 @@ public sealed class EdgeTtsService : ITtsService
             previous = _speakCts;
             _speakCts = linked;
             _isBusy = true;
+            _lastUiHint = null;
         }
 
         if (previous is not null)
@@ -68,30 +89,38 @@ public sealed class EdgeTtsService : ITtsService
         string? tempPath = null;
         Exception? failure = null;
         var cancelled = false;
+        var plan = TtsTextSelector.CreateSpeakPlan(text, voiceOverride, rate, maxChars: 0);
+        // Prefer caller's language hint only when it is non-empty; plan always has a value.
+        if (!string.IsNullOrWhiteSpace(languageHint))
+        {
+            plan = plan with { LanguageHint = languageHint.Trim() };
+        }
+
         try
         {
             await StopPlaybackCoreAsync().ConfigureAwait(false);
 
-            var normalized = TtsTextSelector.NormalizeForSpeech(text, maxChars: 0, out _);
-            if (string.IsNullOrWhiteSpace(normalized))
-                throw new InvalidOperationException("No speakable text.");
-
-            var voice = TtsTextSelector.ResolveVoice(normalized, voiceOverride);
-            var clampedRate = TtsTextSelector.ClampRate(rate);
+            if (string.IsNullOrWhiteSpace(plan.Text))
+                throw new TtsSpeakException(
+                    TtsSpeakException.Protocol,
+                    plan.SelectionMode,
+                    plan.Voice,
+                    attempt: 0,
+                    "No speakable text.");
 
             Logger.Info("Tts", "tts.speak.started", new Dictionary<string, object?>
             {
-                ["text_len"] = normalized.Length,
-                ["voice"] = voice,
-                ["rate"] = clampedRate,
+                ["text_len"] = plan.Text.Length,
+                ["voice"] = plan.Voice,
+                ["rate"] = plan.Rate,
                 ["speak_id"] = speakId,
-                ["language_hint"] = languageHint
+                ["language_hint"] = plan.LanguageHint,
+                ["selection_mode"] = plan.SelectionMode,
+                ["voice_source"] = plan.VoiceSource
             });
 
-            var audio = await _client.SynthesizeAsync(normalized, voice, clampedRate, linked.Token)
+            var (audio, attemptUsed, finalPlan) = await SynthesizeWithPolicyAsync(plan, linked.Token)
                 .ConfigureAwait(false);
-            if (audio.Length == 0)
-                throw new InvalidOperationException("Empty audio payload.");
 
             tempPath = CreateTempAudioPath();
             await File.WriteAllBytesAsync(tempPath, audio, linked.Token).ConfigureAwait(false);
@@ -103,15 +132,25 @@ public sealed class EdgeTtsService : ITtsService
                 _currentTempFile = tempPath;
             }
 
-            await PlayFileAsync(tempPath, linked.Token).ConfigureAwait(false);
+            await PlayFileAsync(tempPath, finalPlan.SelectionMode, finalPlan.Voice, linked.Token).ConfigureAwait(false);
 
             if (IsCurrentSpeak(speakId, linked))
             {
+                if (string.Equals(finalPlan.VoiceSource, TtsTextSelector.VoiceSourceFallback, StringComparison.Ordinal))
+                {
+                    lock (_gate)
+                        _lastUiHint = "已改用中文音色";
+                }
+
                 Logger.Info("Tts", "tts.speak.completed", new Dictionary<string, object?>
                 {
                     ["duration_ms"] = sw.ElapsedMilliseconds,
                     ["speak_id"] = speakId,
-                    ["audio_bytes"] = audio.Length
+                    ["audio_bytes"] = audio.Length,
+                    ["attempt"] = attemptUsed,
+                    ["voice"] = finalPlan.Voice,
+                    ["voice_source"] = finalPlan.VoiceSource,
+                    ["selection_mode"] = finalPlan.SelectionMode
                 });
             }
         }
@@ -122,20 +161,42 @@ public sealed class EdgeTtsService : ITtsService
             {
                 Logger.Info("Tts", "tts.speak.cancelled", new Dictionary<string, object?>
                 {
-                    ["speak_id"] = speakId
+                    ["speak_id"] = speakId,
+                    ["error_kind"] = TtsSpeakException.Cancelled,
+                    ["selection_mode"] = plan.SelectionMode,
+                    ["voice"] = plan.Voice
                 });
             }
         }
         catch (Exception ex)
         {
-            failure = ex;
+            failure = ex is TtsSpeakException
+                ? ex
+                : new TtsSpeakException(
+                    TtsSpeakException.Classify(ex, linked.Token),
+                    plan.SelectionMode,
+                    plan.Voice,
+                    attempt: 0,
+                    ex.Message,
+                    ex);
+
             if (IsCurrentSpeak(speakId, linked))
             {
+                var kind = failure is TtsSpeakException tse
+                    ? tse.ErrorKind
+                    : TtsSpeakException.Classify(failure, linked.Token);
+                var attempt = failure is TtsSpeakException tse2 ? tse2.Attempt : 0;
+                var voice = failure is TtsSpeakException tse3 ? tse3.Voice : plan.Voice;
                 Logger.Error("Tts", "tts.speak.failed", new Dictionary<string, object?>
                 {
                     ["speak_id"] = speakId,
-                    ["exception_type"] = ex.GetType().Name
-                }, ex);
+                    ["exception_type"] = failure.GetType().Name,
+                    ["error_kind"] = kind,
+                    ["voice"] = voice,
+                    ["text_len"] = plan.Text.Length,
+                    ["attempt"] = attempt,
+                    ["selection_mode"] = plan.SelectionMode
+                }, failure);
             }
         }
         finally
@@ -206,39 +267,156 @@ public sealed class EdgeTtsService : ITtsService
         });
     }
 
+    private async Task<(byte[] Audio, int AttemptUsed, TtsTextSelector.SpeakPlan FinalPlan)> SynthesizeWithPolicyAsync(
+        TtsTextSelector.SpeakPlan plan,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var (audio, attempt) = await SynthesizeWithRetriesAsync(plan, cancellationToken).ConfigureAwait(false);
+            return (audio, attempt, plan);
+        }
+        catch (TtsSpeakException ex)
+            when (TtsSpeakException.ShouldFallbackToXiaoxiao(
+                plan.SelectionMode,
+                plan.LanguageHint,
+                plan.Voice,
+                ex.ErrorKind))
+        {
+            var fallback = TtsTextSelector.WithFallbackVoice(plan, TtsTextSelector.VoiceXiaoxiao);
+            Logger.Info("Tts", "tts.speak.voice_fallback", new Dictionary<string, object?>
+            {
+                ["from"] = plan.Voice,
+                ["to"] = fallback.Voice,
+                ["lang"] = plan.LanguageHint,
+                ["reason"] = TtsSpeakException.EmptyAudio,
+                ["selection_mode"] = plan.SelectionMode
+            });
+
+            var (audio, attempt) = await SynthesizeWithRetriesAsync(fallback, cancellationToken).ConfigureAwait(false);
+            return (audio, attempt, fallback);
+        }
+    }
+
+    private async Task<(byte[] Audio, int AttemptUsed)> SynthesizeWithRetriesAsync(
+        TtsTextSelector.SpeakPlan plan,
+        CancellationToken cancellationToken)
+    {
+        Exception? last = null;
+        string lastKind = TtsSpeakException.Protocol;
+
+        for (var attempt = 1; attempt <= MaxAttemptsPerVoice; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var audio = await _client.SynthesizeAsync(plan.Text, plan.Voice, plan.Rate, cancellationToken)
+                    .ConfigureAwait(false);
+                if (audio.Length == 0)
+                    throw new InvalidOperationException("Empty audio payload.");
+                return (audio, attempt);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                lastKind = TtsSpeakException.Classify(ex, cancellationToken);
+                if (lastKind == TtsSpeakException.Cancelled || cancellationToken.IsCancellationRequested)
+                    throw;
+
+                var retryable = TtsSpeakException.IsRetryable(lastKind) && attempt < MaxAttemptsPerVoice;
+                if (retryable)
+                {
+                    Logger.Info("Tts", "tts.speak.retry", new Dictionary<string, object?>
+                    {
+                        ["attempt"] = attempt,
+                        ["error_kind"] = lastKind,
+                        ["voice"] = plan.Voice,
+                        ["selection_mode"] = plan.SelectionMode,
+                        ["text_len"] = plan.Text.Length
+                    });
+
+                    var delayMs = Random.Shared.Next(RetryDelayMinMs, RetryDelayMaxMs + 1);
+                    try
+                    {
+                        await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+
+                    continue;
+                }
+
+                throw new TtsSpeakException(
+                    lastKind,
+                    plan.SelectionMode,
+                    plan.Voice,
+                    attempt,
+                    ex.Message,
+                    ex);
+            }
+        }
+
+        throw new TtsSpeakException(
+            lastKind,
+            plan.SelectionMode,
+            plan.Voice,
+            MaxAttemptsPerVoice,
+            last?.Message ?? "TTS synthesize failed.",
+            last);
+    }
+
     private bool IsCurrentSpeak(long speakId, CancellationTokenSource linked)
     {
         lock (_gate)
             return !_disposed && speakId == Volatile.Read(ref _speakId) && ReferenceEquals(_speakCts, linked);
     }
 
-    private async Task PlayFileAsync(string path, CancellationToken cancellationToken)
+    private async Task PlayFileAsync(string path, string selectionMode, string voice, CancellationToken cancellationToken)
     {
-        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var endedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var openedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         await _dispatcher.InvokeAsync(() =>
         {
             _player ??= new MediaPlayer();
 
-            void OnEnded(object? sender, EventArgs e)
+            void CleanupHandlers()
             {
+                _player.MediaOpened -= OnOpened;
                 _player.MediaEnded -= OnEnded;
                 _player.MediaFailed -= OnFailed;
-                tcs.TrySetResult();
+            }
+
+            void OnOpened(object? sender, EventArgs e)
+            {
+                _player.MediaOpened -= OnOpened;
+                openedTcs.TrySetResult();
+            }
+
+            void OnEnded(object? sender, EventArgs e)
+            {
+                CleanupHandlers();
+                endedTcs.TrySetResult();
             }
 
             void OnFailed(object? sender, ExceptionEventArgs e)
             {
-                _player.MediaEnded -= OnEnded;
-                _player.MediaFailed -= OnFailed;
-                tcs.TrySetException(
-                    e.ErrorException ?? new InvalidOperationException("Media playback failed."));
+                CleanupHandlers();
+                var error = e.ErrorException ?? new InvalidOperationException("Media playback failed.");
+                openedTcs.TrySetException(error);
+                endedTcs.TrySetException(error);
             }
 
+            _player.MediaOpened += OnOpened;
             _player.MediaEnded += OnEnded;
             _player.MediaFailed += OnFailed;
             _player.Open(new Uri(path, UriKind.Absolute));
-            _player.Play();
         });
 
         using (cancellationToken.Register(() =>
@@ -248,10 +426,75 @@ public sealed class EdgeTtsService : ITtsService
                 try { _player?.Stop(); }
                 catch { /* ignore */ }
             });
-            tcs.TrySetCanceled(cancellationToken);
+            openedTcs.TrySetCanceled(cancellationToken);
+            endedTcs.TrySetCanceled(cancellationToken);
         }))
         {
-            await tcs.Task.ConfigureAwait(false);
+            try
+            {
+                var openCompleted = await Task.WhenAny(
+                        openedTcs.Task,
+                        Task.Delay(MediaOpenTimeoutMs, cancellationToken))
+                    .ConfigureAwait(false);
+
+                if (openCompleted != openedTcs.Task)
+                {
+                    throw new TtsSpeakException(
+                        TtsSpeakException.Playback,
+                        selectionMode,
+                        voice,
+                        attempt: 0,
+                        "Media open timed out.");
+                }
+
+                await openedTcs.Task.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (TtsSpeakException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new TtsSpeakException(
+                    TtsSpeakException.Playback,
+                    selectionMode,
+                    voice,
+                    attempt: 0,
+                    ex.Message,
+                    ex);
+            }
+
+            await _dispatcher.InvokeAsync(() =>
+            {
+                try { _player?.Play(); }
+                catch (Exception ex)
+                {
+                    endedTcs.TrySetException(ex);
+                }
+            });
+
+            try
+            {
+                await endedTcs.Task.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is not TtsSpeakException)
+            {
+                throw new TtsSpeakException(
+                    TtsSpeakException.Playback,
+                    selectionMode,
+                    voice,
+                    attempt: 0,
+                    ex.Message,
+                    ex);
+            }
         }
     }
 
@@ -300,3 +543,5 @@ public sealed class EdgeTtsService : ITtsService
             throw new ObjectDisposedException(nameof(EdgeTtsService));
     }
 }
+
+

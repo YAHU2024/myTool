@@ -1,4 +1,4 @@
-﻿using System.Net.WebSockets;
+using System.Net.WebSockets;
 using System.Text;
 using QuickTranslate.Services;
 using Xunit;
@@ -71,7 +71,37 @@ public sealed class EdgeTtsClientTests
         Assert.Equal(2, session.SentMessages.Count);
         Assert.Contains("Path:speech.config", session.SentMessages[0]);
         Assert.Contains("Path:ssml", session.SentMessages[1]);
+        Assert.Contains("xml:lang='en-US'", session.SentMessages[1]);
         Assert.Contains("&lt;", TtsTextSelector.EscapeSsml("<"));
+    }
+
+    [Fact]
+    public async Task SynthesizeAsync_ChineseVoice_UsesZhCnSsmlLang()
+    {
+        var audioPayload = BuildAudioBinary("FAKEMP3");
+        var session = new FakeSession(new[]
+        {
+            (true, audioPayload),
+            (false, Encoding.UTF8.GetBytes("Path:turn.end\r\n"))
+        });
+
+        var client = new EdgeTtsClient((_, _, _) => Task.FromResult<IEdgeTtsSession>(session));
+        await client.SynthesizeAsync("你好", TtsTextSelector.VoiceXiaoxiao, 1.0, CancellationToken.None);
+        Assert.Contains("xml:lang='zh-CN'", session.SentMessages[1]);
+        Assert.Contains(TtsTextSelector.VoiceXiaoxiao, session.SentMessages[1]);
+    }
+
+    [Fact]
+    public async Task SynthesizeAsync_EmptyAudio_ThrowsInvalidOperation()
+    {
+        var session = new FakeSession(new[]
+        {
+            (false, Encoding.UTF8.GetBytes("Path:turn.end\r\n"))
+        });
+        var client = new EdgeTtsClient((_, _, _) => Task.FromResult<IEdgeTtsSession>(session));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.SynthesizeAsync("hello", TtsTextSelector.VoiceJenny, 1.0, CancellationToken.None));
+        Assert.Contains("empty", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -83,6 +113,33 @@ public sealed class EdgeTtsClientTests
         cts.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             client.SynthesizeAsync("hello", TtsTextSelector.VoiceJenny, 1.0, cts.Token));
+    }
+
+    [Fact]
+    public async Task SessionFactory_FirstFailSecondSuccess_CanRecoverAtCaller()
+    {
+        var audioPayload = BuildAudioBinary("OKAUDIO");
+        var calls = 0;
+        var client = new EdgeTtsClient((_, _, _) =>
+        {
+            calls++;
+            if (calls == 1)
+                throw new WebSocketException("transient");
+
+            IEdgeTtsSession session = new FakeSession(new[]
+            {
+                (true, audioPayload),
+                (false, Encoding.UTF8.GetBytes("Path:turn.end\r\n"))
+            });
+            return Task.FromResult(session);
+        });
+
+        await Assert.ThrowsAsync<WebSocketException>(() =>
+            client.SynthesizeAsync("hello", TtsTextSelector.VoiceJenny, 1.0, CancellationToken.None));
+
+        var bytes = await client.SynthesizeAsync("hello", TtsTextSelector.VoiceJenny, 1.0, CancellationToken.None);
+        Assert.Equal(Encoding.ASCII.GetBytes("OKAUDIO"), bytes);
+        Assert.Equal(2, calls);
     }
 
     private static byte[] BuildAudioBinary(string audioText)

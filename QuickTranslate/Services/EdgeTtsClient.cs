@@ -47,26 +47,33 @@ public sealed class EdgeTtsClient
         timeoutCts.CancelAfter(DefaultTimeoutMs);
         var ct = timeoutCts.Token;
 
-        var cleaned = TtsTextSelector.NormalizeForSpeech(text, maxChars: 0, out _);
-        if (string.IsNullOrWhiteSpace(cleaned))
-            throw new InvalidOperationException("No speakable text after normalization.");
-
-        var escaped = TtsTextSelector.EscapeSsml(cleaned);
-        var chunks = SplitUtf8ByByteLength(escaped, MaxSsmlTextBytes);
-        using var audio = new MemoryStream();
-
-        foreach (var chunk in chunks)
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            var part = await SynthesizeChunkAsync(voice, chunk, rate, ct).ConfigureAwait(false);
-            if (part.Length > 0)
-                await audio.WriteAsync(part, ct).ConfigureAwait(false);
+            var cleaned = TtsTextSelector.NormalizeForSpeech(text, maxChars: 0, out _);
+            if (string.IsNullOrWhiteSpace(cleaned))
+                throw new InvalidOperationException("No speakable text after normalization.");
+
+            var escaped = TtsTextSelector.EscapeSsml(cleaned);
+            var chunks = SplitUtf8ByByteLength(escaped, MaxSsmlTextBytes);
+            using var audio = new MemoryStream();
+
+            foreach (var chunk in chunks)
+            {
+                ct.ThrowIfCancellationRequested();
+                var part = await SynthesizeChunkAsync(voice, chunk, rate, ct).ConfigureAwait(false);
+                if (part.Length > 0)
+                    await audio.WriteAsync(part, ct).ConfigureAwait(false);
+            }
+
+            if (audio.Length == 0)
+                throw new InvalidOperationException("Edge TTS returned empty audio.");
+
+            return audio.ToArray();
         }
-
-        if (audio.Length == 0)
-            throw new InvalidOperationException("Edge TTS returned empty audio.");
-
-        return audio.ToArray();
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("Edge TTS synthesize timed out.");
+        }
     }
 
     internal static string GenerateSecMsGec(DateTimeOffset utcNow, double clockSkewSeconds = 0)
@@ -327,3 +334,4 @@ internal sealed class ClientWebSocketEdgeTtsSession : IEdgeTtsSession
         }
     }
 }
+

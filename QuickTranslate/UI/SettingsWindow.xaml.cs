@@ -144,11 +144,11 @@ namespace QuickTranslate.UI
             TtsEnabledCheckBox.IsChecked = _settings.TtsEnabled;
             TtsVoiceComboBox.ItemsSource = new[]
             {
-                new { Value = "", Name = "自动" },
-                new { Value = "zh-CN-XiaoxiaoNeural", Name = "晓晓" },
-                new { Value = "zh-CN-YunxiNeural", Name = "云希" },
-                new { Value = "en-US-JennyNeural", Name = "Jenny" },
-                new { Value = "en-US-GuyNeural", Name = "Guy" }
+                new { Value = "", Name = "自动（按文本语言）" },
+                new { Value = "zh-CN-XiaoxiaoNeural", Name = "晓晓（中文）" },
+                new { Value = "zh-CN-YunxiNeural", Name = "云希（中文）" },
+                new { Value = "en-US-JennyNeural", Name = "Jenny（英文）" },
+                new { Value = "en-US-GuyNeural", Name = "Guy（英文）" }
             };
             TtsVoiceComboBox.DisplayMemberPath = "Name";
             TtsVoiceComboBox.SelectedValuePath = "Value";
@@ -855,3 +855,4 @@ namespace QuickTranslate.UI
         private sealed record AnalysisPromptChoice(string Id, string Name, bool IsBuiltIn);
     }
 }
+

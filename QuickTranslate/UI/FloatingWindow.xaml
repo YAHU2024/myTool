@@ -177,7 +177,16 @@
                         <Ellipse x:Name="LoadingDotThree" Width="4" Height="4" Fill="#B7C5FF" Margin="1"/>
                     </StackPanel>
                 </Border>
-                <Button x:Name="ResumeScrollButton" Grid.Row="1" HorizontalAlignment="Right" Margin="0,4,0,0" Padding="6,2" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="自动滚动已暂停" ToolTip="恢复自动滚动" Visibility="Collapsed" Click="ResumeScrollButton_Click"/>
+                <Border x:Name="StatusMessageBar" Grid.Row="1" Margin="0,6,0,0" CornerRadius="4" Padding="8,4" Visibility="Collapsed" Background="#2A3348">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="StatusMessageText" Grid.Column="0" FontFamily="Microsoft YaHei UI" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="#B7C5FF" Text=""/>
+                        <Button x:Name="StatusMessageActionButton" Grid.Column="1" Margin="8,0,0,0" Padding="6,1" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="" Visibility="Collapsed" Click="StatusMessageActionButton_Click"/>
+                    </Grid>
+                </Border>
                 <Button x:Name="ExpandMarkdownButton" Grid.Row="2" HorizontalAlignment="Right" Margin="0,4,0,0" Padding="6,2" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="展开全文" ToolTip="渲染完整结果" Visibility="Collapsed" Click="ExpandMarkdownButton_Click"/>
             </Grid>
         </Grid>

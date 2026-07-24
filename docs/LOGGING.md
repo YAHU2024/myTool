@@ -377,14 +377,20 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 
 自动化测试不能替代以下 Windows 桌面验证：托盘入口、日志窗口关闭/重开、日志刷新、真实文件轮转、设置即时生效、文件占用以及混合 DPI 下的窗口显示。
 
-## TTS events (Phase 14)
+## TTS events (Phase 14 / 14.1)
 
 | Event | Level | Context keys (no text body) |
 |------|-------|-----------------------------|
-| tts.speak.started | Info | text_len, voice, rate, speak_id, language_hint |
-| tts.speak.completed | Info | duration_ms, speak_id, audio_bytes |
-| tts.speak.cancelled | Info | speak_id |
-| tts.speak.failed | Error | speak_id, exception_type |
+| tts.speak.started | Info | text_len, voice, rate, speak_id, language_hint, selection_mode, voice_source |
+| tts.speak.completed | Info | duration_ms, speak_id, audio_bytes, attempt, voice, voice_source, selection_mode |
+| tts.speak.cancelled | Info | speak_id, error_kind, selection_mode, voice |
+| tts.speak.failed | Error | speak_id, exception_type, error_kind, voice, text_len, attempt, selection_mode |
+| tts.speak.retry | Info | attempt, error_kind, voice, selection_mode, text_len |
+| tts.speak.voice_fallback | Info | from, to, lang, reason, selection_mode |
 | tts.speak.truncated | Warn | text_len, max_chars |
+
+`error_kind` values: `empty_audio`, `websocket`, `timeout`, `cancelled`, `protocol`, `playback`.
+
+`selection_mode`: `auto` | `manual`. `voice_source`: `auto` | `user` | `fallback`.
 
 Never log SSML, spoken text, tokens, cookies, or absolute temp paths.
