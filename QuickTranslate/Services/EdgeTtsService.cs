@@ -257,14 +257,14 @@ public sealed class EdgeTtsService : ITtsService
             return;
         _disposed = true;
         await StopAsync().ConfigureAwait(false);
-        await _dispatcher.InvokeAsync(() =>
+        await RunOnDispatcherAsync(() =>
         {
             if (_player is null)
                 return;
             try { _player.Close(); }
             catch { /* ignore */ }
             _player = null;
-        });
+        }).ConfigureAwait(false);
     }
 
     private async Task<(byte[] Audio, int AttemptUsed, TtsTextSelector.SpeakPlan FinalPlan)> SynthesizeWithPolicyAsync(
@@ -382,7 +382,7 @@ public sealed class EdgeTtsService : ITtsService
         var endedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var openedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await _dispatcher.InvokeAsync(() =>
+        await RunOnDispatcherAsync(() =>
         {
             _player ??= new MediaPlayer();
 
@@ -421,7 +421,7 @@ public sealed class EdgeTtsService : ITtsService
 
         using (cancellationToken.Register(() =>
         {
-            _ = _dispatcher.InvokeAsync(() =>
+            _ = RunOnDispatcherAsync(() =>
             {
                 try { _player?.Stop(); }
                 catch { /* ignore */ }
@@ -468,14 +468,14 @@ public sealed class EdgeTtsService : ITtsService
                     ex);
             }
 
-            await _dispatcher.InvokeAsync(() =>
+            await RunOnDispatcherAsync(() =>
             {
                 try { _player?.Play(); }
                 catch (Exception ex)
                 {
                     endedTcs.TrySetException(ex);
                 }
-            });
+            }).ConfigureAwait(false);
 
             try
             {
@@ -499,7 +499,7 @@ public sealed class EdgeTtsService : ITtsService
     }
 
     private Task StopPlaybackCoreAsync() =>
-        _dispatcher.InvokeAsync(() =>
+        RunOnDispatcherAsync(() =>
         {
             if (_player is null)
                 return;
@@ -507,7 +507,36 @@ public sealed class EdgeTtsService : ITtsService
             catch { /* ignore */ }
             try { _player.Close(); }
             catch { /* ignore */ }
-        }).Task;
+        });
+
+    /// <summary>
+    /// Run media work on the WPF dispatcher without deadlocking when the caller
+    /// already owns that dispatcher (e.g. App.OnExit sync-over-async dispose).
+    /// </summary>
+    private Task RunOnDispatcherAsync(Action action)
+    {
+        if (_dispatcher.CheckAccess())
+        {
+            action();
+            return Task.CompletedTask;
+        }
+
+        return _dispatcher.InvokeAsync(action).Task;
+    }
+
+    /// <summary>
+    /// Test seam: same reentrancy rule as production media marshaling.
+    /// </summary>
+    internal static Task RunOnDispatcherForTestsAsync(Dispatcher dispatcher, Action action)
+    {
+        if (dispatcher.CheckAccess())
+        {
+            action();
+            return Task.CompletedTask;
+        }
+
+        return dispatcher.InvokeAsync(action).Task;
+    }
 
     private static string CreateTempAudioPath()
     {

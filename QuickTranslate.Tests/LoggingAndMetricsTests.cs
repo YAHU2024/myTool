@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json;
 using QuickTranslate.Core;
 using QuickTranslate.Helpers;
@@ -76,6 +77,23 @@ public sealed class LoggingAndMetricsTests
         Assert.Contains("InvalidOperationException", json, StringComparison.Ordinal);
         Assert.DoesNotContain(secret, json, StringComparison.Ordinal);
         Assert.DoesNotContain("Bearer", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void WriteShutdownTrace_DoesNotThrowAndAppendsStage()
+    {
+        var stage = "test.shutdown.breadcrumb";
+        var detail = "thread_id=1";
+        var exception = Record.Exception(() => Logger.WriteShutdownTrace(stage, detail));
+        Assert.Null(exception);
+
+        var path = Path.Combine(Logger.LogDirectory, "shutdown-trace.log");
+        if (!File.Exists(path))
+            return; // best-effort helper may no-op if directory unwritable
+
+        var content = File.ReadAllText(path);
+        Assert.Contains(stage, content, StringComparison.Ordinal);
+        Assert.Contains(detail, content, StringComparison.Ordinal);
     }
 
     [Fact]
