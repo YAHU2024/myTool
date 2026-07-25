@@ -42,6 +42,7 @@ namespace QuickTranslate.Helpers
                             1024L * 1024 * 1024);
                         using var document = JsonDocument.Parse(json);
                         var shouldSave = MigratePromptSettings(settings, document.RootElement);
+                        shouldSave |= MigrateTranslationTriggerMode(settings, document.RootElement);
                         if (shouldSave)
                             Save(settings);
                         return settings;
@@ -132,6 +133,138 @@ namespace QuickTranslate.Helpers
             }
 
             return changed;
+        }
+
+        /// <summary>
+        /// 将旧 TranslationEnabled/HotKeyEnabled 迁移为 TranslationTriggerMode，并规范化新字段。
+        /// </summary>
+        internal static bool MigrateTranslationTriggerMode(AppSettings settings, JsonElement root)
+        {
+            var changed = false;
+            var hasMode = root.TryGetProperty("TranslationTriggerMode", out var modeElement);
+            var hasLastActive = root.TryGetProperty("LastActiveTranslationTriggerMode", out var lastActiveElement);
+
+            if (hasMode)
+            {
+                if (TryReadTriggerMode(modeElement, out var parsedMode))
+                {
+                    var normalized = TranslationTriggerModes.Normalize(parsedMode);
+                    if (settings.TranslationTriggerMode != normalized)
+                    {
+                        settings.TranslationTriggerMode = normalized;
+                        changed = true;
+                    }
+                }
+                else
+                {
+                    settings.TranslationTriggerMode = TranslationTriggerMode.Both;
+                    changed = true;
+                }
+            }
+            else
+            {
+                var translationEnabled = ReadBoolProperty(root, "TranslationEnabled", defaultValue: true);
+                var hotKeyEnabled = ReadBoolProperty(root, "HotKeyEnabled", defaultValue: true);
+                var migrated = translationEnabled
+                    ? (hotKeyEnabled ? TranslationTriggerMode.Both : TranslationTriggerMode.SelectionOnly)
+                    : TranslationTriggerMode.Off;
+
+                settings.TranslationTriggerMode = migrated;
+                changed = true;
+
+                if (!hasLastActive)
+                {
+                    var migratedLastActive = translationEnabled
+                        ? migrated
+                        : (hotKeyEnabled ? TranslationTriggerMode.Both : TranslationTriggerMode.SelectionOnly);
+                    settings.LastActiveTranslationTriggerMode =
+                        TranslationTriggerModes.NormalizeActive(migratedLastActive);
+                }
+            }
+
+            if (hasLastActive)
+            {
+                if (TryReadTriggerMode(lastActiveElement, out var parsedLastActive))
+                {
+                    var normalizedLastActive = TranslationTriggerModes.NormalizeActive(parsedLastActive);
+                    if (settings.LastActiveTranslationTriggerMode != normalizedLastActive)
+                    {
+                        settings.LastActiveTranslationTriggerMode = normalizedLastActive;
+                        changed = true;
+                    }
+                }
+                else
+                {
+                    settings.LastActiveTranslationTriggerMode =
+                        settings.TranslationTriggerMode == TranslationTriggerMode.Off
+                            ? TranslationTriggerMode.Both
+                            : TranslationTriggerModes.NormalizeActive(settings.TranslationTriggerMode);
+                    changed = true;
+                }
+            }
+            else if (hasMode)
+            {
+                settings.LastActiveTranslationTriggerMode =
+                    settings.TranslationTriggerMode == TranslationTriggerMode.Off
+                        ? TranslationTriggerMode.Both
+                        : TranslationTriggerModes.NormalizeActive(settings.TranslationTriggerMode);
+                changed = true;
+            }
+
+            var finalLastActive = TranslationTriggerModes.NormalizeActive(settings.LastActiveTranslationTriggerMode);
+            if (settings.LastActiveTranslationTriggerMode != finalLastActive)
+            {
+                settings.LastActiveTranslationTriggerMode = finalLastActive;
+                changed = true;
+            }
+
+            var finalMode = TranslationTriggerModes.Normalize(settings.TranslationTriggerMode);
+            if (settings.TranslationTriggerMode != finalMode)
+            {
+                settings.TranslationTriggerMode = finalMode;
+                changed = true;
+            }
+
+            return changed;
+        }
+
+        private static bool ReadBoolProperty(JsonElement root, string name, bool defaultValue)
+        {
+            if (!root.TryGetProperty(name, out var element))
+                return defaultValue;
+            return element.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.String when bool.TryParse(element.GetString(), out var parsed) => parsed,
+                _ => defaultValue
+            };
+        }
+
+        private static bool TryReadTriggerMode(JsonElement element, out TranslationTriggerMode mode)
+        {
+            mode = TranslationTriggerMode.Both;
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Number when element.TryGetInt32(out var number):
+                    if (Enum.IsDefined(typeof(TranslationTriggerMode), number))
+                    {
+                        mode = (TranslationTriggerMode)number;
+                        return true;
+                    }
+                    return false;
+                case JsonValueKind.String:
+                    var text = element.GetString();
+                    if (Enum.TryParse<TranslationTriggerMode>(text, ignoreCase: true, out var parsed) &&
+                        TranslationTriggerModes.IsDefined(parsed))
+                    {
+                        mode = parsed;
+                        return true;
+                    }
+                    return false;
+                default:
+                    return false;
+            }
         }
     }
 }

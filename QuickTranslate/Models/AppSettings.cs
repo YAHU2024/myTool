@@ -92,11 +92,15 @@ namespace QuickTranslate.Models
             "Tiếng Việt",
             "ไทย"
         };
+        /// <summary>
+        /// 翻译触发模式（划词圆点 / 快捷键 / 全部关闭）。
+        /// </summary>
+        public TranslationTriggerMode TranslationTriggerMode { get; set; } = TranslationTriggerMode.Both;
 
         /// <summary>
-        /// 是否启用翻译功能
+        /// 托盘恢复翻译时回到的上次活动模式（不允许 Off）。
         /// </summary>
-        public bool TranslationEnabled { get; set; } = true;
+        public TranslationTriggerMode LastActiveTranslationTriggerMode { get; set; } = TranslationTriggerMode.Both;
 
         /// <summary>
         /// 是否开机自启
@@ -109,11 +113,6 @@ namespace QuickTranslate.Models
         public List<SavedConfig> SavedConfigs { get; set; } = new();
 
         // ==================== 第四期：体验优化 ====================
-
-        /// <summary>
-        /// 是否启用快捷键
-        /// </summary>
-        public bool HotKeyEnabled { get; set; } = true;
 
         /// <summary>
         /// 快捷键虚拟键码（默认 Q = 0x51）

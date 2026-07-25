@@ -14,9 +14,7 @@ namespace QuickTranslate.UI
         private readonly ContextMenuStrip _contextMenu;
         private readonly System.Windows.Forms.Timer _singleClickTimer;
         private readonly ToolStripMenuItem _pauseResumeItem;
-        private readonly ToolStripMenuItem _hotKeyToggleItem;
         private bool _isPaused;
-        private bool _isHotKeyEnabled = true;
         private bool _disposed;
 
         /// <summary>
@@ -39,11 +37,6 @@ namespace QuickTranslate.UI
         public event Action<bool>? PauseToggled;
 
         /// <summary>
-        /// 用户点击"启用/禁用快捷键"
-        /// </summary>
-        public event Action<bool>? HotKeyToggled;
-
-        /// <summary>
         /// 用户点击"退出"
         /// </summary>
         public event Action? ExitRequested;
@@ -63,19 +56,7 @@ namespace QuickTranslate.UI
             _pauseResumeItem = new ToolStripMenuItem("暂停翻译");
             _pauseResumeItem.Click += (s, e) =>
             {
-                _isPaused = !_isPaused;
-                _pauseResumeItem.Text = _isPaused ? "恢复翻译" : "暂停翻译";
-                PauseToggled?.Invoke(_isPaused);
-            };
-
-            _hotKeyToggleItem = new ToolStripMenuItem("启用快捷键");
-            _hotKeyToggleItem.CheckOnClick = true;
-            _hotKeyToggleItem.Checked = true;
-            _hotKeyToggleItem.Click += (s, e) =>
-            {
-                _isHotKeyEnabled = _hotKeyToggleItem.Checked;
-                _hotKeyToggleItem.Text = _isHotKeyEnabled ? "启用快捷键" : "禁用快捷键";
-                HotKeyToggled?.Invoke(_isHotKeyEnabled);
+                SetPaused(!_isPaused, raiseEvent: true);
             };
 
             var settingsItem = new ToolStripMenuItem("设置");
@@ -94,7 +75,6 @@ namespace QuickTranslate.UI
             _contextMenu.Items.Add(historyItem);
             _contextMenu.Items.Add(logsItem);
             _contextMenu.Items.Add(new ToolStripSeparator());
-            _contextMenu.Items.Add(_hotKeyToggleItem);
             _contextMenu.Items.Add(_pauseResumeItem);
             _contextMenu.Items.Add(new ToolStripSeparator());
             _contextMenu.Items.Add(exitItem);
@@ -185,13 +165,19 @@ namespace QuickTranslate.UI
         }
 
         /// <summary>
-        /// 设置快捷键开关状态（外部同步）
+        /// 同步暂停/恢复菜单文案（不触发事件）。
         /// </summary>
-        public void SetHotKeyEnabled(bool enabled)
+        public void SetPaused(bool isPaused)
         {
-            _isHotKeyEnabled = enabled;
-            _hotKeyToggleItem.Checked = enabled;
-            _hotKeyToggleItem.Text = enabled ? "启用快捷键" : "禁用快捷键";
+            SetPaused(isPaused, raiseEvent: false);
+        }
+
+        private void SetPaused(bool isPaused, bool raiseEvent)
+        {
+            _isPaused = isPaused;
+            _pauseResumeItem.Text = _isPaused ? "恢复翻译" : "暂停翻译";
+            if (raiseEvent)
+                PauseToggled?.Invoke(_isPaused);
         }
 
         /// <summary>
