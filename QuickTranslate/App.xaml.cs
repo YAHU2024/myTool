@@ -166,7 +166,7 @@ public partial class App : Application
         _keyboardHook.RequireCtrl = _settings.HotKeyRequireCtrl;
         _keyboardHook.RequireShift = _settings.HotKeyRequireShift;
         _keyboardHook.HotKeyPressed += OnHotKeyPressed;
-        if (_settings.HotKeyEnabled)
+        if (CanTriggerHotKey)
         {
             _keyboardHook.Start();
         }
@@ -184,11 +184,9 @@ public partial class App : Application
         _trayIcon.HistoryRequested += OnHistoryRequested;
         _trayIcon.LogsRequested += OnLogsRequested;
         _trayIcon.PauseToggled += OnPauseToggled;
-        _trayIcon.HotKeyToggled += OnHotKeyToggled;
         _trayIcon.ExitRequested += OnExitRequested;
 
-        // 根据配置初始化快捷键开关状态
-        _trayIcon.SetHotKeyEnabled(_settings.HotKeyEnabled);
+        _trayIcon.SetPaused(TranslationTriggerModes.IsPaused(_settings.TranslationTriggerMode));
 
         // 根据配置更新托盘提示
         UpdateTrayToolTip();
@@ -263,17 +261,18 @@ public partial class App : Application
         return false;
     }
 
-    /// <summary>
-    /// 检查翻译功能是否启用
-    /// </summary>
-    private bool IsTranslationEnabled => _settings?.TranslationEnabled ?? true;
+    private bool CanTriggerSelection => _settings is null ||
+        TranslationTriggerModes.CanTriggerSelection(_settings.TranslationTriggerMode);
+
+    private bool CanTriggerHotKey => _settings is null ||
+        TranslationTriggerModes.CanTriggerHotKey(_settings.TranslationTriggerMode);
 
     /// <summary>
     /// 热键事件处理（默认 Alt+Q）
     /// </summary>
     private async void OnHotKeyPressed()
     {
-        if (!IsTranslationEnabled) return;
+        if (!CanTriggerHotKey) return;
         if (_translationService == null || _settings == null || _floatingWindow == null)
             return;
 
@@ -349,7 +348,7 @@ public partial class App : Application
 
         try
         {
-            if (!IsTranslationEnabled) return;
+            if (!CanTriggerSelection) return;
             if (_redDotWindow == null) return;
 
             // 浏览器中禁用翻译：避免与浏览器翻译插件冲突
@@ -402,7 +401,7 @@ public partial class App : Application
     /// </summary>
     private async void OnRedDotHovered()
     {
-        if (!IsTranslationEnabled) return;
+        if (!CanTriggerSelection) return;
         if (_translationService == null || _settings == null || _floatingWindow == null)
             return;
 
@@ -893,25 +892,9 @@ public partial class App : Application
             settings.TtsRate,
             settings.TtsMaxChars);
 
-        // 更新快捷键配置（后台线程执行，避免钩子 Stop/Start 阻塞 UI）
-        if (_keyboardHook != null)
-        {
-            Task.Run(() =>
-            {
-                _keyboardHook.Stop();
-                _keyboardHook.HotKey = settings.HotKeyVK;
-                _keyboardHook.RequireAlt = settings.HotKeyRequireAlt;
-                _keyboardHook.RequireCtrl = settings.HotKeyRequireCtrl;
-                _keyboardHook.RequireShift = settings.HotKeyRequireShift;
-                if (settings.HotKeyEnabled)
-                {
-                    _keyboardHook.Start();
-                }
-            });
-        }
-
-        // 同步托盘菜单快捷键开关状态
-        _trayIcon?.SetHotKeyEnabled(settings.HotKeyEnabled);
+        OnSelectionCancelled();
+        ApplyHotKeyConfiguration(settings);
+        _trayIcon?.SetPaused(TranslationTriggerModes.IsPaused(settings.TranslationTriggerMode));
 
         UpdateTrayToolTip();
     }
@@ -963,37 +946,38 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// 快捷键开关切换
-    /// </summary>
-    private void OnHotKeyToggled(bool enabled)
-    {
-        _settings!.HotKeyEnabled = enabled;
-        ConfigManager.Save(_settings);
-
-        if (_keyboardHook != null)
-        {
-            if (enabled)
-            {
-                _keyboardHook.Start();
-                Logger.Info("App", "快捷键已启用");
-            }
-            else
-            {
-                _keyboardHook.Stop();
-                Logger.Info("App", "快捷键已禁用");
-            }
-        }
-    }
-
-    /// <summary>
     /// 暂停/恢复翻译
     /// </summary>
     private void OnPauseToggled(bool isPaused)
     {
-        _settings!.TranslationEnabled = !isPaused;
-        ConfigManager.Save(_settings);
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(() => OnPauseToggled(isPaused)));
+            return;
+        }
+
+        if (_settings is null)
+            return;
+
         if (isPaused)
+        {
+            var paused = TranslationTriggerModes.Pause(
+                _settings.TranslationTriggerMode,
+                _settings.LastActiveTranslationTriggerMode);
+            _settings.TranslationTriggerMode = paused.Mode;
+            _settings.LastActiveTranslationTriggerMode = paused.LastActive;
             CancelActiveTranslationRequest();
+            OnSelectionCancelled();
+        }
+        else
+        {
+            _settings.TranslationTriggerMode = TranslationTriggerModes.Resume(
+                _settings.LastActiveTranslationTriggerMode);
+        }
+
+        ConfigManager.Save(_settings);
+        ApplyHotKeyConfiguration(_settings);
+        _trayIcon?.SetPaused(TranslationTriggerModes.IsPaused(_settings.TranslationTriggerMode));
         UpdateTrayToolTip();
     }
 
@@ -1032,8 +1016,26 @@ public partial class App : Application
     private void UpdateTrayToolTip()
     {
         if (_trayIcon == null || _settings == null) return;
-        var status = _settings.TranslationEnabled ? "翻译已启用" : "翻译已暂停";
+        var status = TranslationTriggerModes.GetTrayStatusText(_settings.TranslationTriggerMode);
         _trayIcon.UpdateToolTip($"QuickTranslate - {status}");
+    }
+
+    private void ApplyHotKeyConfiguration(AppSettings settings)
+    {
+        if (_keyboardHook is null)
+            return;
+
+        var shouldEnableHotKey = TranslationTriggerModes.CanTriggerHotKey(settings.TranslationTriggerMode);
+        Task.Run(() =>
+        {
+            _keyboardHook.Stop();
+            _keyboardHook.HotKey = settings.HotKeyVK;
+            _keyboardHook.RequireAlt = settings.HotKeyRequireAlt;
+            _keyboardHook.RequireCtrl = settings.HotKeyRequireCtrl;
+            _keyboardHook.RequireShift = settings.HotKeyRequireShift;
+            if (shouldEnableHotKey)
+                _keyboardHook.Start();
+        });
     }
 
     /// <summary>

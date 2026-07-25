@@ -16,25 +16,7 @@ namespace QuickTranslate.UI
         private bool _isInitializing = true;
         private bool _isDirty = false;
         private bool _isApiKeyVisible = false;
-
-        // 原始值快照（用于取消回退）
-        private string _origApiBaseUrl = string.Empty;
-        private string _origApiKey = string.Empty;
-        private string _origModelName = string.Empty;
-        private string _origTargetLanguage = string.Empty;
-        private bool _origTranslationEnabled = true;
-        private bool _origAutoStart = false;
-        private bool _origAutoDetectLanguage = true;
-        private bool _origSmartContentType = false;
-        private string _origFallbackLanguage = "English";
-        private string _origCustomTranslationPrompt = string.Empty;
-        private byte _origHotKeyVK = 0x51;
-        private bool _origHotKeyRequireAlt = true;
-        private bool _origHotKeyRequireCtrl = false;
-        private bool _origHotKeyRequireShift = false;
-        private bool _origHotKeyEnabled = true;
-        private bool _origEnableInBrowser = true;
-        private string _origCustomBrowserProcesses = string.Empty;
+        private readonly bool _origAutoStart;
 
         private readonly List<AnalysisPromptProfile> _analysisPromptProfiles = new();
         private string _selectedAnalysisPromptId = AnalysisPromptCatalog.GeneralId;
@@ -47,34 +29,10 @@ namespace QuickTranslate.UI
         {
             _settings = settings;
             _onSettingsSaved = onSettingsSaved;
+            _origAutoStart = settings.AutoStart;
             InitializeComponent();
-            SaveOriginalSnapshot();
             LoadSettings();
             _isInitializing = false;
-        }
-
-        /// <summary>
-        /// 保存原始值快照（用于取消回退）
-        /// </summary>
-        private void SaveOriginalSnapshot()
-        {
-            _origApiBaseUrl = _settings.ApiBaseUrl;
-            _origApiKey = _settings.ApiKey;
-            _origModelName = _settings.ModelName;
-            _origTargetLanguage = _settings.TargetLanguage;
-            _origTranslationEnabled = _settings.TranslationEnabled;
-            _origAutoStart = _settings.AutoStart;
-            _origAutoDetectLanguage = _settings.AutoDetectLanguage;
-            _origSmartContentType = _settings.SmartContentType;
-            _origFallbackLanguage = _settings.FallbackLanguage;
-            _origCustomTranslationPrompt = _settings.CustomTranslationPrompt;
-            _origHotKeyVK = _settings.HotKeyVK;
-            _origHotKeyRequireAlt = _settings.HotKeyRequireAlt;
-            _origHotKeyRequireCtrl = _settings.HotKeyRequireCtrl;
-            _origHotKeyRequireShift = _settings.HotKeyRequireShift;
-            _origHotKeyEnabled = _settings.HotKeyEnabled;
-            _origEnableInBrowser = _settings.EnableInBrowser;
-            _origCustomBrowserProcesses = _settings.CustomBrowserProcesses;
         }
 
         private void LoadSettings()
@@ -91,8 +49,9 @@ namespace QuickTranslate.UI
             LanguageComboBox.ItemsSource = _settings.SupportedLanguages;
             LanguageComboBox.SelectedItem = _settings.TargetLanguage;
 
-            // 翻译开关
-            TranslationEnabledCheckBox.IsChecked = _settings.TranslationEnabled;
+            // 翻译触发方式
+            LoadTranslationTriggerModeComboBox();
+            TranslationTriggerModeComboBox.SelectedValue = TranslationTriggerModes.Normalize(_settings.TranslationTriggerMode);
 
             // 语言自动检测
             AutoDetectLanguageCheckBox.IsChecked = _settings.AutoDetectLanguage;
@@ -118,7 +77,6 @@ namespace QuickTranslate.UI
             AutoStartCheckBox.IsChecked = _settings.AutoStart;
 
             // 快捷键显示
-            HotKeyEnabledCheckBox.IsChecked = _settings.HotKeyEnabled;
             UpdateHotKeyDisplay();
 
             // 浏览器翻译开关
@@ -569,7 +527,12 @@ namespace QuickTranslate.UI
             if (LanguageComboBox.SelectedItem != null)
                 _settings.TargetLanguage = LanguageComboBox.SelectedItem.ToString() ?? _settings.TargetLanguage;
 
-            _settings.TranslationEnabled = TranslationEnabledCheckBox.IsChecked ?? true;
+            _settings.TranslationTriggerMode = TranslationTriggerModeComboBox.SelectedValue is TranslationTriggerMode selectedMode
+                ? TranslationTriggerModes.Normalize(selectedMode)
+                : TranslationTriggerMode.Both;
+            _settings.LastActiveTranslationTriggerMode = TranslationTriggerModes.RememberActiveIfNeeded(
+                _settings.TranslationTriggerMode,
+                _settings.LastActiveTranslationTriggerMode);
 
             _settings.AutoDetectLanguage = AutoDetectLanguageCheckBox.IsChecked ?? true;
 
@@ -588,8 +551,6 @@ namespace QuickTranslate.UI
             _settings.AnalysisPreset = _settings.SelectedAnalysisPromptId.StartsWith("builtin:", StringComparison.Ordinal)
                 ? _settings.SelectedAnalysisPromptId["builtin:".Length..]
                 : "general";
-
-            _settings.HotKeyEnabled = HotKeyEnabledCheckBox.IsChecked ?? true;
 
             _settings.EnableInBrowser = EnableInBrowserCheckBox.IsChecked ?? true;
             _settings.CustomBrowserProcesses = CustomBrowserProcessesTextBox.Text?.Trim() ?? string.Empty;
@@ -642,6 +603,32 @@ namespace QuickTranslate.UI
                 while (_settings.SavedConfigs.Count > 10)
                     _settings.SavedConfigs.RemoveAt(_settings.SavedConfigs.Count - 1);
             }
+        }
+
+        private void LoadTranslationTriggerModeComboBox()
+        {
+            TranslationTriggerModeComboBox.ItemsSource = new[]
+            {
+                new TranslationTriggerModeChoice(TranslationTriggerMode.Both),
+                new TranslationTriggerModeChoice(TranslationTriggerMode.SelectionOnly),
+                new TranslationTriggerModeChoice(TranslationTriggerMode.HotKeyOnly),
+                new TranslationTriggerModeChoice(TranslationTriggerMode.Off)
+            };
+            TranslationTriggerModeComboBox.DisplayMemberPath = nameof(TranslationTriggerModeChoice.Name);
+            TranslationTriggerModeComboBox.SelectedValuePath = nameof(TranslationTriggerModeChoice.Mode);
+        }
+
+        private sealed class TranslationTriggerModeChoice
+        {
+            public TranslationTriggerModeChoice(TranslationTriggerMode mode)
+            {
+                Mode = mode;
+                Name = TranslationTriggerModes.GetDisplayName(mode);
+            }
+
+            public TranslationTriggerMode Mode { get; }
+
+            public string Name { get; }
         }
 
         private bool ValidateAnalysisPromptProfiles()
