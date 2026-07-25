@@ -3,7 +3,7 @@
 ; 编译：ISCC QuickTranslate-setup-full.iss
 
 #define MyAppName "QuickTranslate"
-#define MyAppVersion "1.6.0"
+#define MyAppVersion "1.7.0"
 #define MyAppPublisher "YaHu"
 #define MyAppURL "https://github.com/YAHU2024/myTool"
 #define MyAppExeName "QuickTranslate.exe"
@@ -20,14 +20,14 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=..\publish\releases\v1.6.0
+OutputDir=..\publish\releases\v1.7.0
 OutputBaseFilename=QuickTranslate-Setup-{#MyAppVersion}-win-x64-full
 SetupIconFile=..\QuickTranslate\Assets\{#MyAppIcoName}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
-ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesInstallIn64BitMode=x64
 CloseApplications=force
 DisableWelcomePage=no
 VersionInfoDescription=完整自包含版（已内置 .NET 8 运行时，双击即用）
@@ -41,7 +41,7 @@ Name: "desktopicon"; Description: "创建桌面快捷方式(&D)"; GroupDescripti
 Name: "autostart"; Description: "开机自动运行(&A)"; GroupDescription: "启动选项:"; Flags: unchecked
 
 [Files]
-Source: "..\publish\source\v1.6.0-full\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\publish\source\v1.7.0-full\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\QuickTranslate\Assets\{#MyAppIcoName}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
