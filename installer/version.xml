@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<item>
+  <version>1.7.0</version>
+  <url>https://github.com/YAHU2024/myTool/releases/download/v1.7.0/QuickTranslate-Setup-1.7.0-win-x64-full.exe</url>
+  <changelog>https://github.com/YAHU2024/myTool/releases/tag/v1.7.0</changelog>
+  <args>/VERYSILENT /SUPPRESSMSGBOXES /NORESTART</args>
+  <checksum algorithm="SHA256">CCB47C121C73C1FC7CEC7229671709AEFEB710496F5E3A4662C8D5768ABB7822</checksum>
+  <mandatory>false</mandatory>
+</item>

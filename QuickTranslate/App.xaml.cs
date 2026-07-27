@@ -183,6 +183,8 @@ public partial class App : Application
         _trayIcon.RestoreRequested += OnRestoreRequested;
         _trayIcon.HistoryRequested += OnHistoryRequested;
         _trayIcon.LogsRequested += OnLogsRequested;
+        _trayIcon.UpdateRequested += OnUpdateRequested;
+        _trayIcon.BalloonTipClicked += OnUpdateBalloonClicked;
         _trayIcon.PauseToggled += OnPauseToggled;
         _trayIcon.ExitRequested += OnExitRequested;
 
@@ -218,6 +220,12 @@ public partial class App : Application
             Visibility = Visibility.Hidden
         };
         _hiddenWindow.Show();
+
+        // 启动时延迟检查更新（不阻塞初始化）
+        if (_settings.CheckForUpdateOnStartup)
+        {
+            ScheduleStartupUpdateCheck(delaySeconds: 5);
+        }
     }
 
     /// <summary>
@@ -932,6 +940,79 @@ public partial class App : Application
             _logViewerWindow.Closed += (_, _) => _logViewerWindow = null;
             _logViewerWindow.Show();
         });
+    }
+
+    /// <summary>
+    /// 托盘菜单"检查更新" — 手动检查，发现新版直接弹出更新对话框
+    /// </summary>
+    private void OnUpdateRequested()
+    {
+        Dispatcher.BeginInvoke(async () =>
+        {
+            var result = await UpdateService.CheckAsync(autoShowUpdateForm: true);
+            switch (result.Outcome)
+            {
+                case UpdateCheckOutcome.UpToDate:
+                    MessageBox.Show("当前已是最新版本。", "QuickTranslate 更新",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    break;
+                case UpdateCheckOutcome.Error:
+                    MessageBox.Show("检查更新失败，请确认网络连接后重试。", "QuickTranslate 更新",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    break;
+                case UpdateCheckOutcome.Timeout:
+                    MessageBox.Show("更新检查长时间无响应，请稍后重试。", "QuickTranslate 更新",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    break;
+                // UpdateAvailable: UpdateService 已弹出更新对话框
+                // Skipped: 已有检查在进行或更新窗口已打开，无需打扰
+            }
+        });
+    }
+
+    /// <summary>
+    /// 启动后延迟做一次静默更新检查。
+    /// 发现新版时只弹托盘气泡，不抢焦点；用户点击气泡才进入更新流程。
+    /// </summary>
+    private void ScheduleStartupUpdateCheck(int delaySeconds)
+    {
+        Task.Delay(TimeSpan.FromSeconds(delaySeconds)).ContinueWith(_ =>
+        {
+            try
+            {
+                Application.Current?.Dispatcher.BeginInvoke(async () =>
+                {
+                    try
+                    {
+                        var result = await UpdateService.CheckAsync(autoShowUpdateForm: false);
+                        if (result.Outcome == UpdateCheckOutcome.UpdateAvailable)
+                        {
+                            _trayIcon?.ShowBalloonTip(
+                                "QuickTranslate 更新",
+                                $"发现新版本 {result.NewVersion}，点击查看",
+                                System.Windows.Forms.ToolTipIcon.Info,
+                                duration: 8000);
+                        }
+                        // 其余结果静默处理，UpdateService 已记录日志
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn("Update", "update.startup_check_failed",
+                            new { error_type = ex.GetType().Name });
+                    }
+                });
+            }
+            catch { /* app may have exited */ }
+        }, TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// 用户点击了托盘气泡 — 目前气泡只用于更新提示，
+    /// 无待处理的新版本时 ShowUpdateFormForLastCheck 会返回 false 并静默忽略。
+    /// </summary>
+    private void OnUpdateBalloonClicked()
+    {
+        Dispatcher.BeginInvoke(() => UpdateService.ShowUpdateFormForLastCheck());
     }
 
     private void OnRestoreRequested()

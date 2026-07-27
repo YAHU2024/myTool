@@ -207,6 +207,13 @@ namespace QuickTranslate.Models
         /// </summary>
         public long LogMaxTotalBytes { get; set; } = 50 * 1024 * 1024;
 
+        // ==================== 自动更新 ====================
+
+        /// <summary>
+        /// 启动时自动检查更新
+        /// </summary>
+        public bool CheckForUpdateOnStartup { get; set; } = true;
+
         // ==================== Phase 14: TTS ====================
 
         /// <summary>

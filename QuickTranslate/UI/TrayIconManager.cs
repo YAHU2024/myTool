@@ -32,6 +32,16 @@ namespace QuickTranslate.UI
         public event Action? LogsRequested;
 
         /// <summary>
+        /// 用户点击"检查更新"
+        /// </summary>
+        public event Action? UpdateRequested;
+
+        /// <summary>
+        /// 用户点击了气泡通知本体（而非其关闭按钮）
+        /// </summary>
+        public event Action? BalloonTipClicked;
+
+        /// <summary>
         /// 用户点击"暂停/恢复翻译"
         /// </summary>
         public event Action<bool>? PauseToggled;
@@ -68,12 +78,16 @@ namespace QuickTranslate.UI
             var logsItem = new ToolStripMenuItem("日志查看");
             logsItem.Click += (s, e) => LogsRequested?.Invoke();
 
+            var updateItem = new ToolStripMenuItem("检查更新");
+            updateItem.Click += (s, e) => UpdateRequested?.Invoke();
+
             var exitItem = new ToolStripMenuItem("退出");
             exitItem.Click += (s, e) => ExitRequested?.Invoke();
 
             _contextMenu.Items.Add(settingsItem);
             _contextMenu.Items.Add(historyItem);
             _contextMenu.Items.Add(logsItem);
+            _contextMenu.Items.Add(updateItem);
             _contextMenu.Items.Add(new ToolStripSeparator());
             _contextMenu.Items.Add(_pauseResumeItem);
             _contextMenu.Items.Add(new ToolStripSeparator());
@@ -103,6 +117,8 @@ namespace QuickTranslate.UI
                 _singleClickTimer.Stop();
                 SettingsRequested?.Invoke();
             };
+
+            _notifyIcon.BalloonTipClicked += (_, _) => BalloonTipClicked?.Invoke();
         }
 
         /// <summary>

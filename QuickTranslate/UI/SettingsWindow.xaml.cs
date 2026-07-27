@@ -76,6 +76,9 @@ namespace QuickTranslate.UI
             // 开机自启
             AutoStartCheckBox.IsChecked = _settings.AutoStart;
 
+            // 自动检查更新
+            CheckUpdateOnStartupCheckBox.IsChecked = _settings.CheckForUpdateOnStartup;
+
             // 快捷键显示
             UpdateHotKeyDisplay();
 
@@ -584,6 +587,8 @@ namespace QuickTranslate.UI
                 SetAutoStart(autoStart);
             }
 
+            _settings.CheckForUpdateOnStartup = CheckUpdateOnStartupCheckBox.IsChecked ?? true;
+
             // 保存到已保存配置列表
             if (!string.IsNullOrWhiteSpace(model))
             {
@@ -808,6 +813,40 @@ namespace QuickTranslate.UI
                 System.Windows.Media.Color.FromRgb(0xE0, 0xE0, 0xE0)); // 白色
 
             this.PreviewKeyDown -= HotKeyCapture_KeyDown;
+        }
+
+        private async void CheckUpdateButton_Click(object sender, RoutedEventArgs e)
+        {
+            CheckUpdateButton.IsEnabled = false;
+            UpdateStatusText.Text = "正在检查…";
+
+            try
+            {
+                // 结果只回给本次调用，无静态事件订阅，因此窗口关闭后不会泄漏
+                var result = await UpdateService.CheckAsync(autoShowUpdateForm: true);
+                if (!IsLoaded) return; // 窗口已关闭，不再触碰 UI
+
+                UpdateStatusText.Text = result.Outcome switch
+                {
+                    UpdateCheckOutcome.UpToDate => "已是最新版本",
+                    UpdateCheckOutcome.UpdateAvailable => $"发现新版本 {result.NewVersion}",
+                    UpdateCheckOutcome.Error => "检查失败，请确认网络后重试",
+                    UpdateCheckOutcome.Timeout => "长时间无响应，请稍后重试",
+                    UpdateCheckOutcome.Skipped => "已有检查或更新窗口在进行中",
+                    _ => ""
+                };
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Update", "update.settings_check_failed",
+                    new { error_type = ex.GetType().Name });
+                if (IsLoaded) UpdateStatusText.Text = "检查失败，请稍后重试";
+            }
+            finally
+            {
+                // 无论走哪条分支按钮都会恢复，不存在卡在禁用态的可能
+                if (IsLoaded) CheckUpdateButton.IsEnabled = true;
+            }
         }
 
         /// <summary>

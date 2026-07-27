@@ -138,7 +138,43 @@ git push origin main --tags
 
 ---
 
-## 第五步：创建 GitHub Release
+## 第五步：更新 version.xml 并创建 GitHub Release
+
+### 5.0 更新 version.xml（自动更新依赖）
+
+先算出完整版安装包的 SHA256（供 `<checksum>` 使用）：
+
+```powershell
+(Get-FileHash publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-full.exe -Algorithm SHA256).Hash
+```
+
+再打开 `installer\version.xml`，把版本号、下载链接和校验和更新为新版本。**五个元素缺一不可**：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<item>
+  <version>1.7.0</version>
+  <url>https://github.com/YAHU2024/myTool/releases/download/v1.7.0/QuickTranslate-Setup-1.7.0-win-x64-full.exe</url>
+  <changelog>https://github.com/YAHU2024/myTool/releases/tag/v1.7.0</changelog>
+  <args>/VERYSILENT /SUPPRESSMSGBOXES /NORESTART</args>
+  <checksum algorithm="SHA256">上一步算出的哈希</checksum>
+  <mandatory>false</mandatory>
+</item>
+```
+
+> - `<version>` 必须与 `QuickTranslate.csproj` 的版本一致，否则 `UpdateServiceTests` 会失败。
+> - `<args>` 丢失会导致更新时弹出完整安装向导，而非静默安装。
+> - `<checksum>` 填错会让所有用户更新失败（AutoUpdater 报 "Checksum differs"），
+>   务必用上一步的输出，且对应的是**完整版**（`-full.exe`）安装包。
+> - `<url>` 指向完整版，是为了避免目标机器缺 .NET 8 运行时导致更新后启动失败。
+
+改完跑一次 `dotnet test QuickTranslate.Tests\QuickTranslate.Tests.csproj` 验证这些约束。
+
+> 此文件作为 Release 附件上传后，已安装用户的应用会通过
+> `https://github.com/YAHU2024/myTool/releases/latest/download/version.xml`
+> 自动检测到新版本。**该地址只解析被标记为 Latest 的 Release**，所以：
+> 预发布（pre-release）不会被识别；若某次 Release 漏传 `version.xml`，
+> 在下一次补传之前所有用户的检查都会提示"检查更新失败"。
 
 ### 5.1 使用 gh CLI 创建
 
@@ -151,7 +187,8 @@ gh release create v$ver `
   publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.exe `
   publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-full.exe `
   publish\releases\v$ver\QuickTranslate-v$ver-win-x64.zip `
-  publish\releases\v$ver\QuickTranslate-v$ver-win-x64-full.zip
+  publish\releases\v$ver\QuickTranslate-v$ver-win-x64-full.zip `
+  installer\version.xml
 ```
 
 ### 5.2 在 GitHub 网页创建
@@ -211,6 +248,8 @@ $ver = "1.7.0"
 # 0. ⚠️ 先手动修改：
 #    - QuickTranslate\QuickTranslate.csproj 中的 <Version>、<AssemblyVersion>、<FileVersion>
 #    - installer\QuickTranslate-setup.iss 中的 #define MyAppVersion
+#    - installer\version.xml 中的 <version>、<url>、<changelog>
+#      （<checksum> 要等安装包编译出来才能算，见步骤 4.5）
 
 # 1. 编译轻量版源
 dotnet publish QuickTranslate\QuickTranslate.csproj -c Release -o publish\source\v$ver
@@ -227,20 +266,27 @@ Compress-Archive -Path publish\source\v$ver-full\*  -DestinationPath publish\rel
 ISCC installer\QuickTranslate-setup.iss
 ISCC installer\QuickTranslate-setup-full.iss
 
+# 4.5 算完整版安装包的 SHA256，填进 installer\version.xml 的 <checksum>
+(Get-FileHash publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-full.exe -Algorithm SHA256).Hash
+
+# 4.6 验证 version.xml（版本一致性、args、checksum 格式）
+dotnet test QuickTranslate.Tests\QuickTranslate.Tests.csproj
+
 # 5. 提交 & 打标签
-git add QuickTranslate\QuickTranslate.csproj installer\QuickTranslate-setup.iss
+git add QuickTranslate\QuickTranslate.csproj installer\QuickTranslate-setup.iss installer\version.xml
 git commit -m "chore: bump version to $ver"
 git tag -a v$ver -m "Release v$ver"
 git push origin main --tags
 
-# 6. 创建 GitHub Release（同时上传 4 个文件）
+# 6. 创建 GitHub Release（同时上传 5 个文件）
 gh release create v$ver `
   --title "v$ver" `
   --notes "在此填写更新日志" `
   publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.exe `
   publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-full.exe `
   publish\releases\v$ver\QuickTranslate-v$ver-win-x64.zip `
-  publish\releases\v$ver\QuickTranslate-v$ver-win-x64-full.zip
+  publish\releases\v$ver\QuickTranslate-v$ver-win-x64-full.zip `
+  installer\version.xml
 ```
 
 ---
