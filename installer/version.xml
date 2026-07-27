@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <item>
-  <version>1.8.0</version>
-  <url>https://github.com/YAHU2024/myTool/releases/download/v1.8.0/QuickTranslate-Setup-1.8.0-win-x64-full.exe</url>
-  <changelog>https://github.com/YAHU2024/myTool/releases/tag/v1.8.0</changelog>
+  <version>1.8.1</version>
+  <url>https://github.com/YAHU2024/myTool/releases/download/v1.8.1/QuickTranslate-Setup-1.8.1-win-x64-full.exe</url>
+  <changelog>https://github.com/YAHU2024/myTool/releases/tag/v1.8.1</changelog>
   <args>/SILENT /SUPPRESSMSGBOXES /NORESTART</args>
-  <checksum algorithm="SHA256">6577AB38F5A3223E8804B9A04899F7C4B72C7D1EA8BEF6F531D23A384E05DB8F</checksum>
+  <checksum algorithm="SHA256">E2740A37BBF3106E64952EE139A617ECCD6EC50AB02FAF1500243233DDBEE46C</checksum>
   <mandatory>false</mandatory>
 </item>

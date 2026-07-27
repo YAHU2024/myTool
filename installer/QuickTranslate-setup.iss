@@ -3,7 +3,7 @@
 ; 编译：ISCC QuickTranslate-setup.iss
 
 #define MyAppName "QuickTranslate"
-#define MyAppVersion "1.8.0"
+#define MyAppVersion "1.8.1"
 #define MyAppPublisher "YaHu"
 #define MyAppURL "https://github.com/YAHU2024/myTool"
 #define MyAppExeName "QuickTranslate.exe"
@@ -21,7 +21,7 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=..\publish\releases\v1.8.0
+OutputDir=..\publish\releases\v1.8.1
 OutputBaseFilename=QuickTranslate-Setup-{#MyAppVersion}-win-x64
 SetupIconFile=..\QuickTranslate\Assets\{#MyAppIcoName}
 Compression=lzma
@@ -42,7 +42,7 @@ Name: "desktopicon"; Description: "创建桌面快捷方式(&D)"; GroupDescripti
 Name: "autostart"; Description: "开机自动运行(&A)"; GroupDescription: "启动选项:"; Flags: unchecked
 
 [Files]
-Source: "..\publish\source\v1.8.0\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\publish\source\v1.8.1\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\QuickTranslate\Assets\{#MyAppIcoName}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
