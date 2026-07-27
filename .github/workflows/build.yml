@@ -19,7 +19,9 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Restore
-        run: dotnet restore QuickTranslate/QuickTranslate.csproj
+        run: |
+          dotnet restore QuickTranslate/QuickTranslate.csproj
+          dotnet restore QuickTranslate.Tests/QuickTranslate.Tests.csproj
 
       - name: Build
         run: dotnet build QuickTranslate/QuickTranslate.csproj --no-restore -c Release
