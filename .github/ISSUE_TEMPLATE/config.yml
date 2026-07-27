@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问答
+    url: https://github.com/YAHU2024/myTool/discussions
+    about: 安装、配置、使用问题请到 Discussions 交流

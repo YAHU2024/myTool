@@ -1,0 +1,54 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量提供可复现的信息，方便我们定位。
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 问题描述
+      description: 发生了什么？期望行为是什么？
+      placeholder: 清晰简洁地描述问题
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 如何复现这个问题？
+      placeholder: |
+        1. 打开 ...
+        2. 选中文本 ...
+        3. 看到错误 ...
+    validations:
+      required: true
+  - type: dropdown
+    id: version
+    attributes:
+      label: 版本
+      description: 你正在使用的 QuickTranslate 版本
+      options:
+        - v1.8.x
+        - v1.7.x
+        - 其他（请在问题描述中注明）
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - Windows 11
+        - Windows 10
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志（可选）
+      description: 从日志查看器导出的相关片段（注意：日志已脱敏，不含原文/密钥，可安全粘贴）
+      render: shell
