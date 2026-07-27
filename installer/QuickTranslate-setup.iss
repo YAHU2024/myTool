@@ -51,7 +51,7 @@ Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"; IconFilename: "
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; IconFilename: "{app}\{#MyAppIcoName}"
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "运行 QuickTranslate(&R)"; Flags: postinstall nowait skipifsilent shellexec
+Filename: "{app}\{#MyAppExeName}"; Description: "运行 QuickTranslate(&R)"; Flags: postinstall nowait shellexec
 
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/c taskkill /f /im {#MyAppExeName}"; Flags: runhidden
