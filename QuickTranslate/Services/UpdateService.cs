@@ -19,9 +19,11 @@ public enum UpdateCheckOutcome
     UpToDate,
     /// <summary>发现新版本</summary>
     UpdateAvailable,
-    /// <summary>检查失败（网络错误、解析失败、超时等）</summary>
+    /// <summary>检查失败（网络错误、解析失败等）</summary>
     Error,
-    /// <summary>上一次检查尚未完成，本次被跳过</summary>
+    /// <summary>检查发出后迟迟没有回应，被超时兜底结束</summary>
+    Timeout,
+    /// <summary>上一次检查尚未完成，或更新窗口已排队/打开</summary>
     Skipped
 }
 
@@ -58,6 +60,11 @@ public static class UpdateService
 
     private static bool _configured;
 
+    private static readonly DeferredModalRunner UpdateFormRunner = new(action =>
+    {
+        Application.Current.Dispatcher.BeginInvoke(action);
+    });
+
     /// <summary>当前在飞的检查；为 null 表示空闲。仅在 UI 线程读写。</summary>
     private static TaskCompletionSource<UpdateCheckResult>? _pending;
 
@@ -93,8 +100,9 @@ public static class UpdateService
         // 不显示"跳过此版本"按钮（小工具无需跳过）
         AutoUpdater.ShowSkipButton = false;
 
-        // 显示"稍后提醒"按钮
-        AutoUpdater.ShowRemindLaterButton = true;
+        // 小工具不保留"稍后提醒/跳过版本"状态。关闭窗口就是本次不更新，
+        // 下次启动或手动检查仍会正常检查。
+        AutoUpdater.ShowRemindLaterButton = false;
 
         // 发现新版后直接下载（不跳转浏览器）
         AutoUpdater.OpenDownloadPage = false;
@@ -102,6 +110,9 @@ public static class UpdateService
         // 使用系统代理（Clash/V2Ray 等通过系统代理转发流量）
         // 不设置此项时，AutoUpdater.NET 可能直连 GitHub 超时（国内网络）
         AutoUpdater.Proxy = WebRequest.GetSystemWebProxy();
+
+        // 禁用库的默认注册表持久化，同时屏蔽旧版本可能留下的提醒状态。
+        AutoUpdater.PersistenceProvider = NoOpUpdatePersistenceProvider.Instance;
 
         // 订阅后库自带的更新/错误对话框全部被抑制，改由本类通过
         // args.Error / args.IsUpdateAvailable 自行决定 UI，因此不设置
@@ -132,6 +143,16 @@ public static class UpdateService
             return Task.FromResult(new UpdateCheckResult(UpdateCheckOutcome.Skipped, null));
         }
 
+        // 更新对话框已打开时再调 Start 会被库静默忽略（内部 Running 标志），
+        // 回调永不触发，只会白等一次超时。直接跳过，用户面前本就有那个窗口。
+        if (UpdateFormRunner.IsBusy)
+        {
+            Logger.Info("Update", "update.check_skipped_form_open");
+            return Task.FromResult(new UpdateCheckResult(UpdateCheckOutcome.Skipped, null));
+        }
+
+        Configure();
+
         var tcs = new TaskCompletionSource<UpdateCheckResult>();
         _pending = tcs;
         _autoShowUpdateForm = autoShowUpdateForm;
@@ -139,7 +160,6 @@ public static class UpdateService
 
         try
         {
-            Configure();
             StartTimeoutTimer();
             AutoUpdater.Start(UpdateXmlUrl);
             Logger.Info("Update", "update.check_started", new { manual = autoShowUpdateForm });
@@ -165,8 +185,17 @@ public static class UpdateService
         var args = _lastAvailable;
         if (args is null) return false;
 
-        AutoUpdater.ShowUpdateForm(args);
-        return true;
+        return UpdateFormRunner.TryRun(() => AutoUpdater.ShowUpdateForm(args));
+    }
+
+    /// <summary>
+    /// 将更新对话框排到当前 AutoUpdater 回调返回之后显示。
+    /// AutoUpdater 在回调返回前仍持有内部 Running 状态；若在回调内同步 ShowDialog，
+    /// 后续 Start 可能被静默忽略且不触发回调。延迟一轮 Dispatcher 可确保检查先收尾。
+    /// </summary>
+    private static void ScheduleUpdateForm(UpdateInfoEventArgs args)
+    {
+        UpdateFormRunner.TrySchedule(() => AutoUpdater.ShowUpdateForm(args));
     }
 
     /// <summary>
@@ -185,9 +214,14 @@ public static class UpdateService
 
         if (args.Error is not null)
         {
+            // WebException 涵盖 404 / 连接失败 / 超时 / DNS 失败等成因完全不同的情况，
+            // 只记类型名无法定位问题，这里把传输层状态和 HTTP 状态码一并展开。
+            var webEx = args.Error as WebException;
             Logger.Warn("Update", "update.check_error", new
             {
                 error_type = args.Error.GetType().Name,
+                web_status = webEx?.Status.ToString(),
+                http_status = (webEx?.Response as HttpWebResponse)?.StatusCode.ToString(),
                 manual = autoShow,
                 late = tcs is null,
                 duration_ms = duration.TotalMilliseconds
@@ -217,7 +251,7 @@ public static class UpdateService
 
             if (tcs is not null && autoShow)
             {
-                AutoUpdater.ShowUpdateForm(args);
+                ScheduleUpdateForm(args);
             }
             return;
         }
@@ -252,7 +286,7 @@ public static class UpdateService
 
             Logger.Warn("Update", "update.check_timeout",
                 new { manual = _autoShowUpdateForm, timeout_s = CheckTimeout.TotalSeconds });
-            tcs.TrySetResult(new UpdateCheckResult(UpdateCheckOutcome.Error, null));
+            tcs.TrySetResult(new UpdateCheckResult(UpdateCheckOutcome.Timeout, null));
         };
         _timeoutTimer.Start();
     }
@@ -293,5 +327,84 @@ public static class UpdateService
             Application.Current?.Dispatcher.Invoke(() =>
                 Application.Current.Shutdown());
         }
+    }
+}
+
+/// <summary>
+/// AutoUpdater persistence adapter used when skip/remind-later behavior is disabled.
+/// Returning no state also prevents legacy registry values from suppressing checks.
+/// </summary>
+internal sealed class NoOpUpdatePersistenceProvider : IPersistenceProvider
+{
+    public static NoOpUpdatePersistenceProvider Instance { get; } = new();
+
+    private NoOpUpdatePersistenceProvider()
+    {
+    }
+
+    public Version? GetSkippedVersion() => null;
+
+    public DateTime? GetRemindLater() => null;
+
+    public void SetSkippedVersion(Version? version)
+    {
+    }
+
+    public void SetRemindLater(DateTime? remindLaterAt)
+    {
+    }
+}
+
+/// <summary>
+/// Serializes a modal action and can defer it until the current callback returns.
+/// </summary>
+internal sealed class DeferredModalRunner
+{
+    private readonly Action<Action> _enqueue;
+    private bool _scheduled;
+    private bool _open;
+
+    public DeferredModalRunner(Action<Action> enqueue)
+    {
+        _enqueue = enqueue;
+    }
+
+    public bool IsBusy => _scheduled || _open;
+
+    public bool TryRun(Action action)
+    {
+        if (IsBusy) return false;
+
+        _open = true;
+        try
+        {
+            action();
+            return true;
+        }
+        finally
+        {
+            _open = false;
+        }
+    }
+
+    public bool TrySchedule(Action action)
+    {
+        if (IsBusy) return false;
+
+        _scheduled = true;
+        try
+        {
+            _enqueue(() =>
+            {
+                _scheduled = false;
+                TryRun(action);
+            });
+        }
+        catch
+        {
+            _scheduled = false;
+            throw;
+        }
+        return true;
     }
 }

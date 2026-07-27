@@ -831,7 +831,8 @@ namespace QuickTranslate.UI
                     UpdateCheckOutcome.UpToDate => "已是最新版本",
                     UpdateCheckOutcome.UpdateAvailable => $"发现新版本 {result.NewVersion}",
                     UpdateCheckOutcome.Error => "检查失败，请确认网络后重试",
-                    UpdateCheckOutcome.Skipped => "正在检查中，请稍候",
+                    UpdateCheckOutcome.Timeout => "长时间无响应，请稍后重试",
+                    UpdateCheckOutcome.Skipped => "已有检查或更新窗口在进行中",
                     _ => ""
                 };
             }

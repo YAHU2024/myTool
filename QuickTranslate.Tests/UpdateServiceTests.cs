@@ -3,6 +3,7 @@ using System.IO;
 using System.Reflection;
 using System.Xml.Linq;
 using QuickTranslate.Models;
+using QuickTranslate.Services;
 using Xunit;
 
 namespace QuickTranslate.Tests;
@@ -115,6 +116,65 @@ public sealed class UpdateServiceTests
         var changelog = doc.Root!.Element("changelog")!.Value;
 
         Assert.Contains($"/releases/tag/v{version}", changelog);
+    }
+
+    [Fact]
+    public void NoOpPersistenceProvider_NeverStoresSuppressionState()
+    {
+        var provider = NoOpUpdatePersistenceProvider.Instance;
+
+        provider.SetSkippedVersion(new Version(9, 9, 9));
+        provider.SetRemindLater(DateTime.Now.AddDays(1));
+
+        Assert.Null(provider.GetSkippedVersion());
+        Assert.Null(provider.GetRemindLater());
+    }
+
+    [Fact]
+    public void DeferredModalRunner_SchedulesAfterCurrentCallbackAndBlocksDuplicates()
+    {
+        var queued = new Queue<Action>();
+        var runner = new DeferredModalRunner(queued.Enqueue);
+        var callCount = 0;
+
+        Assert.True(runner.TrySchedule(() =>
+        {
+            Assert.True(runner.IsBusy);
+            Assert.False(runner.TryRun(() => callCount++));
+            callCount++;
+        }));
+
+        Assert.True(runner.IsBusy);
+        Assert.Equal(0, callCount);
+        Assert.False(runner.TrySchedule(() => callCount++));
+
+        queued.Dequeue()();
+
+        Assert.False(runner.IsBusy);
+        Assert.Equal(1, callCount);
+    }
+
+    [Fact]
+    public void DeferredModalRunner_ReleasesBusyStateWhenModalThrows()
+    {
+        var runner = new DeferredModalRunner(action => action());
+
+        Assert.Throws<InvalidOperationException>(() =>
+            runner.TryRun(() => throw new InvalidOperationException()));
+
+        Assert.False(runner.IsBusy);
+        Assert.True(runner.TryRun(() => { }));
+    }
+
+    [Fact]
+    public void DeferredModalRunner_ReleasesBusyStateWhenEnqueueThrows()
+    {
+        var runner = new DeferredModalRunner(_ => throw new InvalidOperationException());
+
+        Assert.Throws<InvalidOperationException>(() => runner.TrySchedule(() => { }));
+
+        Assert.False(runner.IsBusy);
+        Assert.True(runner.TryRun(() => { }));
     }
 
     /// <summary>

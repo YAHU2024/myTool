@@ -960,8 +960,12 @@ public partial class App : Application
                     MessageBox.Show("检查更新失败，请确认网络连接后重试。", "QuickTranslate 更新",
                         MessageBoxButton.OK, MessageBoxImage.Warning);
                     break;
+                case UpdateCheckOutcome.Timeout:
+                    MessageBox.Show("更新检查长时间无响应，请稍后重试。", "QuickTranslate 更新",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    break;
                 // UpdateAvailable: UpdateService 已弹出更新对话框
-                // Skipped: 上一次检查仍在进行，无需打扰
+                // Skipped: 已有检查在进行或更新窗口已打开，无需打扰
             }
         });
     }
