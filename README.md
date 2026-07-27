@@ -9,14 +9,33 @@
 <br>
 
 [![.NET 8](https://img.shields.io/badge/.NET-8-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/8.0)
-[![WPF Desktop](https://img.shields.io/badge/WPF-Desktop-0A52A1?style=flat-square&logo=windows&logoColor=white)](https://github.com/dotnet/wpf)
+[![WPF](https://img.shields.io/badge/WPF-Desktop-0A52A1?style=flat-square&logo=windows&logoColor=white)](https://github.com/dotnet/wpf)
 [![C#](https://img.shields.io/badge/C%23-12-239120?style=flat-square&logo=csharp&logoColor=white)](https://learn.microsoft.com/dotnet/csharp)
-[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)]()
+[![Version](https://img.shields.io/github/v/release/YAHU2024/myTool?style=flat-square&label=version)](https://github.com/YAHU2024/myTool/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/YAHU2024/myTool/total?style=flat-square)](https://github.com/YAHU2024/myTool/releases)
+[![Stars](https://img.shields.io/github/stars/YAHU2024/myTool?style=flat-square&label=stars)](https://github.com/YAHU2024/myTool/stargazers)
+[![Build](https://img.shields.io/github/actions/workflow/status/YAHU2024/myTool/build.yml?branch=main&style=flat-square&label=build)](https://github.com/YAHU2024/myTool/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-8B5CF6?style=flat-square)]()
+[![English](https://img.shields.io/badge/English-README-512BD4?style=flat-square)](README.en.md)
 
 <br>
 
-**当前版本：v1.8.1**
+</div>
+
+---
+
+## 功能展示
+
+<div align="center">
+
+| 划词即译 · 红点引导 | 设置窗口 · 更多自定义 |
+| :---: | :---: |
+| ![划词翻译演示](docs/images/红点翻译功能展示.gif) | ![设置页](docs/images/设置页展示.gif) |
+
+| 翻译历史 · 本地检索 / Anki 导出 | 日志查看器 · JSON Lines / P50–P99 指标 |
+| :---: | :---: |
+| ![翻译历史](docs/images/翻译历史页面.png) | ![日志查看器](docs/images/日志查看器.png) |
 
 </div>
 
@@ -24,13 +43,22 @@
 
 ## 目录
 
-- [功能特性](#功能特性)
-- [快速开始](#快速开始)
-- [配置 API](#配置-api)
-- [项目结构](#项目结构)
-- [发布与更新](#发布与更新)
-- [开发路线](#开发路线)
-- [许可证](#许可证)
+- [QuickTranslate](#quicktranslate)
+  - [功能展示](#功能展示)
+  - [目录](#目录)
+  - [功能特性](#功能特性)
+  - [快速开始](#快速开始)
+    - [环境要求](#环境要求)
+    - [运行](#运行)
+  - [下载安装](#下载安装)
+  - [配置 API](#配置-api)
+  - [项目结构](#项目结构)
+    - [顶层目录](#顶层目录)
+  - [发布与更新](#发布与更新)
+    - [双版本安装包](#双版本安装包)
+    - [自动更新](#自动更新)
+  - [开发路线](#开发路线)
+  - [许可证](#许可证)
 
 ---
 
@@ -71,6 +99,21 @@ dotnet run
 
 启动后自动最小化到系统托盘，右键托盘图标即可开始配置。
 
+> 不想装 .NET SDK？可直接跳到 [下载安装](#下载安装) 下载免依赖安装包。
+
+---
+
+## 下载安装
+
+不想配置开发环境？直接下载安装包，**双击即用，无需安装 .NET 8 SDK**。
+
+| 版本 | 体积 | 说明 |
+|:-----|:-----|:-----|
+| **完整版（推荐）** | ~150 MB | 自包含运行时，开箱即用 → [下载最新完整版](https://github.com/YAHU2024/myTool/releases/latest) |
+| **标准版** | ~15 MB | 需先安装 [.NET 8 运行时](https://dotnet.microsoft.com/download/dotnet/8.0) → [所有版本](https://github.com/YAHU2024/myTool/releases) |
+
+所有历史版本、更新日志与 SHA256 校验值见 [Releases 页面](https://github.com/YAHU2024/myTool/releases)。安装后启动会自动最小化到系统托盘，右键托盘图标即可配置。
+
 ---
 
 ## 配置 API
@@ -92,7 +135,7 @@ dotnet run
 
 | 服务商 | Base URL | Model |
 |:-------|:---------|:------|
-| 硅基流动（推荐免费） | `https://api.siliconflow.cn/v1` | `Qwen/Qwen3-8B` |
+| 硅基流动（推荐） | `https://api.siliconflow.cn/v1` | `Qwen/Qwen3-8B` |
 | 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` | `glm-4.7-flash` |
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
 
@@ -233,8 +276,4 @@ myTool/
 
 ## 许可证
 
-<div align="center">
-
-MIT License — 自由使用、修改和分发。
-
-</div>
+本项目基于 [MIT 许可证](LICENSE) 开源，详情请参阅 [LICENSE](LICENSE) 文件。
