@@ -83,9 +83,25 @@ public sealed class UpdateServiceTests
         var args = doc.Root!.Element("args")?.Value;
 
         Assert.NotNull(args);
-        Assert.Contains("/VERYSILENT", args);
+        Assert.Contains("/SILENT", args);
+        Assert.DoesNotContain("/VERYSILENT", args);
         Assert.Contains("/SUPPRESSMSGBOXES", args);
         Assert.Contains("/NORESTART", args);
+    }
+
+    [Theory]
+    [InlineData("QuickTranslate-setup.iss")]
+    [InlineData("QuickTranslate-setup-full.iss")]
+    public void InstallerScript_RestartsAppAfterSilentUpdate(string scriptName)
+    {
+        var scriptPath = FindRepositoryFile("installer", scriptName);
+        var runEntry = File.ReadLines(scriptPath).Single(line =>
+            line.StartsWith("Filename:", StringComparison.Ordinal) &&
+            line.Contains("{app}\\{#MyAppExeName}", StringComparison.Ordinal));
+
+        Assert.Contains("postinstall", runEntry, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("nowait", runEntry, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("skipifsilent", runEntry, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -182,10 +198,16 @@ public sealed class UpdateServiceTests
     /// </summary>
     private static string FindVersionXml()
     {
+        return FindRepositoryFile("installer", "version.xml");
+    }
+
+    private static string FindRepositoryFile(params string[] pathParts)
+    {
+        var relativePath = Path.Combine(pathParts);
         var dir = AppContext.BaseDirectory;
         for (int i = 0; i < 10 && dir is not null; i++)
         {
-            var candidate = Path.Combine(dir, "installer", "version.xml");
+            var candidate = Path.Combine(dir, relativePath);
             if (File.Exists(candidate))
                 return candidate;
             // 到达盘符根时返回 null，需在此终止，否则下一轮 Path.Combine 抛异常
@@ -194,6 +216,6 @@ public sealed class UpdateServiceTests
 
         // Fallback: 相对于测试项目的已知路径
         return Path.GetFullPath(
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "installer", "version.xml"));
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", relativePath));
     }
 }
