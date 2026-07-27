@@ -144,14 +144,15 @@ ISCC installer\QuickTranslate-setup-full.iss
   <version>1.8.0</version>
   <url>https://github.com/YAHU2024/myTool/releases/download/v1.8.0/QuickTranslate-Setup-1.8.0-win-x64-full.exe</url>
   <changelog>https://github.com/YAHU2024/myTool/releases/tag/v1.8.0</changelog>
-  <args>/VERYSILENT /SUPPRESSMSGBOXES /NORESTART</args>
+  <args>/SILENT /SUPPRESSMSGBOXES /NORESTART</args>
   <checksum algorithm="SHA256">上一步算出的哈希</checksum>
   <mandatory>false</mandatory>
 </item>
 ```
 
 > - `<version>` 必须与 `QuickTranslate.csproj` 的版本一致，否则 `UpdateServiceTests` 会失败。
-> - `<args>` 丢失会导致更新时弹出完整安装向导，而非静默安装。
+> - `<args>` 使用 `/SILENT` 隐藏安装向导但保留进度窗口；不要改回完全无反馈的 `/VERYSILENT`。
+> - 两个安装脚本的 `[Run]` 项不能带 `skipifsilent`，否则更新完成后不会重新启动应用。
 > - `<checksum>` 填错会让所有用户更新失败（AutoUpdater 报 "Checksum differs"），
 >   务必用上一步的输出，且对应的是**完整版**（`-full.exe`）安装包。
 > - `<url>` 指向完整版，是为了避免目标机器缺 .NET 8 运行时导致更新后启动失败。
