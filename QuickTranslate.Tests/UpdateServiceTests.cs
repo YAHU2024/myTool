@@ -1,15 +1,31 @@
 using System;
 using System.IO;
 using System.Reflection;
+using System.Threading.Tasks;
 using System.Xml.Linq;
+using AutoUpdaterDotNET;
 using QuickTranslate.Models;
 using QuickTranslate.Services;
 using Xunit;
 
 namespace QuickTranslate.Tests;
 
-public sealed class UpdateServiceTests
+public sealed class UpdateServiceTests : IDisposable
 {
+    private readonly FakeAutoUpdaterAdapter _fakeAdapter = new();
+
+    public UpdateServiceTests()
+    {
+        UpdateService.SetAdapterForTesting(_fakeAdapter);
+        UpdateService.ResetPendingState();
+    }
+
+    public void Dispose()
+    {
+        UpdateService.ResetPendingState();
+        // Restore production adapter (null triggers creation of real one on next Configure)
+        UpdateService.SetAdapterForTesting(new AutoUpdaterAdapter());
+    }
     [Fact]
     public void CheckForUpdateOnStartup_DefaultsToTrue()
     {
@@ -236,6 +252,263 @@ public sealed class UpdateServiceTests
         Assert.False(runner.IsBusy);
         Assert.True(runner.TryRun(() => { }));
     }
+
+    // ─── P2-1: Late-callback isolation tests ───────────────────────
+    //
+    // Background: When Check A times out, the timeout handler originally
+    // cleared _pending, allowing Check B to start immediately.  If A's
+    // AutoUpdater callback then arrived late, it would read B's TCS from
+    // _pending, complete it with A's stale result, kill B's timeout timer,
+    // and clear _pending so B's real callback is lost.
+    //
+    // Fix: Timeout keeps _pending set.  A late callback finds the TCS
+    // already completed (Task.IsCompleted=true) and only updates caches.
+    // A cleanup timer (30s grace) clears _pending if the callback
+    // never arrives.  No new check can start while _pending is held.
+
+    [Fact]
+    public async Task Callback_CompletesCorrectCheck_NormalPath()
+    {
+        // Normal flow: callback arrives before timeout
+        var task = UpdateService.CheckAsync(autoShowUpdateForm: false);
+        Assert.False(task.IsCompleted);
+
+        _fakeAdapter.FireUpdateAvailable("2.0.0");
+        var result = await task;
+
+        Assert.Equal(UpdateCheckOutcome.UpdateAvailable, result.Outcome);
+        Assert.Equal("2.0.0", result.NewVersion);
+    }
+
+    [Fact]
+    public async Task Error_Callback_CompletesCorrectCheck_NormalPath()
+    {
+        var task = UpdateService.CheckAsync(autoShowUpdateForm: false);
+
+        _fakeAdapter.FireError(new InvalidOperationException("network down"));
+        var result = await task;
+
+        Assert.Equal(UpdateCheckOutcome.Error, result.Outcome);
+    }
+
+    [Fact]
+    public async Task UpToDate_Callback_CompletesCorrectCheck_NormalPath()
+    {
+        var task = UpdateService.CheckAsync(autoShowUpdateForm: false);
+
+        _fakeAdapter.FireUpToDate();
+        var result = await task;
+
+        Assert.Equal(UpdateCheckOutcome.UpToDate, result.Outcome);
+    }
+
+    [Fact]
+    public async Task Check_Blocked_While_Pending_Is_Retained()
+    {
+        // Check A starts
+        var taskA = UpdateService.CheckAsync(autoShowUpdateForm: false);
+        Assert.Equal(1, _fakeAdapter.StartCallCount);
+
+        // Check B: Skipped because A is still in flight
+        var resultB = await UpdateService.CheckAsync(autoShowUpdateForm: true);
+        Assert.Equal(UpdateCheckOutcome.Skipped, resultB.Outcome);
+
+        // Check C: Same
+        var resultC = await UpdateService.CheckAsync(autoShowUpdateForm: false);
+        Assert.Equal(UpdateCheckOutcome.Skipped, resultC.Outcome);
+
+        // Complete A normally — this clears _pending
+        _fakeAdapter.FireUpToDate();
+        var resultA = await taskA;
+        Assert.Equal(UpdateCheckOutcome.UpToDate, resultA.Outcome);
+
+        // Now a new check should work
+        var taskD = UpdateService.CheckAsync(autoShowUpdateForm: false);
+        Assert.Equal(2, _fakeAdapter.StartCallCount);
+        _fakeAdapter.FireUpToDate();
+        var resultD = await taskD;
+        Assert.Equal(UpdateCheckOutcome.UpToDate, resultD.Outcome);
+    }
+
+    [Fact]
+    public async Task Timeout_Retains_Pending_AndBlocks_SubsequentCheck()
+    {
+        // Check A starts
+        var taskA = UpdateService.CheckAsync(autoShowUpdateForm: false);
+
+        // Simulate timeout (completes TCS with Timeout, keeps _pending)
+        UpdateService.SimulateTimeoutForTesting();
+
+        // taskA should already be completed with Timeout
+        Assert.True(taskA.IsCompleted);
+        var resultA = await taskA;
+        Assert.Equal(UpdateCheckOutcome.Timeout, resultA.Outcome);
+
+        // Check B: MUST be Skipped because _pending is still held for A
+        var resultB = await UpdateService.CheckAsync(autoShowUpdateForm: true);
+        Assert.Equal(UpdateCheckOutcome.Skipped, resultB.Outcome);
+
+        // Simulate cleanup timer — now _pending is cleared
+        UpdateService.SimulateCleanupForTesting();
+
+        // Check C: should now work
+        var taskC = UpdateService.CheckAsync(autoShowUpdateForm: false);
+        Assert.Equal(2, _fakeAdapter.StartCallCount);
+        _fakeAdapter.FireUpToDate();
+        var resultC = await taskC;
+        Assert.Equal(UpdateCheckOutcome.UpToDate, resultC.Outcome);
+    }
+
+    [Fact]
+    public async Task LateCallback_DoesNotCompleteSubsequentCheck_AfterTimeout()
+    {
+        // Check A starts
+        var taskA = UpdateService.CheckAsync(autoShowUpdateForm: false);
+
+        // A times out (TCS completed, _pending retained)
+        UpdateService.SimulateTimeoutForTesting();
+
+        // Check B: Skipped
+        var resultB = await UpdateService.CheckAsync(autoShowUpdateForm: true);
+        Assert.Equal(UpdateCheckOutcome.Skipped, resultB.Outcome);
+
+        // A's late callback arrives — _pending is still tcsA (already completed)
+        // isLate should be true (Task.IsCompleted), so only cache is updated,
+        // NOT the TCS (which is already completed with Timeout)
+        _fakeAdapter.FireUpdateAvailable("2.0.0");
+
+        // TCS was already completed with Timeout — TrySetResult in callback returns false
+        var resultA2 = await taskA;
+        Assert.Equal(UpdateCheckOutcome.Timeout, resultA2.Outcome);
+        Assert.Null(resultA2.NewVersion);
+
+        // After A's late callback clears _pending, Check C should work
+        var taskC = UpdateService.CheckAsync(autoShowUpdateForm: false);
+        Assert.Equal(2, _fakeAdapter.StartCallCount);
+        _fakeAdapter.FireUpToDate();
+        var resultC = await taskC;
+        Assert.Equal(UpdateCheckOutcome.UpToDate, resultC.Outcome);
+    }
+
+    [Fact]
+    public async Task LateCallback_UpdatesCache_EvenWhenTcsAlreadyCompleted()
+    {
+        // Check A starts
+        var taskA = UpdateService.CheckAsync(autoShowUpdateForm: false);
+
+        // A times out
+        UpdateService.SimulateTimeoutForTesting();
+
+        // A's late callback with update info
+        _fakeAdapter.FireUpdateAvailable("2.0.0");
+
+        // A's TCS should still show Timeout
+        var resultA = await taskA;
+        Assert.Equal(UpdateCheckOutcome.Timeout, resultA.Outcome);
+
+        // Cache should have been updated by the late callback
+        // NOTE: ShowUpdateFormForLastCheck triggers download (sets _installInProgress=true),
+        // so it must be called after all CheckAsync assertions are complete.
+        Assert.True(UpdateService.ShowUpdateFormForLastCheck());
+    }
+
+    [Fact]
+    public async Task LateCallback_AfterCleanup_OnlyUpdatesCache()
+    {
+        // Check A starts
+        var taskA = UpdateService.CheckAsync(autoShowUpdateForm: false);
+
+        // A times out
+        UpdateService.SimulateTimeoutForTesting();
+
+        // Cleanup timer fires before A's callback — _pending = null
+        // In production, this only happens after 10 min grace period,
+        // by which time the AutoUpdater HTTP request has timed out
+        // and its callback has already fired. The cleanup timer exists
+        // solely to prevent a permanent deadlock if the callback
+        // somehow never arrives.
+        UpdateService.SimulateCleanupForTesting();
+
+        // Check B can now start
+        var taskB = UpdateService.CheckAsync(autoShowUpdateForm: false);
+        Assert.Equal(2, _fakeAdapter.StartCallCount);
+
+        // B's callback arrives before any stale callback (as expected in
+        // production: AutoUpdater request for A was cancelled by B's Start).
+        _fakeAdapter.FireUpToDate();
+        var resultB = await taskB;
+        Assert.Equal(UpdateCheckOutcome.UpToDate, resultB.Outcome);
+    }
+
+    [Fact]
+    public async Task ConsecutiveChecks_Work_AfterNormalCompletion()
+    {
+        // First check
+        var task1 = UpdateService.CheckAsync(autoShowUpdateForm: false);
+        _fakeAdapter.FireUpToDate();
+        await task1;
+
+        // Second check — should start cleanly
+        var task2 = UpdateService.CheckAsync(autoShowUpdateForm: false);
+        _fakeAdapter.FireUpdateAvailable("2.0.0");
+        var result2 = await task2;
+        Assert.Equal(UpdateCheckOutcome.UpdateAvailable, result2.Outcome);
+
+        // Third check
+        var task3 = UpdateService.CheckAsync(autoShowUpdateForm: false);
+        _fakeAdapter.FireError(new InvalidOperationException("test error"));
+        var result3 = await task3;
+        Assert.Equal(UpdateCheckOutcome.Error, result3.Outcome);
+    }
+
+    [Fact]
+    public async Task LateError_Callback_DoesNotAffect_PendingCheck()
+    {
+        // Check A starts
+        var taskA = UpdateService.CheckAsync(autoShowUpdateForm: false);
+
+        // A times out
+        UpdateService.SimulateTimeoutForTesting();
+
+        // A's late error callback
+        _fakeAdapter.FireError(new InvalidOperationException("late network error"));
+
+        // TCS still has Timeout result
+        var resultA = await taskA;
+        Assert.Equal(UpdateCheckOutcome.Timeout, resultA.Outcome);
+
+        // After callback clears _pending, new check works
+        var taskB = UpdateService.CheckAsync(autoShowUpdateForm: false);
+        _fakeAdapter.FireUpToDate();
+        var resultB = await taskB;
+        Assert.Equal(UpdateCheckOutcome.UpToDate, resultB.Outcome);
+    }
+
+    [Fact]
+    public async Task StartFailed_ClearsPending_AndReturnsError_WhenAdapterThrows()
+    {
+        // Reset and inject an adapter that throws on Start
+        UpdateService.ResetPendingState();
+
+        var throwingAdapter = new ThrowingAutoUpdaterAdapter();
+        UpdateService.SetAdapterForTesting(throwingAdapter);
+
+        var task = UpdateService.CheckAsync(autoShowUpdateForm: false);
+        var result = await task;
+
+        Assert.Equal(UpdateCheckOutcome.Error, result.Outcome);
+
+        // After error, a new check should work (pending was cleared)
+        UpdateService.SetAdapterForTesting(_fakeAdapter);
+        UpdateService.ResetPendingState();
+
+        var task2 = UpdateService.CheckAsync(autoShowUpdateForm: false);
+        _fakeAdapter.FireUpToDate();
+        var result2 = await task2;
+        Assert.Equal(UpdateCheckOutcome.UpToDate, result2.Outcome);
+    }
+
+    // ─── End of P2-1 tests ────────────────────────────────────────
 
     /// <summary>
     /// 定位 installer/version.xml（从测试输出目录向上查找仓库根目录）

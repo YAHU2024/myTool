@@ -39,6 +39,56 @@ public enum UpdateCheckOutcome
 /// </summary>
 public sealed record UpdateCheckResult(UpdateCheckOutcome Outcome, string? NewVersion);
 
+// ─── Adapter layer: wraps AutoUpdater.NET static calls for testability ──────
+
+/// <summary>
+/// 封装 AutoUpdater.NET 的静态调用，以便确定性测试超时和回调顺序。
+/// </summary>
+internal interface IAutoUpdaterAdapter
+{
+    /// <summary>启动一次版本检查。完成后触发 <see cref="CheckForUpdateCompleted"/>。</summary>
+    void Start(string url);
+
+    /// <summary>版本检查完成（AutoUpdater.CheckForUpdateEvent 的封装）。</summary>
+    event EventHandler<UpdateInfoEventArgs>? CheckForUpdateCompleted;
+}
+
+/// <summary>
+/// 生产环境适配器：直接委托给 AutoUpdater.NET 的静态方法，
+/// 同时将 AutoUpdater 的自定义委托桥接到 EventHandler&lt;UpdateInfoEventArgs&gt;。
+/// </summary>
+internal sealed class AutoUpdaterAdapter : IAutoUpdaterAdapter
+{
+    private EventHandler<UpdateInfoEventArgs>? _handler;
+
+    public void Start(string url)
+    {
+        AutoUpdater.Start(url);
+    }
+
+    public event EventHandler<UpdateInfoEventArgs>? CheckForUpdateCompleted
+    {
+        add
+        {
+            _handler += value;
+            // AutoUpdater.CheckForUpdateEvent: delegate void CheckForUpdateEventHandler(UpdateInfoEventArgs)
+            // Bridge to EventHandler<UpdateInfoEventArgs> (object? sender, UpdateInfoEventArgs e)
+            AutoUpdater.CheckForUpdateEvent += OnCheckForUpdateBridge;
+        }
+        remove
+        {
+            _handler -= value;
+            if (_handler is null)
+                AutoUpdater.CheckForUpdateEvent -= OnCheckForUpdateBridge;
+        }
+    }
+
+    private void OnCheckForUpdateBridge(UpdateInfoEventArgs args)
+    {
+        _handler?.Invoke(this, args);
+    }
+}
+
 /// <summary>
 /// 应用自动更新服务。
 /// 版本检查使用 AutoUpdater.NET，下载和安装由本服务自行处理，
@@ -112,7 +162,17 @@ public static class UpdateService
         Application.Current.Dispatcher.BeginInvoke(action);
     });
 
-    /// <summary>当前在飞的检查；为 null 表示空闲。仅在 UI 线程读写。</summary>
+    /// <summary>AutoUpdater.NET 静态调用适配器（通过 SetAdapterForTesting 替换为假实现）</summary>
+    private static IAutoUpdaterAdapter _adapter = new AutoUpdaterAdapter();
+
+    /// <summary>单调递增的检查代次，用于日志关联和诊断。</summary>
+    private static long _checkGeneration;
+
+    /// <summary>
+    /// 当前在飞的 TCS。超时后不会被清空——需要通过迟到回调或清理定时器来消费，
+    /// 以阻止后续检查在上一轮回调到达前启动（隔离迟到竞态）。
+    /// 仅在 UI 线程读写。
+    /// </summary>
     private static TaskCompletionSource<UpdateCheckResult>? _pending;
 
     /// <summary>本次检查是否由调用方要求直接弹出更新对话框</summary>
@@ -125,7 +185,16 @@ public static class UpdateService
     private static bool _installInProgress;
 
     private static DispatcherTimer? _timeoutTimer;
+    private static DispatcherTimer? _cleanupTimer;
     private static long _checkStartedAt;
+
+    /// <summary>
+    /// 超时后等待迟到回调的宽限期。
+    /// 此值必须远超 AutoUpdater.NET 的 HTTP 超时，确保在清理 _pending 之前
+    /// 迟到回调已经到达。宽限期到后才允许启动下一次检查。
+    /// 10 分钟对于任何合理的 HTTP 请求都已足够。
+    /// </summary>
+    private static readonly TimeSpan LateCallbackGracePeriod = TimeSpan.FromMinutes(10);
 
     /// <summary>
     /// 一次性配置 AutoUpdater 全局设置和事件订阅。
@@ -156,8 +225,8 @@ public static class UpdateService
         // 禁用库的默认注册表持久化
         AutoUpdater.PersistenceProvider = NoOpUpdatePersistenceProvider.Instance;
 
-        // 订阅后库自带的更新/错误对话框全部被抑制
-        AutoUpdater.CheckForUpdateEvent += OnCheckForUpdate;
+        // 通过适配器订阅——生产适配器委托给 AutoUpdater，测试适配器可模拟
+        _adapter.CheckForUpdateCompleted += (_, e) => OnCheckForUpdate(e);
 
         // 订阅应用退出事件（更新安装前优雅退出）
         AutoUpdater.ApplicationExitEvent += OnApplicationExit;
@@ -178,7 +247,7 @@ public static class UpdateService
             return Task.FromResult(new UpdateCheckResult(UpdateCheckOutcome.Skipped, null));
         }
 
-        // 已有检查在飞
+        // 已有检查在飞或等待迟到回调清理
         if (_pending is not null)
         {
             return Task.FromResult(new UpdateCheckResult(UpdateCheckOutcome.Skipped, null));
@@ -193,6 +262,7 @@ public static class UpdateService
 
         Configure();
 
+        var gen = Interlocked.Increment(ref _checkGeneration);
         var tcs = new TaskCompletionSource<UpdateCheckResult>();
         _pending = tcs;
         _autoShowUpdateForm = autoShowUpdateForm;
@@ -201,15 +271,15 @@ public static class UpdateService
         try
         {
             StartTimeoutTimer();
-            AutoUpdater.Start(UpdateXmlUrl);
-            Logger.Info("Update", "update.check_started", new { manual = autoShowUpdateForm });
+            _adapter.Start(UpdateXmlUrl);
+            Logger.Info("Update", "update.check_started", new { gen, manual = autoShowUpdateForm });
         }
         catch (Exception ex)
         {
             StopTimeoutTimer();
             _pending = null;
             Logger.Warn("Update", "update.check_start_failed",
-                new { error_type = ex.GetType().Name, manual = autoShowUpdateForm });
+                new { gen, error_type = ex.GetType().Name, manual = autoShowUpdateForm });
             tcs.TrySetResult(new UpdateCheckResult(UpdateCheckOutcome.Error, null));
         }
 
@@ -232,51 +302,66 @@ public static class UpdateService
 
     /// <summary>
     /// 更新检查完成回调。
+    /// 迟到回调（_pending 已被超时或上一轮消费）只会更新缓存状态，
+    /// 不会触碰后续检查的 TCS、计时器或弹窗标志。
     /// </summary>
     private static void OnCheckForUpdate(UpdateInfoEventArgs args)
     {
         StopTimeoutTimer();
+        StopCleanupTimer();
 
         var tcs = _pending;
         _pending = null;
         var autoShow = _autoShowUpdateForm;
+        var gen = Interlocked.Read(ref _checkGeneration);
         var duration = Stopwatch.GetElapsedTime(_checkStartedAt);
+
+        // tcs is null  => 迟到回调：TCS 已被此前的回调或超时消费
+        // tcs.Task.IsCompleted => 此 TCS 已被超时提前完成——也是迟到回调
+        var isLate = tcs is null || tcs.Task.IsCompleted;
 
         if (args.Error is not null)
         {
             var webEx = args.Error as WebException;
             Logger.Warn("Update", "update.check_error", new
             {
+                gen,
                 error_type = args.Error.GetType().Name,
                 web_status = webEx?.Status.ToString(),
                 http_status = (webEx?.Response as HttpWebResponse)?.StatusCode.ToString(),
                 manual = autoShow,
-                late = tcs is null,
+                late = isLate,
                 duration_ms = duration.TotalMilliseconds
             });
-            tcs?.TrySetResult(new UpdateCheckResult(UpdateCheckOutcome.Error, null));
+
+            if (!isLate)
+                tcs?.TrySetResult(new UpdateCheckResult(UpdateCheckOutcome.Error, null));
             return;
         }
 
         if (args.IsUpdateAvailable)
         {
+            // 始终更新缓存状态——迟到回调的更新信息仍有价值
             _lastAvailable = args;
             Logger.Info("Update", "update.available", new
             {
+                gen,
                 installed = args.InstalledVersion?.ToString(),
                 current = args.CurrentVersion?.ToString(),
                 mandatory = args.Mandatory,
                 manual = autoShow,
-                late = tcs is null,
+                late = isLate,
                 duration_ms = duration.TotalMilliseconds
             });
 
-            // 先回传结果再启动下载：TCS 默认同步执行延续，
-            // 可以让调用方 UI 在弹窗之前完成刷新。
-            tcs?.TrySetResult(new UpdateCheckResult(
+            // 迟到回调：只更新缓存，不触碰 TCS、不弹窗
+            if (isLate) return;
+
+            // 正常路径：先回传结果再启动下载
+            tcs.TrySetResult(new UpdateCheckResult(
                 UpdateCheckOutcome.UpdateAvailable, args.CurrentVersion?.ToString()));
 
-            if (tcs is not null && autoShow)
+            if (autoShow)
             {
                 // 接管下载安装流程（不再委托 AutoUpdater.ShowUpdateForm）
                 _ = DownloadAndInstallAsync(args, null);
@@ -287,12 +372,15 @@ public static class UpdateService
         _lastAvailable = null;
         Logger.Info("Update", "update.up_to_date", new
         {
+            gen,
             installed = args.InstalledVersion?.ToString(),
             manual = autoShow,
-            late = tcs is null,
+            late = isLate,
             duration_ms = duration.TotalMilliseconds
         });
-        tcs?.TrySetResult(new UpdateCheckResult(UpdateCheckOutcome.UpToDate, null));
+
+        if (!isLate)
+            tcs?.TrySetResult(new UpdateCheckResult(UpdateCheckOutcome.UpToDate, null));
     }
 
     /// <summary>
@@ -678,7 +766,7 @@ public static class UpdateService
         };
     }
 
-    // ─── Timeout management (unchanged from original) ──────────
+    // ─── Timeout & late-callback cleanup ──────────────────────────
 
     private static void StartTimeoutTimer()
     {
@@ -691,11 +779,17 @@ public static class UpdateService
 
             var tcs = _pending;
             if (tcs is null) return;
-            _pending = null;
 
+            // 超时时不清空 _pending —— 阻止新检查在迟到回调到达前启动。
+            // 先完成 TCS（调用方收到 Timeout），清理定时器负责释放 _pending。
+            var gen = Interlocked.Read(ref _checkGeneration);
             Logger.Warn("Update", "update.check_timeout",
-                new { manual = _autoShowUpdateForm, timeout_s = CheckTimeout.TotalSeconds });
+                new { gen, manual = _autoShowUpdateForm, timeout_s = CheckTimeout.TotalSeconds });
+
             tcs.TrySetResult(new UpdateCheckResult(UpdateCheckOutcome.Timeout, null));
+
+            // 启动迟到回调宽限期：30 秒后若回调仍未到达，强制清空 _pending
+            StartCleanupTimer();
         };
         _timeoutTimer.Start();
     }
@@ -704,6 +798,84 @@ public static class UpdateService
     {
         _timeoutTimer?.Stop();
         _timeoutTimer = null;
+    }
+
+    /// <summary>
+    /// 启动迟到回调清理定时器。宽限期到后强制清空 _pending，
+    /// 允许下一次更新检查启动。
+    /// </summary>
+    private static void StartCleanupTimer()
+    {
+        StopCleanupTimer();
+
+        _cleanupTimer = new DispatcherTimer { Interval = LateCallbackGracePeriod };
+        _cleanupTimer.Tick += (_, _) =>
+        {
+            StopCleanupTimer();
+
+            var tcs = _pending;
+            if (tcs is null) return;
+
+            _pending = null;
+            Logger.Warn("Update", "update.late_callback_cleanup",
+                new { gen = Interlocked.Read(ref _checkGeneration),
+                      grace_period_s = LateCallbackGracePeriod.TotalSeconds });
+        };
+        _cleanupTimer.Start();
+    }
+
+    private static void StopCleanupTimer()
+    {
+        _cleanupTimer?.Stop();
+        _cleanupTimer = null;
+    }
+
+    // ─── Test hooks ────────────────────────────────────────────────
+
+    /// <summary>
+    /// [仅测试] 替换 AutoUpdater.NET 适配器为可控假实现。
+    /// 调用后需重新执行 Configure() 以订阅假实现的事件。
+    /// </summary>
+    internal static void SetAdapterForTesting(IAutoUpdaterAdapter adapter)
+    {
+        _adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
+        _configured = false;
+    }
+
+    /// <summary>
+    /// [仅测试] 重置所有延后状态，恢复到初始空闲状态。
+    /// </summary>
+    internal static void ResetPendingState()
+    {
+        _pending = null;
+        _lastAvailable = null;
+        _installInProgress = false;
+        _autoShowUpdateForm = false;
+        _checkGeneration = 0;
+        StopTimeoutTimer();
+        StopCleanupTimer();
+    }
+
+    /// <summary>
+    /// [仅测试] 模拟超时：完成当前 TCS 为 Timeout，保留 _pending 以阻止后续检查。
+    /// </summary>
+    internal static void SimulateTimeoutForTesting()
+    {
+        StopTimeoutTimer();
+        var tcs = _pending;
+        if (tcs is null) return;
+        tcs.TrySetResult(new UpdateCheckResult(UpdateCheckOutcome.Timeout, null));
+        // _pending is intentionally NOT cleared — this is the core isolation mechanism
+        StartCleanupTimer();
+    }
+
+    /// <summary>
+    /// [仅测试] 模拟迟到回调清理定时器到期：清空 _pending 允许下次检查。
+    /// </summary>
+    internal static void SimulateCleanupForTesting()
+    {
+        StopCleanupTimer();
+        _pending = null;
     }
 
     /// <summary>
