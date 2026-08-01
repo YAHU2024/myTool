@@ -30,7 +30,11 @@
   <ItemGroup>
     <PackageReference Include="Autoupdater.NET.Official" Version="1.9.2" />
     <PackageReference Include="Markdig" Version="0.41.3" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.29" />
+
+    <!-- Security: force SQLitePCLRaw >= 2.1.12 to resolve GHSA-2m69-gcr7-jv3q (CVE in SQLite < 3.50.2).
+         EF Core 8.0.29 allows >= 2.1.6 which still resolves to vulnerable 2.1.6 by default. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
   </ItemGroup>
 
 </Project>

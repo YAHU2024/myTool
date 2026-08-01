@@ -186,22 +186,76 @@ public sealed class EdgeTtsClient
         {
             var remaining = bytes.Length - offset;
             var take = Math.Min(maxBytes, remaining);
-            while (take > 0 && (bytes[offset + take - 1] & 0xC0) == 0x80)
-                take--;
-            if (take <= 0)
-                take = Math.Min(maxBytes, remaining);
 
-            // Avoid splitting an XML entity such as &amp;.
+            // Align the chunk end to a complete UTF-8 character boundary.
+            take = AlignUtf8ChunkEnd(bytes, offset, take);
+
+            // When maxBytes is too small for a single multi-byte character,
+            // include at least one complete character to make forward progress.
+            if (take <= 0)
+            {
+                var firstByte = bytes[offset];
+                take = Math.Min(Utf8ByteSequenceLength(firstByte), remaining);
+            }
+
+            // Avoid splitting an SSML entity such as &amp;.
             var slice = bytes.AsSpan(offset, take);
             var amp = slice.LastIndexOf((byte)'&');
-            if (amp >= 0 && slice.Slice(amp).IndexOf((byte)';') < 0 && take > amp)
-                take = amp > 0 ? amp : take;
+            if (amp >= 0 && slice.Slice(amp).IndexOf((byte)';') < 0 && amp > 0)
+            {
+                take = amp;
+                // Re-align after entity adjustment — & may have been preceded
+                // by a multi-byte character whose boundary we must now honour.
+                take = AlignUtf8ChunkEnd(bytes, offset, take);
+            }
 
             parts.Add(utf8.GetString(bytes, offset, take));
             offset += take;
         }
 
         return parts;
+    }
+
+    /// <summary>
+    /// Backtracks <paramref name="take"/> so that the span
+    /// <c>bytes[offset .. offset+take]</c> ends on a complete UTF-8 character.
+    /// </summary>
+    internal static int AlignUtf8ChunkEnd(byte[] bytes, int offset, int take)
+    {
+        while (take > 0)
+        {
+            var last = bytes[offset + take - 1];
+            // Continuation byte (10xxxxxx) — always part of an incomplete sequence.
+            if ((last & 0xC0) == 0x80)
+            {
+                take--;
+                continue;
+            }
+
+            // Multi-byte lead byte — its continuation bytes are beyond the chunk.
+            var seqLen = Utf8ByteSequenceLength(last);
+            if (seqLen > 1)
+            {
+                take--;
+                continue;
+            }
+
+            // Single-byte character (0xxxxxxx) — valid boundary.
+            break;
+        }
+
+        return take;
+    }
+
+    /// <summary>
+    /// Returns the number of bytes in the UTF-8 sequence started by <paramref name="firstByte"/>.
+    /// </summary>
+    private static int Utf8ByteSequenceLength(byte firstByte)
+    {
+        if ((firstByte & 0x80) == 0) return 1;     // 0xxxxxxx
+        if ((firstByte & 0xE0) == 0xC0) return 2;  // 110xxxxx
+        if ((firstByte & 0xF0) == 0xE0) return 3;  // 1110xxxx
+        return 4;                                    // 11110xxx (emoji, etc.)
     }
 
     private async Task<byte[]> SynthesizeChunkAsync(

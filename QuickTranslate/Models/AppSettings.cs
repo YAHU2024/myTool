@@ -214,6 +214,17 @@ namespace QuickTranslate.Models
         /// </summary>
         public bool CheckForUpdateOnStartup { get; set; } = true;
 
+        /// <summary>
+        /// Whether to require Authenticode signature verification before
+        /// executing the update installer. Defaults to false so that users
+        /// without a code-signing certificate are not blocked.
+        /// Set to true once a valid Authenticode certificate is available
+        /// for signing release installers.
+        /// When false, SHA256 checksum verification still applies; missing
+        /// or invalid Authenticode signatures only produce a warning log.
+        /// </summary>
+        public bool RequireAuthenticodeSignature { get; set; } = false;
+
         // ==================== Phase 14: TTS ====================
 
         /// <summary>

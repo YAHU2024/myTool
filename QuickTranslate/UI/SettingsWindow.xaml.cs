@@ -359,7 +359,7 @@ namespace QuickTranslate.UI
             if (profile == null)
                 return;
             var result = MessageBox.Show(
-                $"确定要删除解析方案“{profile.Name}”吗？",
+                $"确定要删除解析方案\u201c{profile.Name}\u201d吗？",
                 "删除解析方案",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
@@ -459,6 +459,8 @@ namespace QuickTranslate.UI
             SaveAnalysisPromptEditor();
             if (!ValidateAnalysisPromptProfiles())
                 return;
+            if (!ValidateApiBaseUrl())
+                return;
             ApplySettingsToModel();
             ConfigManager.Save(_settings);
             _onSettingsSaved?.Invoke(_settings);
@@ -496,6 +498,11 @@ namespace QuickTranslate.UI
                         e.Cancel = true;
                         return;
                     }
+                    if (!ValidateApiBaseUrl())
+                    {
+                        e.Cancel = true;
+                        return;
+                    }
                     ApplySettingsToModel();
                     ConfigManager.Save(_settings);
                     _onSettingsSaved?.Invoke(_settings);
@@ -516,7 +523,8 @@ namespace QuickTranslate.UI
         /// </summary>
         private void ApplySettingsToModel()
         {
-            _settings.ApiBaseUrl = ApiBaseUrlTextBox.Text?.Trim() ?? _settings.ApiBaseUrl;
+            _settings.ApiBaseUrl = ApiEndpointValidator.ValidateAndNormalize(
+                ApiBaseUrlTextBox.Text?.Trim() ?? _settings.ApiBaseUrl);
 
             // 根据当前显示模式获取 API Key
             _settings.ApiKey = _isApiKeyVisible
@@ -656,7 +664,7 @@ namespace QuickTranslate.UI
             if (duplicateName != null)
             {
                 MessageBox.Show(
-                    $"解析方案名称“{duplicateName.Key}”已存在，请使用其他名称。",
+                    $"解析方案名称\u201c{duplicateName.Key}\u201d已存在，请使用其他名称。",
                     "解析方案名称重复",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
@@ -664,6 +672,26 @@ namespace QuickTranslate.UI
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Validates that the API Base URL does not send credentials over
+        /// plaintext HTTP to a remote host. Loopback HTTP is allowed for
+        /// local development.
+        /// </summary>
+        private bool ValidateApiBaseUrl()
+        {
+            var url = ApiBaseUrlTextBox.Text?.Trim() ?? string.Empty;
+            var error = ApiEndpointValidator.Validate(url);
+            if (error == null)
+                return true;
+
+            MessageBox.Show(
+                error,
+                "API 地址无效",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return false;
         }
 
         private void RefreshAnalysisPromptComboBox()

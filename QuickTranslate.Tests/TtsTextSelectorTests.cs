@@ -112,4 +112,82 @@ public sealed class TtsTextSelectorTests
         Assert.True(TtsTextSelector.IsChineseVoice(TtsTextSelector.VoiceXiaoxiao));
         Assert.False(TtsTextSelector.IsChineseVoice(TtsTextSelector.VoiceJenny));
     }
+
+    // ==================== Unicode scalar truncation (P2-3) ====================
+
+    [Fact]
+    public void NormalizeForSpeech_PreservesSurrogatePairs()
+    {
+        // 🎉 is U+1F389 = surrogate pair D83C DF89 (2 UTF-16 units, 1 rune).
+        var raw = "abc🎉def";
+        var text = TtsTextSelector.NormalizeForSpeech(raw, maxChars: 4, out var truncated);
+        // 4 runes: 'a' 'b' 'c' '🎉'
+        Assert.True(truncated);
+        Assert.Equal(5, text.Length); // 3 BMP + 1 surrogate pair = 5 UTF-16 units
+        Assert.Equal("abc🎉", text);
+        // Verify no unpaired surrogates.
+        Assert.False(char.IsSurrogate(text[^1]) && text.Length > 1 && !char.IsSurrogatePair(text[^2], text[^1]));
+    }
+
+    [Fact]
+    public void NormalizeForSpeech_TruncatesByRuneNotUtf16()
+    {
+        // 5 BMP chars: each is 1 UTF-16 unit = 1 rune.
+        var text = TtsTextSelector.NormalizeForSpeech("12345abc", maxChars: 3, out var truncated);
+        Assert.True(truncated);
+        Assert.Equal("123", text);
+        Assert.Equal(3, text.Length);
+    }
+
+    [Fact]
+    public void NormalizeForSpeech_NoTruncationWhenUnderLimit()
+    {
+        var text = TtsTextSelector.NormalizeForSpeech("hello🎉", maxChars: 100, out var truncated);
+        Assert.False(truncated);
+        Assert.Equal("hello🎉", text);
+    }
+
+    [Fact]
+    public void NormalizeForSpeech_ChineseAndEmojiMixed()
+    {
+        // "中国🎉测试" = 2 + 1 + 2 = 5 runes, 6 UTF-16 units.
+        var raw = "中国🎉测试";
+        var text = TtsTextSelector.NormalizeForSpeech(raw, maxChars: 4, out var truncated);
+        Assert.True(truncated);
+        Assert.Equal("中国🎉测", text);
+        Assert.False(char.IsSurrogate(text[^1])); // does not end with unpaired surrogate
+    }
+
+    [Fact]
+    public void NormalizeForSpeech_TruncationExactlyOnEmojiBoundary()
+    {
+        // "a🎉b" = 3 runes. maxChars=2 → "a🎉" (3 UTF-16 units).
+        var text = TtsTextSelector.NormalizeForSpeech("a🎉b", maxChars: 2, out var truncated);
+        Assert.True(truncated);
+        Assert.Equal("a🎉", text);
+    }
+
+    [Fact]
+    public void TryTruncateByRuneCount_ReturnsOriginalWhenUnderLimit()
+    {
+        Assert.False(TtsTextSelector.TryTruncateByRuneCount("hello", 10, out var result));
+        Assert.Equal("hello", result);
+    }
+
+    [Fact]
+    public void TryTruncateByRuneCount_PreservesSurrogatePairs()
+    {
+        Assert.True(TtsTextSelector.TryTruncateByRuneCount("a🎉b🎉c", 3, out var result));
+        Assert.Equal("a🎉b", result);
+        // 1 BMP + 1 surrogate pair + 1 BMP = 4 UTF-16 units.
+        Assert.Equal(4, result.Length);
+    }
+
+    [Fact]
+    public void TryTruncateByRuneCount_ReturnsFalseForEmptyOrZero()
+    {
+        Assert.False(TtsTextSelector.TryTruncateByRuneCount("", 5, out _));
+        Assert.False(TtsTextSelector.TryTruncateByRuneCount("abc", 0, out var r));
+        Assert.Equal("abc", r);
+    }
 }

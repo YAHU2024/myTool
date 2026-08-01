@@ -222,6 +222,8 @@ public partial class App : Application
         _hiddenWindow.Show();
 
         // 启动时延迟检查更新（不阻塞初始化）
+        // 将 Authenticode 验证策略注入 UpdateService
+        UpdateService.RequireAuthenticodeSignature = _settings.RequireAuthenticodeSignature;
         if (_settings.CheckForUpdateOnStartup)
         {
             ScheduleStartupUpdateCheck(delaySeconds: 5);
