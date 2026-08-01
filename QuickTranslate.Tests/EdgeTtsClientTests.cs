@@ -142,6 +142,112 @@ public sealed class EdgeTtsClientTests
         Assert.Equal(2, calls);
     }
 
+    // ==================== UTF-8 byte chunking (P2-3) ====================
+
+    [Fact]
+    public void SplitUtf8ByByteLength_PreservesMultiByteChineseCharacters()
+    {
+        // "你好" = 6 UTF-8 bytes. Each char is 3 bytes.
+        var parts = EdgeTtsClient.SplitUtf8ByByteLength("你好", maxBytes: 3);
+        Assert.Equal(2, parts.Count);
+        Assert.Equal("你", parts[0]);
+        Assert.Equal("好", parts[1]);
+        // No char is split — each decoded chunk is a complete character.
+        Assert.All(parts, p => Assert.True(p.Length == 1));
+    }
+
+    [Fact]
+    public void SplitUtf8ByByteLength_ReassemblesToOriginal()
+    {
+        var original = "中国🎉世界test &amp; hello";
+        var parts = EdgeTtsClient.SplitUtf8ByByteLength(original, maxBytes: 8);
+        var reassembled = string.Concat(parts);
+        Assert.Equal(original, reassembled);
+    }
+
+    [Fact]
+    public void SplitUtf8ByByteLength_NoReplacementCharacterInAnyChunk()
+    {
+        // Mix that exercises 2-byte, 3-byte, and 4-byte UTF-8 sequences.
+        var mixed = "a¢你🎉测试Ωend"; // '¢' = 2B, '你' = 3B, '🎉' = 4B
+        var parts = EdgeTtsClient.SplitUtf8ByByteLength(mixed, maxBytes: 5);
+        Assert.All(parts, p => Assert.DoesNotContain('\uFFFD', p));
+        var reassembled = string.Concat(parts);
+        Assert.Equal(mixed, reassembled);
+    }
+
+    [Fact]
+    public void SplitUtf8ByByteLength_EmojiFourByteSequenceNotTruncated()
+    {
+        // 🎉 = 0xF0 0x9F 0x8E 0x89 (4 bytes)
+        var text = "🎉🎉🎉";
+        var parts = EdgeTtsClient.SplitUtf8ByByteLength(text, maxBytes: 5);
+        Assert.Equal(3, parts.Count);
+        // Each chunk must decode to exactly one 🎉 without replacement characters.
+        Assert.All(parts, p => Assert.Equal("🎉", p));
+    }
+
+    [Fact]
+    public void SplitUtf8ByByteLength_ExactlyAtCharacterBoundary()
+    {
+        // "abc你好" = 3 + 6 = 9 bytes. maxBytes=3 should split as "abc", "你", "好".
+        var parts = EdgeTtsClient.SplitUtf8ByByteLength("abc你好", maxBytes: 3);
+        Assert.Equal(3, parts.Count);
+        Assert.Equal("abc", parts[0]);
+        Assert.Equal("你", parts[1]);
+        Assert.Equal("好", parts[2]);
+    }
+
+    [Fact]
+    public void SplitUtf8ByByteLength_SingleCharExceedsMaxBytes_IncludesAtLeastOneChar()
+    {
+        // 🎉 is 4 bytes. With maxBytes=2, we must still produce at least one chunk
+        // containing the complete 4-byte emoji.
+        var parts = EdgeTtsClient.SplitUtf8ByByteLength("🎉", maxBytes: 2);
+        Assert.Single(parts);
+        Assert.Equal("🎉", parts[0]);
+    }
+
+    [Fact]
+    public void SplitUtf8ByByteLength_EntityWithinChunkPreserved()
+    {
+        var escaped = TtsTextSelector.EscapeSsml("a & b < c");
+        // "a &amp; b &lt; c" — all ASCII, entities are intact.
+        var parts = EdgeTtsClient.SplitUtf8ByByteLength(escaped, maxBytes: 8);
+        // Ensure no chunk has an unclosed '&' that would break SSML.
+        Assert.All(parts, part => Assert.False(part.Contains('&') && !part.Contains(';')));
+        var reassembled = string.Concat(parts);
+        Assert.Equal(escaped, reassembled);
+    }
+
+    [Fact]
+    public void SplitUtf8ByByteLength_EntityAndMultibyteMixed()
+    {
+        // "你好 &amp; 世界" — multibyte + entity + multibyte.
+        var text = "你好 &amp; 世界";
+        var parts = EdgeTtsClient.SplitUtf8ByByteLength(text, maxBytes: 7);
+        Assert.All(parts, p => Assert.DoesNotContain('\uFFFD', p));
+        var reassembled = string.Concat(parts);
+        Assert.Equal(text, reassembled);
+    }
+
+    [Fact]
+    public void SplitUtf8ByByteLength_AllAsciiTextNoSplit()
+    {
+        var parts = EdgeTtsClient.SplitUtf8ByByteLength("hello world", maxBytes: 3000);
+        Assert.Single(parts);
+        Assert.Equal("hello world", parts[0]);
+    }
+
+    [Fact]
+    public void SplitUtf8ByByteLength_EmptyOrInvalidArgs()
+    {
+        Assert.Empty(EdgeTtsClient.SplitUtf8ByByteLength("", 100));
+        Assert.Empty(EdgeTtsClient.SplitUtf8ByByteLength(null!, 100));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            EdgeTtsClient.SplitUtf8ByByteLength("text", 0));
+    }
+
     private static byte[] BuildAudioBinary(string audioText)
     {
         var headers = Encoding.UTF8.GetBytes("Path:audio\r\n");

@@ -59,10 +59,13 @@ public static class TtsTextSelector
 
         text = sb.ToString().Trim();
         text = RemoveIncompatibleCharacters(text);
-        if (maxChars > 0 && text.Length > maxChars)
+        if (maxChars > 0)
         {
-            text = text[..maxChars];
-            truncated = true;
+            if (TryTruncateByRuneCount(text, maxChars, out var truncatedText))
+            {
+                text = truncatedText;
+                truncated = true;
+            }
         }
 
         return text;
@@ -205,6 +208,39 @@ public static class TtsTextSelector
             or (>= '\uF900' and <= '\uFAFF')
             or (>= '\u3040' and <= '\u30FF')
             or (>= '\uAC00' and <= '\uD7AF');
+
+    /// <summary>
+    /// Truncates <paramref name="text"/> to at most <paramref name="maxRunes"/> Unicode scalar
+    /// values (runes), ensuring surrogate pairs and composite characters are never split.
+    /// Returns true when truncation occurred.
+    /// </summary>
+    internal static bool TryTruncateByRuneCount(string text, int maxRunes, out string result)
+    {
+        if (string.IsNullOrEmpty(text) || maxRunes <= 0)
+        {
+            result = text;
+            return false;
+        }
+
+        var runeCount = 0;
+        var cutoffInUtf16 = 0;
+        foreach (var rune in text.EnumerateRunes())
+        {
+            if (runeCount >= maxRunes)
+                break;
+            runeCount++;
+            cutoffInUtf16 += rune.Utf16SequenceLength;
+        }
+
+        if (cutoffInUtf16 >= text.Length)
+        {
+            result = text;
+            return false;
+        }
+
+        result = text[..cutoffInUtf16];
+        return true;
+    }
 
     private static string RemoveIncompatibleCharacters(string text)
     {
