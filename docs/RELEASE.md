@@ -131,6 +131,20 @@ Authenticode 签名提供**独立信任链**：
 - 应用在执行安装包前依次验证 SHA256 → Authenticode 签名 → 证书链 → 发布者身份
 - 任一验证失败立即中止安装，禁止降级继续
 
+**两阶段推进策略**：
+
+自动更新的 Authenticode 验证由配置项 `RequireAuthenticodeSignature` 控制
+（`AppSettings.RequireAuthenticodeSignature`，默认 `false`）：
+
+| 配置值 | 模式 | 行为 |
+|:-------|:-----|:-----|
+| `false`（默认） | 咨询模式 | SHA256 校验照常；Authenticode 结果仅记录日志，**不阻断**更新 |
+| `true` | 严格模式 | 签名无效或发布者不匹配时**中止安装**并报错 |
+
+项目初期可先以咨询模式运行，验证管线无编译/运行时问题。购买代码签名证书后，
+将 `RequireAuthenticodeSignature` 改为 `true`，严格验证即刻生效，无需修改代码。
+（可在 `settings.json` 中覆盖默认值，或在新版本中将默认值改为 `true`。）
+
 ### 3B.2 环境准备
 
 确认 SignTool 可用（通常在 `C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe`）：
@@ -201,6 +215,10 @@ signtool verify /pa /v publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.
 - [ ] `installer/version.xml` 的 `<signer><subject>` 与证书 Subject 匹配
 - [ ] 验证通过的安装包才上传到 GitHub Release
 - [ ] 未签名的安装包绝不进入 Release
+- [ ] 严格模式已启用确认：
+  - 首次购买证书后，将 `AppSettings.RequireAuthenticodeSignature` 默认值改为 `true`
+  - 或在 `settings.json` 中将 `RequireAuthenticodeSignature` 设为 `true`
+  - 若有旧版本仍在咨询模式运行，需通过一次手动更新过渡到严格模式版本
 
 ---
 
