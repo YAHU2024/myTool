@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Windows;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Win32;
 using QuickTranslate.Database;
+using QuickTranslate.Services;
 
 namespace QuickTranslate.UI
 {
@@ -242,7 +242,7 @@ namespace QuickTranslate.UI
             using var context = new TranslationDbContext();
             var query = context.TranslationRecords.AsQueryable();
 
-            // 应用当前筛选条件
+            // Apply current filters
             if (!string.IsNullOrWhiteSpace(_searchText))
             {
                 query = query.Where(r =>
@@ -262,47 +262,7 @@ namespace QuickTranslate.UI
             }
 
             var records = query.OrderByDescending(r => r.TranslatedAt).ToList();
-
-            // 判断文件类型
-            var extension = Path.GetExtension(filePath).ToLower();
-            var separator = extension == ".tsv" ? "\t" : ",";
-
-            var sb = new StringBuilder();
-
-            // 写入表头（Anki 格式：原文、译文、源语言、目标语言、模型、时间）
-            sb.AppendLine($"原文{separator}译文{separator}源语言{separator}目标语言{separator}模型{separator}时间");
-
-            // 写入数据
-            foreach (var record in records)
-            {
-                var source = EscapeCsvField(record.SourceText, separator);
-                var translation = EscapeCsvField(record.Translation, separator);
-                var sourceLang = EscapeCsvField(record.SourceLanguage, separator);
-                var targetLang = EscapeCsvField(record.TargetLanguage, separator);
-                var model = EscapeCsvField(record.ModelName, separator);
-                var time = record.TranslatedAt.ToString("yyyy-MM-dd HH:mm:ss");
-
-                sb.AppendLine($"{source}{separator}{translation}{separator}{sourceLang}{separator}{targetLang}{separator}{model}{separator}{time}");
-            }
-
-            File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
-        }
-
-        /// <summary>
-        /// CSV 字段转义（处理换行和引号）
-        /// </summary>
-        private static string EscapeCsvField(string field, string separator)
-        {
-            if (string.IsNullOrEmpty(field))
-                return string.Empty;
-
-            // 如果包含分隔符、换行符或引号，需要用引号包裹
-            if (field.Contains(separator) || field.Contains("\n") || field.Contains("\r") || field.Contains("\""))
-            {
-                return $"\"{field.Replace("\"", "\"\"")}\"";
-            }
-
-            return field;
+            HistoryExporter.Export(records, filePath);
         }
     }
 }
