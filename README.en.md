@@ -43,6 +43,48 @@ A lightweight .NET 8 WPF desktop translator that connects to OpenAI-compatible A
 
 ---
 
+## Screenshots
+
+### Select-to-Translate · Red-dot Guidance
+
+<p align="center">
+  <img src="docs/images/红点翻译功能展示.gif" alt="Select-to-translate demo" width="85%">
+</p>
+
+Red-dot guidance on text selection, **streaming token-by-token output**, floating window instant preview — triggered by drag / double-click / triple-click.
+
+---
+
+### Settings · Multi-model & Hotkey Management
+
+<p align="center">
+  <img src="docs/images/设置页展示.gif" alt="Settings page" width="85%">
+</p>
+
+Multi-model switching, customizable global hotkeys, analysis profile management — **changes apply instantly without restart**.
+
+---
+
+### Translation History · Search & Anki Export
+
+<p align="center">
+  <img src="docs/images/翻译历史页面.png" alt="Translation history" width="85%">
+</p>
+
+SQLite local persistence, search & filter by time / language, paginated browsing, **one-click Anki-format export**.
+
+---
+
+### Log Viewer · JSON Lines & Latency Metrics
+
+<p align="center">
+  <img src="docs/images/日志查看器.png" alt="Log viewer" width="85%">
+</p>
+
+Structured JSON Lines logs, multi-file switching, level / keyword filtering, **P50/P95/P99 latency statistics**, auto cleanup of expired logs.
+
+---
+
 ## Download & Install
 
 Don't want to set up a dev environment? Just download the installer — **double-click to run, no .NET 8 SDK required**.
@@ -120,7 +162,9 @@ QuickTranslate/
 │   ├── BrowserDetector.cs             # Browser window awareness
 │   ├── TerminalDetector.cs            # Terminal window awareness
 │   ├── AutoScrollController.cs        # Streaming auto-scroll (pause/resume on user action)
+│   ├── CopyShortcut.cs                # Copy shortcut helper
 │   ├── LatestRequestCoordinator.cs    # latest-request-wins coordinator
+│   ├── LatestPresentationCoordinator.cs  # Presentation identity coordinator
 │   └── FloatingResultSessionCoordinator.cs  # Multi-mode session manager
 │
 ├── Database/                          # Persistence
@@ -132,16 +176,21 @@ QuickTranslate/
 │   ├── OpenAITranslationService.cs    # OpenAI-compatible SSE streaming
 │   ├── TranslationCacheService.cs      # Semantic cache (LRU + 30min TTL)
 │   ├── TranslationMetrics.cs          # Metrics (P50/P95/P99)
+│   ├── HistoryExporter.cs             # History export (Anki/CSV)
 │   ├── AnalysisPromptCatalog.cs       # Built-in / custom analysis profiles
 │   ├── UpdateService.cs               # Auto update (GitHub Release + AutoUpdater.NET)
+│   ├── ITtsService.cs                 # TTS service interface
 │   ├── EdgeTtsService.cs              # Edge TTS read-aloud
-│   └── EdgeTtsClient.cs               # Edge TTS WebSocket client
+│   ├── EdgeTtsClient.cs               # Edge TTS WebSocket client
+│   ├── TtsTextSelector.cs             # TTS text selector
+│   └── TtsSpeakException.cs           # TTS exception class
 │
 ├── Models/                            # Data models
 │   ├── AppSettings.cs                 # Settings (multi-model / hotkeys / profiles / update)
 │   ├── TranslationRequest.cs          # Immutable request snapshot
 │   ├── FloatingResultSession.cs       # Multi-mode session state
-│   └── AnalysisPromptProfile.cs       # Custom analysis profile
+│   ├── AnalysisPromptProfile.cs       # Custom analysis profile
+│   └── TranslationTriggerMode.cs      # Translation trigger mode enum
 │
 ├── Helpers/                           # Utilities
 │   ├── ConfigManager.cs               # JSON config read/write + migration
@@ -149,17 +198,26 @@ QuickTranslate/
 │   ├── LogEvent.cs                    # Structured log event model
 │   ├── MarkdownRenderer.cs            # Safe Markdown renderer
 │   ├── Win32Api.cs                    # Win32 P/Invoke declarations
-│   └── DpiHelper.cs                  # DPI scaling coordinate conversion
+│   ├── DpiHelper.cs                   # DPI scaling coordinate conversion
+│   ├── ApiEndpointValidator.cs        # API endpoint format validation
+│   └── AuthenticodeVerifier.cs        # Installer digital signature verification
 │
 ├── UI/                                # User interface
 │   ├── FloatingWindow.xaml/.cs        # Floating window (multi-mode/Markdown/TTS/pin)
 │   ├── RedDotWindow.xaml/.cs          # Red-dot guidance window
 │   ├── TrayIconManager.cs            # System tray (context menu / toast)
 │   ├── SettingsWindow.xaml/.cs       # Settings (models / profiles / update)
+│   ├── DownloadUpdateWindow.xaml/.cs  # Update download window
 │   ├── HistoryWindow.xaml/.cs        # Translation history
 │   ├── LogViewerWindow.xaml/.cs      # Log viewer
-│   └── LogEntryReader.cs             # Log read & filter
+│   ├── LogEntryReader.cs             # Log read & filter
+│   ├── FloatingWindowAnchor.cs        # Window anchor positioning
+│   ├── FloatingWindowPlacement.cs     # Window placement management
+│   └── FloatingStatusMessage.cs       # Status messages
 │
+├── Assets/                            # App icon resources
+├── app.manifest                       # Windows application manifest
+├── QuickTranslate.csproj              # .NET 8 project file
 ├── MainWindow.xaml/.cs                # Hidden main window (stable WPF lifecycle)
 └── App.xaml/.cs                       # App entry (single-instance / update / dispatch)
 ```
@@ -168,17 +226,19 @@ QuickTranslate/
 
 ```text
 myTool/
+├── .github/                           # GitHub Actions workflows & issue templates
 ├── QuickTranslate/                    # Main source project
 ├── QuickTranslate.Tests/              # xUnit unit tests
 ├── installer/                         # Inno Setup scripts + version.xml
+├── scripts/                           # Helper scripts
 ├── docs/                              # Documentation
+│   ├── images/                        # Screenshots
 │   ├── LOGGING.md                     # Logging guide
-│   ├── RELEASE.md                     # Release process
-│   └── THOUGHTS.md                   # Design notes
-├── publish/                           # Build output
-├── AGENTS.md                          # AI collaboration guidelines
-├── PLAN.md                            # Project plan
+│   └── RELEASE.md                     # Release process
+├── .gitignore                         # Git ignore rules
+├── CONTRIBUTING.md                    # Contribution guide
 ├── LICENSE
+├── README.en.md                       # English README
 └── README.md
 ```
 

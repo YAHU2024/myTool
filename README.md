@@ -27,17 +27,43 @@
 
 ## 功能展示
 
-<div align="center">
+### 划词即译 · 红点引导
 
-| 划词即译 · 红点引导 | 设置窗口 · 更多自定义 |
-| :---: | :---: |
-| ![划词翻译演示](docs/images/红点翻译功能展示.gif) | ![设置页](docs/images/设置页展示.gif) |
+<p align="center">
+  <img src="docs/images/红点翻译功能展示.gif" alt="划词翻译演示" width="85%">
+</p>
 
-| 翻译历史 · 本地检索 / Anki 导出 | 日志查看器 · JSON Lines / P50–P99 指标 |
-| :---: | :---: |
-| ![翻译历史](docs/images/翻译历史页面.png) | ![日志查看器](docs/images/日志查看器.png) |
+选中文本自动弹出红点引导，**流式逐字输出**翻译结果，悬浮窗即时展示，支持拖拽/双击/三击触发。
 
-</div>
+---
+
+### 设置窗口 · 多模型与快捷键管理
+
+<p align="center">
+  <img src="docs/images/设置页展示.gif" alt="设置页" width="85%">
+</p>
+
+多模型切换、自定义全局快捷键、解析方案管理，**即时生效无需重启**。
+
+---
+
+### 翻译历史 · 本地检索与 Anki 导出
+
+<p align="center">
+  <img src="docs/images/翻译历史页面.png" alt="翻译历史" width="85%">
+</p>
+
+SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支持 **Anki 格式一键导出**。
+
+---
+
+### 日志查看器 · JSON Lines 与延迟指标
+
+<p align="center">
+  <img src="docs/images/日志查看器.png" alt="日志查看器" width="85%">
+</p>
+
+结构化 JSON Lines 日志，多文件切换、级别/关键字筛选，**P50/P95/P99 延迟统计**，自动清理过期日志。
 
 ---
 
@@ -174,6 +200,7 @@ QuickTranslate/
 │   ├── OpenAITranslationService.cs    # OpenAI 兼容 SSE 流式翻译
 │   ├── TranslationCacheService.cs     # 语义缓存（LRU + 30min TTL）
 │   ├── TranslationMetrics.cs          # 指标统计（P50/P95/P99）
+│   ├── HistoryExporter.cs             # 翻译历史导出（Anki/CSV）
 │   ├── AnalysisPromptCatalog.cs       # 内置/自定义解析方案目录
 │   ├── UpdateService.cs               # 自动更新（GitHub Release + AutoUpdater.NET）
 │   ├── ITtsService.cs                 # TTS 服务接口
@@ -195,13 +222,16 @@ QuickTranslate/
 │   ├── LogEvent.cs                    # 结构化日志事件模型
 │   ├── MarkdownRenderer.cs            # 安全 Markdown 渲染
 │   ├── Win32Api.cs                    # Win32 P/Invoke 声明
-│   └── DpiHelper.cs                   # DPI 缩放坐标转换
+│   ├── DpiHelper.cs                   # DPI 缩放坐标转换
+│   ├── ApiEndpointValidator.cs        # API 端点格式验证
+│   └── AuthenticodeVerifier.cs        # 安装包数字签名校验
 │
 ├── UI/                                # 用户界面
 │   ├── FloatingWindow.xaml/.cs        # 悬浮窗（多模式/Markdown/TTS/图钉）
 │   ├── RedDotWindow.xaml/.cs          # 红点引导窗口
 │   ├── TrayIconManager.cs             # 系统托盘（右键菜单/气泡通知）
 │   ├── SettingsWindow.xaml/.cs        # 设置窗口（模型/解析方案/更新管理）
+│   ├── DownloadUpdateWindow.xaml/.cs  # 更新下载窗口
 │   ├── HistoryWindow.xaml/.cs         # 翻译历史查看
 │   ├── LogViewerWindow.xaml/.cs       # 日志查看器
 │   ├── LogEntryReader.cs              # 日志读取与筛选
@@ -209,6 +239,9 @@ QuickTranslate/
 │   ├── FloatingWindowPlacement.cs     # 窗口位置管理
 │   └── FloatingStatusMessage.cs       # 状态消息
 │
+├── Assets/                            # 应用图标资源
+├── app.manifest                       # Windows 应用清单
+├── QuickTranslate.csproj              # .NET 8 项目文件
 ├── MainWindow.xaml/.cs                # 隐藏主窗口（稳定 WPF 生命周期）
 └── App.xaml/.cs                       # 应用入口（单实例/更新调度/事件分发）
 ```
@@ -217,17 +250,19 @@ QuickTranslate/
 
 ```text
 myTool/
+├── .github/                           # GitHub Actions 工作流 & Issue 模板
 ├── QuickTranslate/                    # 主项目源码
 ├── QuickTranslate.Tests/              # xUnit 单元测试
 ├── installer/                         # Inno Setup 安装脚本 + version.xml
+├── scripts/                           # 辅助脚本
 ├── docs/                              # 项目文档
+│   ├── images/                        # 文档配图
 │   ├── LOGGING.md                     # 日志功能文档
-│   ├── RELEASE.md                     # 发布流程文档
-│   └── THOUGHTS.md                    # 设计思路笔记
-├── publish/                           # 发布产物目录
-├── AGENTS.md                          # AI 协作开发规范
-├── PLAN.md                            # 项目规划
+│   └── RELEASE.md                     # 发布流程文档
+├── .gitignore                         # Git 忽略规则
+├── CONTRIBUTING.md                    # 贡献指南
 ├── LICENSE
+├── README.en.md                       # 英文 README
 └── README.md
 ```
 
