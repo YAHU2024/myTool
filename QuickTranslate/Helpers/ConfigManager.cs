@@ -7,81 +7,240 @@ using QuickTranslate.Services;
 namespace QuickTranslate.Helpers
 {
     /// <summary>
-    /// 配置管理器 - 负责读写应用配置
+    /// Configuration manager with atomic saves, corruption recovery,
+    /// and injectable paths for testing.
     /// </summary>
-    public static class ConfigManager
+    public class ConfigManager
     {
-        private static readonly string ConfigDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "QuickTranslate");
-
-        private static readonly string ConfigFilePath = Path.Combine(ConfigDir, "settings.json");
+        private readonly string _configDir;
+        private readonly string _configFilePath;
+        private readonly string _tempFilePath;
+        private readonly string _backupFilePath;
 
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             WriteIndented = true
         };
 
-        /// <summary>
-        /// 加载配置，若配置文件不存在则创建默认配置
-        /// </summary>
-        public static AppSettings Load()
-        {
-            try
-            {
-                if (File.Exists(ConfigFilePath))
-                {
-                    var json = File.ReadAllText(ConfigFilePath);
-                    var settings = JsonSerializer.Deserialize<AppSettings>(json);
-                    if (settings != null)
-                    {
-                        settings.LogRetentionDays = Math.Clamp(settings.LogRetentionDays, 1, 3650);
-                        settings.LogMaxTotalBytes = Math.Clamp(
-                            settings.LogMaxTotalBytes,
-                            1 * 1024 * 1024,
-                            1024L * 1024 * 1024);
-                        using var document = JsonDocument.Parse(json);
-                        var shouldSave = MigratePromptSettings(settings, document.RootElement);
-                        shouldSave |= MigrateTranslationTriggerMode(settings, document.RootElement);
-                        if (shouldSave)
-                            Save(settings);
-                        return settings;
-                    }
-                }
-            }
-            catch
-            {
-                // 配置文件损坏，使用默认配置
-            }
+        // ---- Static facade for production use ----
 
-            var defaultSettings = new AppSettings();
-            Save(defaultSettings);
-            return defaultSettings;
+        private static readonly ConfigManager _instance = new(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "QuickTranslate"));
+
+        /// <summary>
+        /// Whether the last Load() detected a corrupted or unreadable config file.
+        /// UI should check this after Load() to offer a recovery prompt.
+        /// </summary>
+        public static bool LastLoadHadCorruption { get; private set; }
+
+        /// <summary>
+        /// Error category from the most recent Load(), or null on success.
+        /// </summary>
+        public static string? LastLoadError { get; private set; }
+
+        /// <summary>
+        /// Load configuration. On first launch or corruption, returns defaults
+        /// without overwriting the original file.
+        /// </summary>
+        public static AppSettings Load() => _instance.LoadInternal();
+
+        /// <summary>
+        /// Save configuration atomically (write-to-temp then replace).
+        /// Keeps one backup of the previous valid file.
+        /// </summary>
+        public static void Save(AppSettings settings) => _instance.SaveInternal(settings);
+
+        // ---- Instance (testable) ----
+
+        /// <summary>
+        /// Production constructor — uses %APPDATA%/QuickTranslate.
+        /// </summary>
+        public ConfigManager() : this(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "QuickTranslate"))
+        {
         }
 
         /// <summary>
-        /// 保存配置到本地 JSON 文件
+        /// Injectable constructor for tests.
         /// </summary>
-        public static void Save(AppSettings settings)
+        internal ConfigManager(string configDir)
         {
+            _configDir = configDir;
+            _configFilePath = Path.Combine(_configDir, "settings.json");
+            _tempFilePath = Path.Combine(_configDir, "settings.json.tmp");
+            _backupFilePath = Path.Combine(_configDir, "settings.json.bak");
+        }
+
+        internal AppSettings LoadInternal()
+        {
+            LastLoadHadCorruption = false;
+            LastLoadError = null;
+
+            if (!File.Exists(_configFilePath))
+            {
+                // First launch — return defaults; do not persist until first Save().
+                return new AppSettings();
+            }
+
+            string json;
             try
             {
-                if (!Directory.Exists(ConfigDir))
-                    Directory.CreateDirectory(ConfigDir);
+                json = File.ReadAllText(_configFilePath);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                LastLoadHadCorruption = true;
+                LastLoadError = "access_denied";
+                Logger.Error("ConfigManager", "config.load_access_denied",
+                    new { error_type = "UnauthorizedAccessException" });
+                return new AppSettings();
+            }
+            catch (IOException ex)
+            {
+                LastLoadHadCorruption = true;
+                LastLoadError = "io_error";
+                Logger.Error("ConfigManager", "config.load_io_error",
+                    new { error_type = ex.GetType().Name });
+                return new AppSettings();
+            }
 
-                var json = JsonSerializer.Serialize(settings, JsonOptions);
-                File.WriteAllText(ConfigFilePath, json);
+            AppSettings? settings;
+            try
+            {
+                settings = JsonSerializer.Deserialize<AppSettings>(json);
+            }
+            catch (JsonException)
+            {
+                // Corrupted JSON — preserve original file, load defaults.
+                LastLoadHadCorruption = true;
+                LastLoadError = "json_corrupt";
+                Logger.Error("ConfigManager", "config.json_corrupt",
+                    new { error_type = "JsonException" });
+                return new AppSettings();
+            }
+
+            if (settings is null)
+            {
+                // Valid JSON but deserialized to null.
+                LastLoadHadCorruption = true;
+                LastLoadError = "json_null";
+                Logger.Error("ConfigManager", "config.deserialize_null",
+                    new { error_type = "NullResult" });
+                return new AppSettings();
+            }
+
+            // Clamp log limits.
+            settings.LogRetentionDays = Math.Clamp(settings.LogRetentionDays, 1, 3650);
+            settings.LogMaxTotalBytes = Math.Clamp(
+                settings.LogMaxTotalBytes,
+                1 * 1024 * 1024,
+                1024L * 1024 * 1024);
+
+            // Run migrations.
+            using var document = JsonDocument.Parse(json);
+            var shouldSave = MigratePromptSettings(settings, document.RootElement);
+            shouldSave |= MigrateTranslationTriggerMode(settings, document.RootElement);
+
+            if (shouldSave)
+            {
+                try
+                {
+                    SaveInternal(settings);
+                }
+                catch
+                {
+                    // Migration save failure must not discard the in-memory config
+                    // that was already successfully read.
+                    Logger.Warn("ConfigManager", "config.migration_save_failed",
+                        new { error_type = "migration_persistence" });
+                }
+            }
+
+            return settings;
+        }
+
+        internal void SaveInternal(AppSettings settings)
+        {
+            string json;
+            try
+            {
+                json = JsonSerializer.Serialize(settings, JsonOptions);
             }
             catch (Exception ex)
             {
-                Logger.Warn("ConfigManager", "config.save_failed", new { error_type = ex.GetType().Name });
+                Logger.Error("ConfigManager", "config.serialize_failed",
+                    new { error_type = ex.GetType().Name });
+                return;
+            }
+
+            try
+            {
+                if (!Directory.Exists(_configDir))
+                    Directory.CreateDirectory(_configDir);
+
+                // 1. Write JSON to a temporary file (full write + close before rename).
+                File.WriteAllText(_tempFilePath, json);
+
+                // 2. If original exists, copy it as a backup so the user can recover.
+                if (File.Exists(_configFilePath))
+                {
+                    try
+                    {
+                        File.Copy(_configFilePath, _backupFilePath, overwrite: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Backup is best-effort; log but do not fail the save.
+                        Logger.Warn("ConfigManager", "config.backup_failed",
+                            new { error_type = ex.GetType().Name });
+                    }
+                }
+
+                // 3. Atomic replace (File.Move is atomic on the same volume).
+                File.Move(_tempFilePath, _configFilePath, overwrite: true);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Logger.Error("ConfigManager", "config.save_access_denied",
+                    new { error_type = ex.GetType().Name });
+                TryCleanupTemp();
+            }
+            catch (IOException ex)
+            {
+                Logger.Error("ConfigManager", "config.save_io_error",
+                    new { error_type = ex.GetType().Name });
+                TryCleanupTemp();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("ConfigManager", "config.save_failed",
+                    new { error_type = ex.GetType().Name });
+                TryCleanupTemp();
             }
         }
+
+        private void TryCleanupTemp()
+        {
+            try
+            {
+                if (File.Exists(_tempFilePath))
+                    File.Delete(_tempFilePath);
+            }
+            catch
+            {
+                // Best-effort cleanup.
+            }
+        }
+
+        // ---- Migrations (unchanged) ----
+
         internal static bool MigratePromptSettings(AppSettings settings, JsonElement root)
         {
             var changed = false;
 
-            // 兼容旧版本共用的 CustomSystemPrompt，仅在新字段均未提供时迁移一次。
             if (root.TryGetProperty("CustomSystemPrompt", out var legacyPrompt) &&
                 legacyPrompt.ValueKind == JsonValueKind.String &&
                 !root.TryGetProperty("CustomTranslationPrompt", out _) &&
@@ -135,9 +294,6 @@ namespace QuickTranslate.Helpers
             return changed;
         }
 
-        /// <summary>
-        /// 将旧 TranslationEnabled/HotKeyEnabled 迁移为 TranslationTriggerMode，并规范化新字段。
-        /// </summary>
         internal static bool MigrateTranslationTriggerMode(AppSettings settings, JsonElement root)
         {
             var changed = false;
