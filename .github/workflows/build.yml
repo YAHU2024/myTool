@@ -28,3 +28,117 @@ jobs:
 
       - name: Test
         run: dotnet test QuickTranslate.Tests/QuickTranslate.Tests.csproj --no-restore -c Release
+
+  # ── Release build with Authenticode signing ──────────────────────
+  # Triggered manually (workflow_dispatch) to produce signed installers.
+  # Code signing certificate is stored as a GitHub Actions secret and
+  # must be a base64-encoded PFX file. The password is stored separately
+  # as CODESIGN_PASSWORD.
+  #
+  # Security: the private key is NEVER logged or stored in build artifacts.
+  # Signtool output is captured and checked but not printed verbatim.
+  release-build:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: |
+          dotnet restore QuickTranslate/QuickTranslate.csproj
+          dotnet restore QuickTranslate.Tests/QuickTranslate.Tests.csproj
+
+      - name: Build
+        run: dotnet build QuickTranslate/QuickTranslate.csproj --no-restore -c Release
+
+      - name: Test
+        run: dotnet test QuickTranslate.Tests/QuickTranslate.Tests.csproj --no-restore -c Release
+
+      - name: Publish (framework-dependent, slim)
+        run: dotnet publish QuickTranslate/QuickTranslate.csproj -c Release -o publish/source/${{ github.ref_name }}
+
+      - name: Publish (self-contained, full)
+        run: dotnet publish QuickTranslate/QuickTranslate.csproj -c Release -r win-x64 --self-contained true -o publish/source/${{ github.ref_name }}-full
+
+      - name: Setup Inno Setup
+        uses: 473c8e/setup-innosetup@v1
+        with:
+          version: '6.2.0'
+
+      - name: Build installers
+        run: |
+          New-Item publish/releases/${{ github.ref_name }} -ItemType Directory -Force
+          ISCC installer/QuickTranslate-setup.iss
+          ISCC installer/QuickTranslate-setup-full.iss
+
+      - name: Sign installers (Authenticode)
+        if: env.CODESIGN_CERTIFICATE != ''
+        env:
+          CODESIGN_CERTIFICATE: ${{ secrets.CODESIGN_CERTIFICATE }}
+          CODESIGN_PASSWORD: ${{ secrets.CODESIGN_PASSWORD }}
+        shell: pwsh
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+
+          # Decode and write PFX to temporary file (never logged)
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CODESIGN_CERTIFICATE))
+
+          $tsUrl = "http://timestamp.digicert.com"
+          $installers = @(
+            "publish/releases/${{ github.ref_name }}/QuickTranslate-Setup-${{ github.ref_name }}-win-x64.exe",
+            "publish/releases/${{ github.ref_name }}/QuickTranslate-Setup-${{ github.ref_name }}-win-x64-full.exe"
+          )
+
+          foreach ($installer in $installers) {
+            if (Test-Path $installer) {
+              & signtool sign /fd SHA256 /tr $tsUrl /td SHA256 `
+                /f $pfxPath /p $env:CODESIGN_PASSWORD `
+                /d "QuickTranslate Setup" $installer
+              if ($LASTEXITCODE -ne 0) {
+                Write-Error "Signing failed for $installer"
+                exit 1
+              }
+            }
+          }
+
+          # Clean up PFX immediately
+          Remove-Item $pfxPath -Force
+
+      - name: Verify signatures
+        if: env.CODESIGN_CERTIFICATE != ''
+        shell: pwsh
+        run: |
+          $installers = @(
+            "publish/releases/${{ github.ref_name }}/QuickTranslate-Setup-${{ github.ref_name }}-win-x64.exe",
+            "publish/releases/${{ github.ref_name }}/QuickTranslate-Setup-${{ github.ref_name }}-win-x64-full.exe"
+          )
+          foreach ($installer in $installers) {
+            if (Test-Path $installer) {
+              $result = & signtool verify /pa /v $installer 2>&1
+              if ($LASTEXITCODE -ne 0) {
+                Write-Error "Signature verification failed for $installer"
+                exit 1
+              }
+              Write-Host "Signature verified: $installer"
+            }
+          }
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ github.ref_name }}
+          path: publish/releases/${{ github.ref_name }}/*.exe
+          retention-days: 7
+
+      - name: Upload version.xml
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-xml-${{ github.ref_name }}
+          path: installer/version.xml
+          retention-days: 7
