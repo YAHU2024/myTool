@@ -383,6 +383,11 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             throw new ArgumentException("请求文本不能为空", nameof(request));
         if (string.IsNullOrWhiteSpace(request.ApiKey))
             throw new InvalidOperationException("请先在设置中配置 API Key");
+
+        // Enforce HTTPS for remote endpoints — credentials must not travel
+        // as plaintext over the network. HTTP is only permitted for
+        // loopback addresses used during local development.
+        ApiEndpointValidator.ValidateAndNormalize(request.ApiBaseUrl);
     }
 
     public void Dispose()
