@@ -26,7 +26,7 @@
 ; 证书到期前 30 天开始续期流程，详见 docs/RELEASE.md
 
 #define MyAppName "QuickTranslate"
-#define MyAppVersion "1.8.1"
+#define MyAppVersion "1.8.2"
 #define MyAppPublisher "YaHu"
 #define MyAppURL "https://github.com/YAHU2024/myTool"
 #define MyAppExeName "QuickTranslate.exe"
