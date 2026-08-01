@@ -1,0 +1,59 @@
+name: Build and Test
+description: 'Shared steps: restore, build, test, vulnerability scan, format check'
+
+inputs:
+  project_path:
+    description: 'Path to the main .csproj'
+    required: true
+  test_project_path:
+    description: 'Path to the test .csproj'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Setup .NET 8 SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: ${{ runner.os }}-nuget-
+
+    - name: Restore
+      shell: pwsh
+      run: |
+        dotnet restore ${{ inputs.project_path }}
+        dotnet restore ${{ inputs.test_project_path }}
+
+    - name: Build
+      shell: pwsh
+      run: dotnet build ${{ inputs.project_path }} --no-restore -c Release
+
+    - name: Test
+      shell: pwsh
+      run: dotnet test ${{ inputs.test_project_path }} --no-restore -c Release --logger "trx;LogFileName=test-results.trx" --results-directory TestResults /p:CollectCoverage=true /p:CoverletOutputFormat=cobertura /p:CoverletOutput=./TestResults/
+
+    - name: Check NuGet vulnerabilities
+      shell: pwsh
+      run: |
+        $output = dotnet list ${{ inputs.project_path }} package --vulnerable 2>&1
+        if ($output -match 'has the following vulnerable') {
+          Write-Host $output
+          Write-Error "Vulnerable packages detected. Update dependencies before merging."
+          exit 1
+        }
+        Write-Host "No known NuGet vulnerabilities found."
+
+    - name: Check code formatting
+      shell: pwsh
+      continue-on-error: true
+      run: |
+        dotnet format ${{ inputs.project_path }} --verify-no-changes --verbosity diagnostic 2>&1 | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+          Write-Warning "Formatting issues found. Run 'dotnet format' locally to fix."
+        }

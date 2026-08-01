@@ -45,3 +45,6 @@ BUGFIX_PLAN.md
 
 ## Build output
 .build-output/
+
+## Test output
+**/TestResults/

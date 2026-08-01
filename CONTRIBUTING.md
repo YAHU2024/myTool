@@ -37,6 +37,19 @@ refactor(App): 重构更新调度
 - 提交前可运行 `dotnet format QuickTranslate/QuickTranslate.csproj`。
 - 不要提交：`settings.json`、密钥、数据库、日志、`bin/`、`obj/`、`publish/`。
 
+## 分支保护规则
+
+`main` 分支受 GitHub Branch Protection 保护，合并 PR 前必须满足以下条件：
+
+| 检查项 | 说明 |
+|--------|------|
+| **Build & Test 通过** | 所有 `build-and-test` 检查必须绿色。 |
+| **PR 审查** | 至少一次 Approving Review。 |
+| **分支保持最新** | PR 分支必须与 `main` 保持同步（无冲突）。 |
+| **对话已解决** | 所有 Review 讨论已标记 Resolved。 |
+
+CI 会在 PR 页面自动展示测试结果与代码覆盖率摘要。合并后忽略这些规则的风险自负。
+
 ## 隐私约定
 
 QuickTranslate 的应用日志是**隐私敏感**的：日志不记录选中原文、翻译/解析输出、API Key 或 Prompt 正文。改动日志相关代码时请保持这一边界，也不要在 Issue / PR 中粘贴真实原文或密钥。

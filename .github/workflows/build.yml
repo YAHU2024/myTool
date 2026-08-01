@@ -3,31 +3,78 @@ name: build
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'CONTRIBUTING.md'
+      - '.github/ISSUE_TEMPLATE/**'
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'CONTRIBUTING.md'
+      - '.github/ISSUE_TEMPLATE/**'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.8.2, without "v" prefix)'
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # ── CI: build + test on every push/PR (skipped for manual release) ─
   build-and-test:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET 8 SDK
-        uses: actions/setup-dotnet@v4
+      - name: Build & Test
+        uses: ./.github/actions/build-and-test
         with:
-          dotnet-version: '8.0.x'
+          project_path: QuickTranslate/QuickTranslate.csproj
+          test_project_path: QuickTranslate.Tests/QuickTranslate.Tests.csproj
 
-      - name: Restore
-        run: |
-          dotnet restore QuickTranslate/QuickTranslate.csproj
-          dotnet restore QuickTranslate.Tests/QuickTranslate.Tests.csproj
+      - name: Test Report
+        if: github.event_name == 'pull_request' && (success() || failure())
+        uses: dorny/test-reporter@v1
+        with:
+          name: Test Results
+          path: '**/*.trx'
+          reporter: dotnet-trx
 
-      - name: Build
-        run: dotnet build QuickTranslate/QuickTranslate.csproj --no-restore -c Release
+      - name: Generate Coverage Report
+        if: github.event_name == 'pull_request' && (success() || failure())
+        uses: danielpalme/ReportGenerator-GitHub-Action@v5
+        with:
+          reports: '**/coverage.cobertura.xml'
+          targetdir: coveragereport
+          reporttypes: 'MarkdownSummaryGithub'
 
-      - name: Test
-        run: dotnet test QuickTranslate.Tests/QuickTranslate.Tests.csproj --no-restore -c Release
+      - name: Post Coverage Summary
+        if: github.event_name == 'pull_request' && (success() || failure())
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: coverage
+          path: coveragereport/SummaryGithub.md
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            **/*.trx
+            **/coverage.cobertura.xml
+          retention-days: 7
 
   # ── Release build with Authenticode signing ──────────────────────
   # Triggered manually (workflow_dispatch) to produce signed installers.
@@ -44,27 +91,43 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET 8 SDK
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-
-      - name: Restore
+      - name: Validate version
+        shell: pwsh
         run: |
-          dotnet restore QuickTranslate/QuickTranslate.csproj
-          dotnet restore QuickTranslate.Tests/QuickTranslate.Tests.csproj
+          if ('${{ inputs.version }}' -notmatch '^\d+\.\d+\.\d+(-[\w.]+)?$') {
+            Write-Error "Invalid version '${{ inputs.version }}'. Expected semver format (e.g. 1.8.2 or 1.8.2-beta.1)."
+            exit 1
+          }
+          Write-Host "Version validated: ${{ inputs.version }}"
 
-      - name: Build
-        run: dotnet build QuickTranslate/QuickTranslate.csproj --no-restore -c Release
-
-      - name: Test
-        run: dotnet test QuickTranslate.Tests/QuickTranslate.Tests.csproj --no-restore -c Release
+      - name: Build & Test
+        uses: ./.github/actions/build-and-test
+        with:
+          project_path: QuickTranslate/QuickTranslate.csproj
+          test_project_path: QuickTranslate.Tests/QuickTranslate.Tests.csproj
 
       - name: Publish (framework-dependent, slim)
-        run: dotnet publish QuickTranslate/QuickTranslate.csproj -c Release -o publish/source/${{ github.ref_name }}
+        run: dotnet publish QuickTranslate/QuickTranslate.csproj -c Release --no-restore -o publish/source/v${{ inputs.version }}
 
       - name: Publish (self-contained, full)
-        run: dotnet publish QuickTranslate/QuickTranslate.csproj -c Release -r win-x64 --self-contained true -o publish/source/${{ github.ref_name }}-full
+        run: dotnet publish QuickTranslate/QuickTranslate.csproj -c Release -r win-x64 --self-contained true --no-restore -o publish/source/v${{ inputs.version }}-full
+
+      - name: Validate publish outputs
+        shell: pwsh
+        run: |
+          $slimExe = "publish/source/v${{ inputs.version }}/QuickTranslate.exe"
+          $fullExe = "publish/source/v${{ inputs.version }}-full/QuickTranslate.exe"
+          $ok = $true
+          if (-not (Test-Path $slimExe)) {
+            Write-Error "Missing: $slimExe — framework-dependent publish may have failed"
+            $ok = $false
+          }
+          if (-not (Test-Path $fullExe)) {
+            Write-Error "Missing: $fullExe — self-contained publish may have failed"
+            $ok = $false
+          }
+          if (-not $ok) { exit 1 }
+          Write-Host "Publish outputs verified."
 
       - name: Setup Inno Setup
         uses: 473c8e/setup-innosetup@v1
@@ -72,10 +135,11 @@ jobs:
           version: '6.2.0'
 
       - name: Build installers
+        shell: pwsh
         run: |
-          New-Item publish/releases/${{ github.ref_name }} -ItemType Directory -Force
-          ISCC installer/QuickTranslate-setup.iss
-          ISCC installer/QuickTranslate-setup-full.iss
+          New-Item "publish/releases/v${{ inputs.version }}" -ItemType Directory -Force
+          ISCC /DMyAppVersion=${{ inputs.version }} installer/QuickTranslate-setup.iss
+          ISCC /DMyAppVersion=${{ inputs.version }} installer/QuickTranslate-setup-full.iss
 
       - name: Sign installers (Authenticode)
         if: env.CODESIGN_CERTIFICATE != ''
@@ -91,32 +155,35 @@ jobs:
 
           $tsUrl = "http://timestamp.digicert.com"
           $installers = @(
-            "publish/releases/${{ github.ref_name }}/QuickTranslate-Setup-${{ github.ref_name }}-win-x64.exe",
-            "publish/releases/${{ github.ref_name }}/QuickTranslate-Setup-${{ github.ref_name }}-win-x64-full.exe"
+            "publish/releases/v${{ inputs.version }}/QuickTranslate-Setup-${{ inputs.version }}-win-x64.exe",
+            "publish/releases/v${{ inputs.version }}/QuickTranslate-Setup-${{ inputs.version }}-win-x64-full.exe"
           )
 
-          foreach ($installer in $installers) {
-            if (Test-Path $installer) {
-              & signtool sign /fd SHA256 /tr $tsUrl /td SHA256 `
-                /f $pfxPath /p $env:CODESIGN_PASSWORD `
-                /d "QuickTranslate Setup" $installer
-              if ($LASTEXITCODE -ne 0) {
-                Write-Error "Signing failed for $installer"
-                exit 1
+          try {
+            foreach ($installer in $installers) {
+              if (Test-Path $installer) {
+                & signtool sign /fd SHA256 /tr $tsUrl /td SHA256 `
+                  /f $pfxPath /p $env:CODESIGN_PASSWORD `
+                  /d "QuickTranslate Setup" $installer
+                if ($LASTEXITCODE -ne 0) {
+                  Write-Error "Signing failed for $installer"
+                  exit 1
+                }
               }
             }
           }
-
-          # Clean up PFX immediately
-          Remove-Item $pfxPath -Force
+          finally {
+            # Clean up PFX even if signing fails
+            Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Verify signatures
         if: env.CODESIGN_CERTIFICATE != ''
         shell: pwsh
         run: |
           $installers = @(
-            "publish/releases/${{ github.ref_name }}/QuickTranslate-Setup-${{ github.ref_name }}-win-x64.exe",
-            "publish/releases/${{ github.ref_name }}/QuickTranslate-Setup-${{ github.ref_name }}-win-x64-full.exe"
+            "publish/releases/v${{ inputs.version }}/QuickTranslate-Setup-${{ inputs.version }}-win-x64.exe",
+            "publish/releases/v${{ inputs.version }}/QuickTranslate-Setup-${{ inputs.version }}-win-x64-full.exe"
           )
           foreach ($installer in $installers) {
             if (Test-Path $installer) {
@@ -132,13 +199,13 @@ jobs:
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: installers-${{ github.ref_name }}
-          path: publish/releases/${{ github.ref_name }}/*.exe
+          name: installers-v${{ inputs.version }}
+          path: publish/releases/v${{ inputs.version }}/*.exe
           retention-days: 7
 
       - name: Upload version.xml
         uses: actions/upload-artifact@v4
         with:
-          name: version-xml-${{ github.ref_name }}
+          name: version-xml-v${{ inputs.version }}
           path: installer/version.xml
           retention-days: 7
