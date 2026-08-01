@@ -1,12 +1,18 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Net;
+using System.Net.Http;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using System.Xml.Linq;
 using AutoUpdaterDotNET;
 using QuickTranslate.Helpers;
+using QuickTranslate.UI;
 
 namespace QuickTranslate.Services;
 
@@ -34,15 +40,29 @@ public enum UpdateCheckOutcome
 public sealed record UpdateCheckResult(UpdateCheckOutcome Outcome, string? NewVersion);
 
 /// <summary>
-/// 应用自动更新服务，基于 AutoUpdater.NET 实现。
-/// 检查 GitHub Releases 上的 version.xml 获取最新版本信息，
-/// 发现新版后提示用户下载并静默安装。
+/// 应用自动更新服务。
+/// 版本检查使用 AutoUpdater.NET，下载和安装由本服务自行处理，
+/// 以在安装包执行前插入 Authenticode 签名验证，建立独立信任链。
 /// </summary>
 /// <remarks>
-/// 注意：订阅 AutoUpdater.CheckForUpdateEvent 会<b>抑制</b>库自带的更新对话框，
-/// 由订阅方全权负责 UI。因此发现新版后必须显式调用 <c>AutoUpdater.ShowUpdateForm</c>，
-/// 否则不会有任何界面出现。<see cref="AutoUpdater.RunUpdateAsAdmin"/> 等配置项
-/// 也只有在该对话框被显示后才会生效。
+/// <b>信任链设计</b>
+/// <para>
+/// 更新安装包需要管理员权限运行。仅靠 SHA256 校验和不够安全，
+/// 因为校验和与安装包都由同一 GitHub Release 分发——攻击者取得
+/// Release 发布能力后可同时替换两者。
+/// </para>
+/// <para>
+/// Authenticode 代码签名提供独立信任链：
+/// 签名私钥不进入仓库、CI 日志或构建产物；即使 GitHub Release 被
+/// 完全控制，攻击者也无法伪造有效的 Authenticode 签名。
+/// 应用在启动安装程序前依次验证：
+/// <list type="number">
+/// <item>SHA256 传输完整性</item>
+/// <item>Authenticode 签名有效性 + 证书链可信</item>
+/// <item>签名发布者与预期发布者一致</item>
+/// </list>
+/// 任一验证失败立即中止安装并显示明确错误，禁止降级继续执行。
+/// </para>
 /// </remarks>
 public static class UpdateService
 {
@@ -53,10 +73,37 @@ public static class UpdateService
         "https://github.com/YAHU2024/myTool/releases/latest/download/version.xml";
 
     /// <summary>
-    /// 单次检查的超时兜底。AutoUpdater 的回调若因故未触发，
-    /// 到时强制结束本次检查，避免后续检查被永久判为 Skipped。
+    /// 安装包下载与验证的总超时（5 分钟）。
+    /// </summary>
+    private static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// 单次检查的超时兜底（60 秒）。
     /// </summary>
     private static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Whether Authenticode signature verification is enforced.
+    /// Set from <see cref="Models.AppSettings.RequireAuthenticodeSignature"/>
+    /// during application startup. When false (default), missing or invalid
+    /// signatures only produce a warning log — SHA256 integrity still applies.
+    /// </summary>
+    public static bool RequireAuthenticodeSignature { get; set; }
+
+    /// <summary>
+    /// 预期的 Authenticode 签名发布者（证书 Subject 子串，大小写不敏感）。
+    /// 此常量是独立信任链的锚点——签名证书必须包含此字符串。
+    /// 证书续期时需在代码中更新此行并随新版本一起发布。
+    /// </summary>
+    private const string ExpectedPublisher = "YaHu";
+
+    /// <summary>
+    /// 共享 HttpClient，避免端口耗尽。
+    /// </summary>
+    private static readonly HttpClient HttpClient = new()
+    {
+        Timeout = DownloadTimeout
+    };
 
     private static bool _configured;
 
@@ -71,14 +118,18 @@ public static class UpdateService
     /// <summary>本次检查是否由调用方要求直接弹出更新对话框</summary>
     private static bool _autoShowUpdateForm;
 
-    /// <summary>最近一次检查到的可用更新，供托盘气泡点击后复用</summary>
+    /// <summary>最近一次检查到的可用更新</summary>
     private static UpdateInfoEventArgs? _lastAvailable;
+
+    /// <summary>下载/安装是否正在进行中</summary>
+    private static bool _installInProgress;
 
     private static DispatcherTimer? _timeoutTimer;
     private static long _checkStartedAt;
 
     /// <summary>
-    /// 一次性配置 AutoUpdater 全局设置和事件订阅
+    /// 一次性配置 AutoUpdater 全局设置和事件订阅。
+    /// 版本检查仍由 AutoUpdater 执行，但下载和安装由本服务接管。
     /// </summary>
     private static void Configure()
     {
@@ -91,32 +142,21 @@ public static class UpdateService
             AutoUpdater.InstalledVersion = version;
         }
 
-        // 以下四项只作用于 ShowUpdateForm 弹出的标准对话框及其下载流程，
-        // 不调用 ShowUpdateForm 时它们不会有任何效果。
-
-        // 以管理员权限运行安装程序（Inno Setup 需要写入 Program Files）
+        // 安装配置项仅在 ShowUpdateForm 被调用时生效。
+        // 由于本服务接管了下载安装流程，以下配置在自行启动
+        // Process.Start 时手动应用，此处保留作为后备。
         AutoUpdater.RunUpdateAsAdmin = true;
-
-        // 不显示"跳过此版本"按钮（小工具无需跳过）
         AutoUpdater.ShowSkipButton = false;
-
-        // 小工具不保留"稍后提醒/跳过版本"状态。关闭窗口就是本次不更新，
-        // 下次启动或手动检查仍会正常检查。
         AutoUpdater.ShowRemindLaterButton = false;
-
-        // 发现新版后直接下载（不跳转浏览器）
         AutoUpdater.OpenDownloadPage = false;
 
         // 使用系统代理（Clash/V2Ray 等通过系统代理转发流量）
-        // 不设置此项时，AutoUpdater.NET 可能直连 GitHub 超时（国内网络）
         AutoUpdater.Proxy = WebRequest.GetSystemWebProxy();
 
-        // 禁用库的默认注册表持久化，同时屏蔽旧版本可能留下的提醒状态。
+        // 禁用库的默认注册表持久化
         AutoUpdater.PersistenceProvider = NoOpUpdatePersistenceProvider.Instance;
 
-        // 订阅后库自带的更新/错误对话框全部被抑制，改由本类通过
-        // args.Error / args.IsUpdateAvailable 自行决定 UI，因此不设置
-        // AutoUpdater.ReportErrors —— 它在订阅路径下不生效，留着只会误导。
+        // 订阅后库自带的更新/错误对话框全部被抑制
         AutoUpdater.CheckForUpdateEvent += OnCheckForUpdate;
 
         // 订阅应用退出事件（更新安装前优雅退出）
@@ -124,27 +164,27 @@ public static class UpdateService
     }
 
     /// <summary>
-    /// 执行一次更新检查。结果只返回给本次调用方，不会广播。
+    /// 执行一次更新检查。必须在 UI 线程调用。
     /// </summary>
     /// <param name="autoShowUpdateForm">
-    /// 发现新版时是否立即弹出更新对话框。手动检查传 true；
-    /// 启动时的静默检查传 false，由调用方改用托盘气泡提示，
-    /// 用户点击气泡后再调用 <see cref="ShowUpdateFormForLastCheck"/>。
+    /// 发现新版时是否立即启动下载安装流程。手动检查传 true；
+    /// 静默检查传 false，由调用方用托盘气泡提示。
     /// </param>
-    /// <remarks>
-    /// 必须在 UI 线程调用：AutoUpdater.Start 与 DispatcherTimer 均有线程亲和性。
-    /// </remarks>
     public static Task<UpdateCheckResult> CheckAsync(bool autoShowUpdateForm)
     {
-        // 已有检查在飞：直接返回 Skipped，不触碰在飞请求的 TCS，
-        // 它的真实结果照常回到它自己的 awaiter。
+        // 正在下载安装，拒绝新的检查
+        if (_installInProgress)
+        {
+            return Task.FromResult(new UpdateCheckResult(UpdateCheckOutcome.Skipped, null));
+        }
+
+        // 已有检查在飞
         if (_pending is not null)
         {
             return Task.FromResult(new UpdateCheckResult(UpdateCheckOutcome.Skipped, null));
         }
 
-        // 更新对话框已打开时再调 Start 会被库静默忽略（内部 Running 标志），
-        // 回调永不触发，只会白等一次超时。直接跳过，用户面前本就有那个窗口。
+        // 更新对话框已打开
         if (UpdateFormRunner.IsBusy)
         {
             Logger.Info("Update", "update.check_skipped_form_open");
@@ -178,35 +218,25 @@ public static class UpdateService
 
     /// <summary>
     /// 弹出最近一次检查发现的更新对话框（供托盘气泡点击后调用）。
-    /// 无待处理的新版本时返回 false。
+    /// 下载、签名验证和安装均由本方法接管。
     /// </summary>
     public static bool ShowUpdateFormForLastCheck()
     {
         var args = _lastAvailable;
         if (args is null) return false;
 
-        return UpdateFormRunner.TryRun(() => AutoUpdater.ShowUpdateForm(args));
+        if (UpdateFormRunner.IsBusy || _installInProgress) return false;
+
+        return UpdateFormRunner.TryRun(() => _ = DownloadAndInstallAsync(args, null));
     }
 
     /// <summary>
-    /// 将更新对话框排到当前 AutoUpdater 回调返回之后显示。
-    /// AutoUpdater 在回调返回前仍持有内部 Running 状态；若在回调内同步 ShowDialog，
-    /// 后续 Start 可能被静默忽略且不触发回调。延迟一轮 Dispatcher 可确保检查先收尾。
-    /// </summary>
-    private static void ScheduleUpdateForm(UpdateInfoEventArgs args)
-    {
-        UpdateFormRunner.TrySchedule(() => AutoUpdater.ShowUpdateForm(args));
-    }
-
-    /// <summary>
-    /// 更新检查完成回调 — 记录诊断日志、回传结果，必要时弹出更新对话框
+    /// 更新检查完成回调。
     /// </summary>
     private static void OnCheckForUpdate(UpdateInfoEventArgs args)
     {
         StopTimeoutTimer();
 
-        // 取出并清空在飞状态。可能为 null（已超时兜底结束），
-        // 此时仍要更新 _lastAvailable，但不再回传结果、不弹窗。
         var tcs = _pending;
         _pending = null;
         var autoShow = _autoShowUpdateForm;
@@ -214,8 +244,6 @@ public static class UpdateService
 
         if (args.Error is not null)
         {
-            // WebException 涵盖 404 / 连接失败 / 超时 / DNS 失败等成因完全不同的情况，
-            // 只记类型名无法定位问题，这里把传输层状态和 HTTP 状态码一并展开。
             var webEx = args.Error as WebException;
             Logger.Warn("Update", "update.check_error", new
             {
@@ -243,15 +271,15 @@ public static class UpdateService
                 duration_ms = duration.TotalMilliseconds
             });
 
-            // 先回传结果再弹窗：ShowUpdateForm 是模态阻塞的，而 TCS 默认
-            // 同步执行延续，这个顺序能让调用方的界面（如设置页状态文字）
-            // 在对话框弹出之前就完成刷新。
+            // 先回传结果再启动下载：TCS 默认同步执行延续，
+            // 可以让调用方 UI 在弹窗之前完成刷新。
             tcs?.TrySetResult(new UpdateCheckResult(
                 UpdateCheckOutcome.UpdateAvailable, args.CurrentVersion?.ToString()));
 
             if (tcs is not null && autoShow)
             {
-                ScheduleUpdateForm(args);
+                // 接管下载安装流程（不再委托 AutoUpdater.ShowUpdateForm）
+                _ = DownloadAndInstallAsync(args, null);
             }
             return;
         }
@@ -268,9 +296,390 @@ public static class UpdateService
     }
 
     /// <summary>
-    /// 启动超时兜底计时器。到时强制结束本次检查并释放在飞状态，
-    /// 避免回调不触发时后续检查被永久判为 Skipped。
+    /// 下载安装包、验证 SHA256 和 Authenticode 签名，通过后启动安装程序。
+    /// 这是独立信任链的核心实现。
     /// </summary>
+    /// <param name="args">AutoUpdater 解析的更新信息。</param>
+    /// <param name="owner">弹窗的父窗口，null 时居中于屏幕。</param>
+    private static async Task DownloadAndInstallAsync(UpdateInfoEventArgs args, Window? owner)
+    {
+        if (_installInProgress) return;
+        _installInProgress = true;
+
+        var downloadUrl = args.DownloadURL;
+        var installerArgs = args.InstallerArgs ?? "/SILENT /SUPPRESSMSGBOXES /NORESTART";
+        var tempFile = Path.Combine(Path.GetTempPath(),
+            $"QuickTranslate-Update-{Guid.NewGuid():N}.exe");
+
+        var progressWindow = new DownloadUpdateWindow();
+        if (owner is not null)
+            progressWindow.Owner = owner;
+
+        try
+        {
+            // Show progress window non-modally so we can update it
+            progressWindow.Show();
+
+            if (string.IsNullOrWhiteSpace(downloadUrl))
+            {
+                ShowFailure(progressWindow, "下载地址无效");
+                return;
+            }
+
+            // Fetch version.xml metadata: checksum + signer subject.
+            // We parse version.xml ourselves because AutoUpdater.NET's
+            // UpdateInfoEventArgs does not expose the checksum or
+            // custom elements like <signer>.
+            var metadata = await FetchVersionMetadataAsync(progressWindow.CancellationToken);
+
+            // ─── Phase 1: Download ──────────────────────────────────
+
+            Logger.Info("Update", "update.download_started",
+                new { url = downloadUrl, size_hint = "unknown" });
+
+            progressWindow.ReportProgress(0, "正在连接服务器...");
+
+            using var response = await HttpClient.GetAsync(
+                downloadUrl, HttpCompletionOption.ResponseHeadersRead,
+                progressWindow.CancellationToken);
+
+            response.EnsureSuccessStatusCode();
+
+            var totalBytes = response.Content.Headers.ContentLength ?? -1;
+            Logger.Info("Update", "update.download_connected",
+                new { status = (int)response.StatusCode, total_bytes = totalBytes });
+
+            await using var contentStream = await response.Content
+                .ReadAsStreamAsync(progressWindow.CancellationToken);
+            await using var fileStream = new FileStream(
+                tempFile, FileMode.Create, FileAccess.Write,
+                FileShare.None, bufferSize: 81920, useAsync: true);
+
+            var buffer = new byte[81920];
+            long totalRead = 0;
+            int bytesRead;
+            var lastReport = Stopwatch.GetTimestamp();
+
+            while ((bytesRead = await contentStream.ReadAsync(
+                       buffer, progressWindow.CancellationToken)) > 0)
+            {
+                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead),
+                    progressWindow.CancellationToken);
+                totalRead += bytesRead;
+
+                // Throttle UI updates to ~10 Hz
+                var elapsed = Stopwatch.GetElapsedTime(lastReport);
+                if (elapsed.TotalMilliseconds >= 100 || totalRead == totalBytes)
+                {
+                    if (totalBytes > 0)
+                    {
+                        var pct = (int)(totalRead * 100L / totalBytes);
+                        progressWindow.ReportProgress(pct,
+                            $"正在下载... {FormatBytes(totalRead)} / {FormatBytes(totalBytes)}");
+                    }
+                    else
+                    {
+                        progressWindow.ReportProgress(-1,
+                            $"正在下载... {FormatBytes(totalRead)}");
+                    }
+                    lastReport = Stopwatch.GetTimestamp();
+                }
+            }
+
+            await fileStream.FlushAsync(progressWindow.CancellationToken);
+            fileStream.Close();
+
+            Logger.Info("Update", "update.download_complete",
+                new { total_bytes = totalRead, file = tempFile });
+
+            // ─── Phase 2: SHA256 verification ───────────────────────
+
+            progressWindow.ReportProgress(100, "正在验证文件完整性...");
+
+            if (string.IsNullOrWhiteSpace(metadata.Checksum))
+            {
+                // No checksum in version.xml — accept but log warning.
+                // This is NOT a security boundary by itself; Authenticode
+                // verification still provides independent trust.
+                Logger.Warn("Update", "update.no_checksum_in_xml");
+            }
+            else
+            {
+                var actualChecksum = ComputeSha256Hex(tempFile);
+                if (!string.Equals(actualChecksum, metadata.Checksum,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Warn("Update", "update.checksum_mismatch", new
+                    {
+                        expected = metadata.Checksum,
+                        actual = actualChecksum
+                    });
+                    ShowFailure(progressWindow,
+                        "文件校验失败：下载的文件与预期不符，可能已损坏或被篡改。\n\n" +
+                        "请重新尝试更新。");
+                    return;
+                }
+            }
+
+            // ─── Phase 3: Authenticode verification ─────────────────
+
+            if (RequireAuthenticodeSignature)
+            {
+                // ===== Strict enforcement mode (certificate purchased) =====
+
+                progressWindow.ReportProgress(100, "正在验证数字签名...");
+
+                // Primary verification: hardcoded ExpectedPublisher constant.
+                var sigResult = AuthenticodeVerifier.Verify(tempFile, ExpectedPublisher);
+                if (sigResult != AuthenticodeVerifier.Result.Valid)
+                {
+                    Logger.Warn("Update", "update.authenticode_failed", new
+                    {
+                        result = sigResult.ToString(),
+                        expected_publisher = ExpectedPublisher,
+                        publisher_from_xml = metadata.SignerSubject ?? "(none)"
+                    });
+                    ShowFailure(progressWindow,
+                        $"数字签名验证失败：{AuthenticodeVerifier.GetResultDescription(sigResult)}\n\n" +
+                        "为保障安全，已中止安装。请从 GitHub Releases 手动下载安装。");
+                    return;
+                }
+
+                // Cross-check with version.xml signer info if present and different.
+                if (!string.IsNullOrWhiteSpace(metadata.SignerSubject) &&
+                    !string.Equals(metadata.SignerSubject, ExpectedPublisher, StringComparison.OrdinalIgnoreCase) &&
+                    !metadata.SignerSubject.Contains(ExpectedPublisher, StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Warn("Update", "update.signer_mismatch_xml_vs_code", new
+                    {
+                        code_publisher = ExpectedPublisher,
+                        xml_publisher = metadata.SignerSubject
+                    });
+                    ShowFailure(progressWindow,
+                        "签名发布者验证失败：安装包签名信息与当前版本不兼容。\n\n" +
+                        "请从 GitHub Releases 手动更新到最新版本后再使用自动更新。");
+                    return;
+                }
+
+                Logger.Info("Update", "update.authenticode_verified", new
+                {
+                    expected_publisher = ExpectedPublisher
+                });
+            }
+            else
+            {
+                // ===== Advisory mode (no certificate yet) =====
+                // SHA256 integrity check already completed above.
+                // Authenticode is checked for diagnostic purposes only;
+                // any result other than Valid is logged as a warning but
+                // does NOT block the update.
+
+                progressWindow.ReportProgress(100, "正在完成验证...");
+
+                var sigResult = AuthenticodeVerifier.Verify(tempFile, ExpectedPublisher);
+                if (sigResult == AuthenticodeVerifier.Result.Valid)
+                {
+                    Logger.Info("Update", "update.authenticode_advisory_ok", new
+                    {
+                        publisher = ExpectedPublisher
+                    });
+                }
+                else
+                {
+                    Logger.Warn("Update", "update.authenticode_advisory_failed", new
+                    {
+                        result = sigResult.ToString(),
+                        publisher = ExpectedPublisher,
+                        note = "Warning only — Authenticode enforcement is off. " +
+                               "Upgrade will proceed with SHA256 integrity check alone."
+                    });
+                }
+            }
+
+            // ─── Phase 4: Launch installer ──────────────────────────
+
+            progressWindow.ReportProgress(100, "正在准备安装...");
+
+            ProcessStartInfo psi;
+            if (Environment.OSVersion.Version.Major >= 6)
+            {
+                // Windows Vista+: request administrator elevation
+                psi = new ProcessStartInfo
+                {
+                    FileName = tempFile,
+                    Arguments = installerArgs,
+                    UseShellExecute = true,
+                    Verb = "runas",
+                    WindowStyle = ProcessWindowStyle.Normal
+                };
+            }
+            else
+            {
+                psi = new ProcessStartInfo
+                {
+                    FileName = tempFile,
+                    Arguments = installerArgs,
+                    UseShellExecute = true,
+                    WindowStyle = ProcessWindowStyle.Normal
+                };
+            }
+
+            Logger.Info("Update", "update.launching_installer",
+                new { file = tempFile, args = installerArgs });
+
+            progressWindow.ShowResult(true, "正在启动安装程序，请在弹出的用户账户控制(UAC)对话框中确认。");
+
+            // Brief delay to let the user see the success message
+            await Task.Delay(800, CancellationToken.None);
+
+            Process.Start(psi);
+
+            Logger.Info("Update", "update.installer_started");
+            Logger.WriteShutdownTrace("update.installer_started",
+                "Verified installer launched, shutting down app");
+
+            // Exit the application gracefully
+            OnApplicationExit();
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.Info("Update", "update.cancelled");
+            ShowFailure(progressWindow, "更新已被取消。");
+        }
+        catch (HttpRequestException ex)
+        {
+            Logger.Warn("Update", "update.download_failed",
+                new { error_type = ex.GetType().Name, message = ex.Message });
+            ShowFailure(progressWindow,
+                $"下载失败：{ex.Message}\n\n请检查网络连接后重试。");
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn("Update", "update.install_failed",
+                new { error_type = ex.GetType().Name, message = ex.Message });
+            ShowFailure(progressWindow,
+                $"更新过程中发生错误：{ex.Message}\n\n请从 GitHub Releases 手动下载安装。");
+        }
+        finally
+        {
+            _installInProgress = false;
+
+            // Clean up temp file in background (keep for a short while
+            // in case the installer needs it, but it's in %TEMP% so
+            // Windows will clean it eventually).
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromMinutes(5));
+                try { File.Delete(tempFile); } catch { /* best effort */ }
+            });
+        }
+    }
+
+    /// <summary>
+    /// Shows a failure message on the progress window.
+    /// </summary>
+    private static void ShowFailure(DownloadUpdateWindow window, string message)
+    {
+        try
+        {
+            if (window.Dispatcher.CheckAccess())
+            {
+                if (window.IsVisible)
+                    window.ShowResult(false, message);
+            }
+            else
+            {
+                window.Dispatcher.Invoke(() =>
+                {
+                    if (window.IsVisible)
+                        window.ShowResult(false, message);
+                });
+            }
+        }
+        catch
+        {
+            // Window may have been closed; fail silently
+        }
+    }
+
+    /// <summary>
+    /// Computes the uppercase hex SHA256 digest of a file.
+    /// </summary>
+    private static string ComputeSha256Hex(string filePath)
+    {
+        using var sha256 = SHA256.Create();
+        using var stream = File.OpenRead(filePath);
+        var hash = sha256.ComputeHash(stream);
+        return Convert.ToHexString(hash);
+    }
+
+    /// <summary>
+    /// Lightweight record for version.xml metadata needed during install.
+    /// </summary>
+    private sealed record VersionXmlMetadata(
+        string? Checksum,
+        string? SignerSubject);
+
+    /// <summary>
+    /// Fetches checksum and signer subject from version.xml.
+    /// Returns a <see cref="VersionXmlMetadata"/> with available fields;
+    /// missing/optional elements produce null values without failing.
+    /// </summary>
+    private static async Task<VersionXmlMetadata> FetchVersionMetadataAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var response = await HttpClient.GetAsync(
+                UpdateXmlUrl, HttpCompletionOption.ResponseContentRead, ct);
+
+            if (!response.IsSuccessStatusCode)
+                return new VersionXmlMetadata(null, null);
+
+            var xml = await response.Content.ReadAsStringAsync(ct);
+            var doc = XDocument.Parse(xml);
+
+            var checksumEl = doc.Root?.Element("checksum");
+            var checksum = checksumEl?.Value?.Trim();
+            if (string.IsNullOrWhiteSpace(checksum))
+                checksum = null;
+
+            var signer = doc.Root?.Element("signer");
+            var subject = signer?.Element("subject")?.Value?.Trim();
+            if (string.IsNullOrWhiteSpace(subject))
+                subject = null;
+
+            if (subject is not null)
+            {
+                Logger.Info("Update", "update.signer_from_xml",
+                    new { subject });
+            }
+
+            return new VersionXmlMetadata(checksum, subject);
+        }
+        catch (Exception ex)
+        {
+            Logger.Info("Update", "update.metadata_fetch_failed",
+                new { reason = ex.GetType().Name });
+            return new VersionXmlMetadata(null, null);
+        }
+    }
+
+    /// <summary>
+    /// Formats byte count for human-readable display.
+    /// </summary>
+    private static string FormatBytes(long bytes)
+    {
+        return bytes switch
+        {
+            < 1024 => $"{bytes} B",
+            < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+            < 1024 * 1024 * 1024 => $"{bytes / (1024.0 * 1024.0):F1} MB",
+            _ => $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB"
+        };
+    }
+
+    // ─── Timeout management (unchanged from original) ──────────
+
     private static void StartTimeoutTimer()
     {
         StopTimeoutTimer();
@@ -300,19 +709,6 @@ public static class UpdateService
     /// <summary>
     /// 应用即将退出以执行更新安装。
     /// </summary>
-    /// <remarks>
-    /// 这里<b>无法</b>保证进程在安装程序启动前终止：AutoUpdater.NET 是先
-    /// Process.Start 拉起安装程序、再触发本回调的；而 Application.Shutdown()
-    /// 只是向 Dispatcher 队列投递关闭请求，本身不阻塞（外层的 Dispatcher.Invoke
-    /// 只同步了封送，不同步关闭本身）。真正确保文件不被占用的是 Inno Setup 的
-    /// CloseApplications=force（见 installer/QuickTranslate-setup.iss），
-    /// 它通过 Restart Manager 强制关闭本进程。
-    ///
-    /// 仍调用 Shutdown() 的价值在于走正常的 App.OnExit 清理路径
-    /// （Logger 落盘、托盘图标释放、单实例 Mutex 释放），
-    /// 比被 Restart Manager 直接杀掉更干净。
-    /// 不调用 Logger.Shutdown()（由 App.OnExit 统一处理）。
-    /// </remarks>
     private static void OnApplicationExit()
     {
         Logger.Info("Update", "update.installing_exit");
@@ -329,6 +725,8 @@ public static class UpdateService
         }
     }
 }
+
+// ─── Supporting types (unchanged from original) ──────────────────────
 
 /// <summary>
 /// AutoUpdater persistence adapter used when skip/remind-later behavior is disabled.

@@ -25,6 +25,23 @@ public sealed class UpdateServiceTests
     }
 
     [Fact]
+    public void RequireAuthenticodeSignature_DefaultsToFalse()
+    {
+        // Safety: Authenticode enforcement must be OFF by default
+        // so that users without a code-signing certificate are not
+        // blocked from receiving updates.
+        var settings = new AppSettings();
+        Assert.False(settings.RequireAuthenticodeSignature);
+    }
+
+    [Fact]
+    public void RequireAuthenticodeSignature_CanBeEnabled()
+    {
+        var settings = new AppSettings { RequireAuthenticodeSignature = true };
+        Assert.True(settings.RequireAuthenticodeSignature);
+    }
+
+    [Fact]
     public void VersionXml_IsWellFormed()
     {
         var xmlPath = FindVersionXml();
@@ -132,6 +149,33 @@ public sealed class UpdateServiceTests
         var changelog = doc.Root!.Element("changelog")!.Value;
 
         Assert.Contains($"/releases/tag/v{version}", changelog);
+    }
+
+    [Fact]
+    public void VersionXml_ContainsSignerElement()
+    {
+        var xmlPath = FindVersionXml();
+        var doc = XDocument.Load(xmlPath);
+        var signer = doc.Root!.Element("signer");
+
+        Assert.NotNull(signer);
+        var subject = signer!.Element("subject");
+        Assert.NotNull(subject);
+        Assert.False(string.IsNullOrWhiteSpace(subject!.Value),
+            "signer/subject element must not be empty — it defines the expected Authenticode publisher");
+    }
+
+    [Fact]
+    public void VersionXml_SignerSubjectMatchesExpectedPublisher()
+    {
+        var xmlPath = FindVersionXml();
+        var doc = XDocument.Load(xmlPath);
+        var subject = doc.Root!.Element("signer")!.Element("subject")!.Value.Trim();
+
+        // The expected publisher constant in UpdateService.cs is "YaHu"
+        // (case-insensitive substring match). The version.xml signer element
+        // must contain this value.
+        Assert.Contains("YaHu", subject, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -1,6 +1,29 @@
 ; QuickTranslate Installer — 完整版（自包含，~150MB）
 ; 已内置 .NET 8 运行时，普通用户双击即用
 ; 编译：ISCC QuickTranslate-setup-full.iss
+;
+; ─── 代码签名（Authenticode） ──────────────────────────────────────
+; 安装程序编译后必须进行 Authenticode 签名，以建立独立信任链。
+; 签名私钥必须离线保管，不得进入仓库、CI 日志或构建产物。
+;
+; 签名命令（在 ISCC 编译完成后执行）：
+;   signtool sign /fd SHA256 ^
+;     /tr http://timestamp.digicert.com /td SHA256 ^
+;     /f <certificate.pfx> /p <password> ^
+;     /d "QuickTranslate Setup (Full)" ^
+;     <OutputDir>\QuickTranslate-Setup-{version}-win-x64-full.exe
+;
+; 签名后验证：
+;   signtool verify /pa /v <path-to-installer>.exe
+;
+; 发布前检查清单：
+;   □ 两个安装包均已签名（轻量版 + 完整版）
+;   □ 签名时间戳有效（signtool verify 通过）
+;   □ 证书 Subject 包含 "YaHu"（与 UpdateService.ExpectedPublisher 一致）
+;   □ version.xml 的 <signer><subject> 匹配证书 Subject
+;   □ 未签名的安装包不得上传到 GitHub Release
+;
+; 证书到期前 30 天开始续期流程，详见 docs/RELEASE.md
 
 #define MyAppName "QuickTranslate"
 #define MyAppVersion "1.8.1"
