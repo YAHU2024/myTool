@@ -31,10 +31,11 @@ A lightweight .NET 8 WPF desktop translator that connects to OpenAI-compatible A
 | Core Translation | SSE streaming token-by-token output · drag / double-click / triple-click selection · red-dot guidance interaction · floating window instant preview · 14 languages · automatic language detection |
 | Smart Detection | Auto-classifies Translation / Code / Term and routes to specialized prompts · confidence diagnostics · browser / terminal scene awareness |
 | Multi-mode Sessions | Switch between Translate / Command-parse / Term-explain / Deep-analysis on the same text · instant restore of finished results |
+| Quick Lookup | Single-click tray panel · structured AI definitions / phonetics / examples / collocations · five recent items · speech and copy |
 | Markdown | Safe parse & render · standalone copy of fenced code blocks · tables / lists / quotes · only http/https links allowed |
 | Text-to-Speech | Edge TTS online synthesis · read selected text · one-click read of translation result · automatic language matching |
 | Translation History | SQLite local persistence · search & filter by time / language · paginated browsing · double-click to copy · Anki-format export |
-| System Integration | Global hotkeys (customizable) · system tray resident · launch on startup · in-browser trigger · single-instance guard |
+| System Integration | Global hotkeys (customizable) · single-click tray lookup · restore latest translation from the context menu · launch on startup · in-browser trigger · single-instance guard |
 | Deep Analysis | 4 built-in presets (general / language-learning / literary / business) · custom profile create / duplicate / edit / delete · multi-turn profile management |
 | Performance | LRU + TTL semantic cache · latest-request-wins conflict protection · request snapshot isolation · live setting changes don't affect in-flight requests |
 | Auto Update | GitHub Release delivery · silent check on startup · system-proxy compatible · Inno Setup dual installer · SHA256 verification |
@@ -116,6 +117,8 @@ dotnet run
 
 The app minimizes to the system tray on launch; right-click the tray icon to open settings.
 
+Single-click the tray icon to show or hide Quick Lookup, then enter a word or phrase and press `Enter`. Lookup uses the current OpenAI-compatible configuration and labels results as “AI definition · model name.” The query is sent to the configured provider; the five recent items are process-local and cleared on exit. Use “Restore latest translation” in the tray context menu for the previous select-to-translate result.
+
 ---
 
 ## Configure API
@@ -129,6 +132,8 @@ Right-click the tray icon and open the settings window:
 | Model | Model name | `Qwen/Qwen3-8B` |
 
 The model dropdown groups saved configurations by domain and auto-fills URL and Key on selection.
+
+Quick Lookup shares the translation Base URL, API Key, and Model settings. AI-generated definitions are learning aids rather than authoritative dictionary data, and uncertain optional fields such as phonetics may be omitted.
 
 <details>
 <summary>One-click provider reference (expand)</summary>
