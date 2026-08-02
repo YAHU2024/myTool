@@ -44,6 +44,13 @@
 3. 检查后续是 `translation.completed`、`translation.failed`、`translation.cancelled` 还是 `translation.cache_hit`。
 4. `translation.completed` 表示服务响应完成；`translation.presented` 表示最新有效请求已写入当前界面和历史。
 
+快速查词没有结果：
+
+1. 搜索模块 `WordLookupService` 或事件 `lookup.`。
+2. `lookup.started` 只记录查询的 Unicode 字符数量和 Provider 标识。
+3. `lookup.completed` 只记录释义、例句和搭配数量以及耗时。
+4. 查词日志不会记录查询词、Prompt、释义、例句、API Key 或 Provider 响应正文。
+
 划词、剪贴板或 UIA 异常：
 
 - 搜索模块 `ClipboardHelper`、`SelectionDetector` 或 `SelectionLocator`。
@@ -180,6 +187,8 @@ quicktranslate-2026-07-23-2.log
 | `duration_ms` | 操作耗时，单位毫秒 |
 | `request_id` | 进程内请求身份，用于判断取消和过期请求 |
 | `error_type` / `exception_type` | 异常类型名称，不包含异常消息 |
+| `query_scalars` | 查词输入的 Unicode 字符数量，不包含查询内容 |
+| `senses` / `examples` / `collocations` | 结构化查词结果的项目数量，不包含项目正文 |
 
 ## 5. 性能指标说明
 
@@ -205,6 +214,7 @@ quicktranslate-2026-07-23-2.log
 当前版本禁止向应用日志写入：
 
 - 用户选中的原文；
+- 快速查词的查询词、释义、音标、例句和搭配；
 - 翻译、解析或模型响应正文；
 - 系统提示词和自定义提示词；
 - API Key；
