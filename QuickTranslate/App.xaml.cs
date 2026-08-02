@@ -19,6 +19,7 @@ namespace QuickTranslate;
 public partial class App : Application
 {
     private GlobalKeyboardHook? _keyboardHook;
+    private GlobalKeyboardHook? _quickLookupHook;
     private SelectionDetector? _selectionDetector;
     private OpenAITranslationService? _translationService;
     private ITtsService? _ttsService;
@@ -196,6 +197,18 @@ public partial class App : Application
             _keyboardHook.Start();
         }
 
+        // 启动快速查词全局键盘钩子（仅当用户开启时）
+        _quickLookupHook = new GlobalKeyboardHook();
+        _quickLookupHook.HotKey = _settings.QuickLookupHotKeyVK;
+        _quickLookupHook.RequireAlt = _settings.QuickLookupHotKeyRequireAlt;
+        _quickLookupHook.RequireCtrl = _settings.QuickLookupHotKeyRequireCtrl;
+        _quickLookupHook.RequireShift = _settings.QuickLookupHotKeyRequireShift;
+        _quickLookupHook.HotKeyPressed += OnQuickLookupHotKeyPressed;
+        if (_settings.QuickLookupHotKeyEnabled)
+        {
+            _quickLookupHook.Start();
+        }
+
         // 启动文本选择检测器
         _selectionDetector = new SelectionDetector();
         _selectionDetector.SelectionCompleted += OnSelectionCompleted;
@@ -370,6 +383,56 @@ public partial class App : Application
                 $"翻译失败: {ex.Message}",
                 floatingAnchor.Value);
         }
+    }
+
+    /// <summary>
+    /// 快速查词热键事件处理（默认 Alt+W）—— 切换快速查词窗口显隐。
+    /// </summary>
+    private void OnQuickLookupHotKeyPressed()
+    {
+        if (_quickLookupWindow is null)
+            return;
+
+        Dispatcher.Invoke(() =>
+        {
+            if (Volatile.Read(ref _lookupVisible) == 1)
+            {
+                // 已可见 → 隐藏
+                _quickLookupWindow.HidePanel();
+            }
+            else
+            {
+                // 居中显示在当前鼠标所在显示器的工作区
+                ShowQuickLookupCentered();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 将快速查词窗口居中显示在当前鼠标所在显示器的工作区。
+    /// </summary>
+    private void ShowQuickLookupCentered()
+    {
+        if (_quickLookupWindow is null)
+            return;
+
+        Win32Api.GetCursorPos(out var cursorPt);
+        var physicalAnchor = new System.Windows.Point(cursorPt.X, cursorPt.Y);
+        var work = Win32Api.GetPhysicalWorkAreaAtPoint(physicalAnchor);
+        if (work.IsEmpty)
+            return;
+
+        var scale = DpiHelper.GetScaleForPhysicalPoint(physicalAnchor);
+        var wndWidth = (int)Math.Round(_quickLookupWindow.Width * scale.X);
+        var wndHeight = (int)Math.Round(_quickLookupWindow.Height * scale.Y);
+
+        var centerX = (int)(work.Left + (work.Width - wndWidth) / 2);
+        var centerY = (int)(work.Top + (work.Height - wndHeight) / 2);
+
+        _quickLookupWindow.PrepareForShow();
+        Volatile.Write(ref _lookupVisible, 1);
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(_quickLookupWindow).Handle;
+        Win32Api.SetWindowPos(hwnd, IntPtr.Zero, centerX, centerY, wndWidth, wndHeight, 0x0004);
     }
 
     /// <summary>
@@ -945,6 +1008,7 @@ public partial class App : Application
 
         OnSelectionCancelled();
         ApplyHotKeyConfiguration(settings);
+        ApplyQuickLookupHotKeyConfiguration(settings);
         _trayIcon?.SetPaused(TranslationTriggerModes.IsPaused(settings.TranslationTriggerMode));
 
         UpdateTrayToolTip();
@@ -1249,6 +1313,26 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// 应用快速查词热键配置（独立于翻译热键，不受暂停影响）。
+    /// </summary>
+    private void ApplyQuickLookupHotKeyConfiguration(AppSettings settings)
+    {
+        if (_quickLookupHook is null)
+            return;
+
+        Task.Run(() =>
+        {
+            _quickLookupHook.Stop();
+            _quickLookupHook.HotKey = settings.QuickLookupHotKeyVK;
+            _quickLookupHook.RequireAlt = settings.QuickLookupHotKeyRequireAlt;
+            _quickLookupHook.RequireCtrl = settings.QuickLookupHotKeyRequireCtrl;
+            _quickLookupHook.RequireShift = settings.QuickLookupHotKeyRequireShift;
+            if (settings.QuickLookupHotKeyEnabled)
+                _quickLookupHook.Start();
+        });
+    }
+
+    /// <summary>
     /// 保存翻译历史记录
     /// </summary>
     private void SaveTranslationHistory(
@@ -1368,6 +1452,7 @@ public partial class App : Application
             _ttsService = null;
         }
         _keyboardHook?.Dispose();
+        _quickLookupHook?.Dispose();
         _selectionDetector?.Dispose();
         _translationService?.Dispose();
         _dbContext?.Dispose();
