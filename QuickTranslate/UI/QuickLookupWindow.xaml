@@ -122,13 +122,17 @@
                             <ItemsControl x:Name="SensesItems">
                                 <ItemsControl.ItemTemplate><DataTemplate DataType="{x:Type models:WordSense}">
                                     <StackPanel Margin="0,0,0,12">
-                                        <DockPanel LastChildFill="True">
-                                            <Border Background="{StaticResource Accent}" CornerRadius="3" Padding="6,2" Margin="0,0,9,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Background="{StaticResource Accent}" CornerRadius="3" Padding="6,2" Margin="0,0,9,0" VerticalAlignment="Top">
                                                 <Border.Style><Style TargetType="Border"><Style.Triggers><DataTrigger Binding="{Binding PartOfSpeech}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Border.Style>
                                                 <TextBlock Text="{Binding PartOfSpeech}" Foreground="#102B2A" FontWeight="SemiBold" FontSize="11"/>
                                             </Border>
-                                            <TextBlock Text="{Binding Definition}" Foreground="{StaticResource Text}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                                        </DockPanel>
+                                            <TextBlock Grid.Column="1" Text="{Binding Definition}" Foreground="{StaticResource Text}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Top"/>
+                                        </Grid>
                                         <TextBlock Text="{Binding EnglishDefinition}" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
                                     </StackPanel>
                                 </DataTemplate></ItemsControl.ItemTemplate>
