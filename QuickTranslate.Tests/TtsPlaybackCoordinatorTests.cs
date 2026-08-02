@@ -45,11 +45,32 @@ public sealed class TtsPlaybackCoordinatorTests
         await playback;
     }
 
+    [Fact]
+    public async Task StopAsync_WhenServiceWrapsCancellation_StillSurfacesOperationCanceled()
+    {
+        var service = new ControlledTtsService(wrapCancellation: true);
+        using var coordinator = new TtsPlaybackCoordinator(service);
+        var playback = coordinator.SpeakAsync(
+            TtsPlaybackOwner.QuickLookup, "one", null, null, 1, CancellationToken.None);
+        await service.WaitForStartsAsync(1);
+
+        await coordinator.StopAsync(TtsPlaybackOwner.QuickLookup);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => playback);
+        Assert.False(coordinator.Current.IsBusy);
+    }
+
     private sealed class ControlledTtsService : ITtsService
     {
         private readonly object _sync = new();
         private readonly List<TaskCompletionSource> _playbacks = new();
         private TaskCompletionSource _startChanged = NewSource();
+        private readonly bool _wrapCancellation;
+
+        public ControlledTtsService(bool wrapCancellation = false)
+        {
+            _wrapCancellation = wrapCancellation;
+        }
 
         public bool IsBusy { get; private set; }
         public event Action? StateChanged;
@@ -71,7 +92,22 @@ public sealed class TtsPlaybackCoordinatorTests
                 _startChanged = NewSource();
             }
             StateChanged?.Invoke();
-            cancellationToken.Register(() => playback.TrySetCanceled(cancellationToken));
+            cancellationToken.Register(() =>
+            {
+                if (_wrapCancellation)
+                {
+                    playback.TrySetException(new TtsSpeakException(
+                        TtsSpeakException.Cancelled,
+                        TtsTextSelector.SelectionAuto,
+                        string.Empty,
+                        0,
+                        "cancelled"));
+                }
+                else
+                {
+                    playback.TrySetCanceled(cancellationToken);
+                }
+            });
             return playback.Task;
         }
 

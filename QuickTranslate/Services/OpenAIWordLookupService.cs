@@ -187,10 +187,42 @@ public sealed class OpenAIWordLookupService : IWordLookupService, IDisposable
     {
         var items = OptionalArray(root, "senses", MaxSenses);
         return items.Select(item => new WordSense(
-            OptionalString(item, "part_of_speech", MaxPartOfSpeechScalars),
+            NormalizePartOfSpeech(OptionalString(item, "part_of_speech", MaxPartOfSpeechScalars)),
             RequiredString(item, "definition", MaxDefinitionScalars),
             OptionalString(item, "english_definition", MaxDefinitionScalars)))
             .ToArray();
+    }
+
+    internal static string NormalizePartOfSpeech(string value)
+    {
+        var text = value.Trim();
+        if (text.Length == 0)
+            return string.Empty;
+
+        var key = text.ToLowerInvariant().Replace(".", string.Empty).Trim();
+        return key switch
+        {
+            "n" or "noun" or "名词" => "名词",
+            "v" or "verb" or "动词" => "动词",
+            "adj" or "adjective" or "形容词" => "形容词",
+            "adv" or "adverb" or "副词" => "副词",
+            "pron" or "pronoun" or "代词" => "代词",
+            "prep" or "preposition" or "介词" => "介词",
+            "conj" or "conjunction" or "连词" => "连词",
+            "interj" or "int" or "interjection" or "感叹词" => "感叹词",
+            "det" or "determiner" or "限定词" => "限定词",
+            "art" or "article" or "冠词" => "冠词",
+            "num" or "numeral" or "number" or "数词" => "数词",
+            "aux" or "auxiliary" or "auxiliary verb" or "助动词" => "助动词",
+            "modal" or "modal verb" or "情态动词" => "情态动词",
+            "phrasal verb" or "短语动词" => "短语动词",
+            "idiom" or "习语" => "习语",
+            "phrase" or "短语" => "短语",
+            "abbr" or "abbreviation" or "缩写" => "缩写",
+            "other" or "其他" => "其他",
+            _ when text.Any(character => character is >= '\u3400' and <= '\u9fff') => text,
+            _ => "其他"
+        };
     }
 
     private static IReadOnlyList<WordExample> ParseExamples(JsonElement root)

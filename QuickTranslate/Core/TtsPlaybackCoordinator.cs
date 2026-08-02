@@ -84,7 +84,15 @@ public sealed class TtsPlaybackCoordinator : IDisposable
                     _transitionGate.Release();
             }
 
-            await playback.ConfigureAwait(false);
+            try
+            {
+                await playback.ConfigureAwait(false);
+            }
+            catch (TtsSpeakException ex)
+                when (linked.IsCancellationRequested || ex.ErrorKind == TtsSpeakException.Cancelled)
+            {
+                throw new OperationCanceledException("Speech was cancelled.", ex, linked.Token);
+            }
         }
         finally
         {
@@ -117,7 +125,6 @@ public sealed class TtsPlaybackCoordinator : IDisposable
         finally
         {
             _transitionGate.Release();
-            source?.Dispose();
         }
     }
 

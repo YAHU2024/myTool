@@ -41,6 +41,12 @@ public static class WordLookupPromptBuilder
             For an unknown or invalid lexical entry return exactly:
             {"status":"not_found"}
 
+            Ordinary words and phrases are found entries. Common greetings such as "hello" and "hi",
+            inflected words, abbreviations, idioms, and informal expressions must not be marked not_found.
+            Use not_found only when the input is unmistakably random or non-lexical; when uncertain, return found.
+            part_of_speech must be one of these Chinese labels when applicable:
+            名词, 动词, 形容词, 副词, 代词, 介词, 连词, 感叹词, 限定词, 冠词, 数词,
+            助动词, 情态动词, 短语动词, 习语, 短语, 缩写, 其他. Do not return English labels.
             Pronunciations are optional; omit uncertain phonetics instead of inventing them.
             Return at most 6 senses, 3 examples, and 3 collocations. Do not include CEFR levels.
             """;

@@ -9,6 +9,10 @@
         FontFamily="Microsoft YaHei UI"
         PreviewKeyDown="Window_PreviewKeyDown">
     <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/QuickTranslate;component/UI/SharedToolWindowStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
         <SolidColorBrush x:Key="PanelBackground" Color="#20232B"/>
         <SolidColorBrush x:Key="Surface" Color="#292E37"/>
         <SolidColorBrush x:Key="Border" Color="#414955"/>
@@ -45,6 +49,7 @@
                 <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#303640"/><Setter Property="Foreground" Value="{StaticResource Text}"/></Trigger></ControlTemplate.Triggers>
             </ControlTemplate></Setter.Value></Setter>
         </Style>
+        </ResourceDictionary>
     </Window.Resources>
 
     <Border Margin="5" Padding="18,14,18,12" CornerRadius="7" Background="{StaticResource PanelBackground}" BorderBrush="#48515D" BorderThickness="1">
@@ -76,7 +81,7 @@
             </Grid>
 
             <Grid Grid.Row="2">
-                <ScrollViewer x:Name="ResultScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer x:Name="ResultScroller" Style="{StaticResource Win11ScrollViewer}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <Grid>
                         <StackPanel x:Name="EmptyPanel" VerticalAlignment="Center" Margin="0,90,0,0">
                             <TextBlock Text="&#xE8D2;" FontFamily="Segoe MDL2 Assets" FontSize="28" Foreground="#66717F" HorizontalAlignment="Center"/>
@@ -155,6 +160,11 @@
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>
+                <Border x:Name="FeedbackBar" Panel.ZIndex="2" Visibility="Collapsed"
+                        VerticalAlignment="Bottom" Margin="8" Padding="10,7"
+                        Background="#343B46" BorderBrush="#56616F" BorderThickness="1" CornerRadius="4">
+                    <TextBlock x:Name="FeedbackText" Foreground="{StaticResource Text}" FontSize="11" TextWrapping="Wrap"/>
+                </Border>
             </Grid>
 
             <Border Grid.Row="3" BorderBrush="#353C46" BorderThickness="0,1,0,0" Padding="0,9,0,0" Margin="0,8,0,0">

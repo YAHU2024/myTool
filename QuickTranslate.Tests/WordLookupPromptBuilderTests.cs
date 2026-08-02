@@ -37,6 +37,11 @@ public sealed class WordLookupPromptBuilderTests
 
         Assert.Contains("JSON only", prompt);
         Assert.Contains("not_found", prompt);
+        Assert.Contains("hello", prompt);
+        Assert.Contains("hi", prompt);
+        Assert.Contains("when uncertain, return found", prompt);
+        Assert.Contains("Do not return English labels", prompt);
+        Assert.Contains("名词", prompt);
         Assert.Contains("Do not include CEFR", prompt);
     }
 }

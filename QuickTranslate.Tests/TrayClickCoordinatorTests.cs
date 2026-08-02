@@ -16,6 +16,7 @@ public sealed class TrayClickCoordinatorTests
         var snapshot = coordinator.RecordLeftButtonDown(originallyVisible, new PhysicalPoint(10, 20));
 
         Assert.Equal(TrayClickActionKind.NoOp, coordinator.RecordDeactivated().Kind);
+        Assert.Equal(TrayClickActionKind.NoOp, coordinator.ConfirmDeactivation().Kind);
         var action = coordinator.ConfirmSingleClick(snapshot.Sequence);
 
         Assert.Equal(expected, action.Kind);
@@ -36,7 +37,20 @@ public sealed class TrayClickCoordinatorTests
     public void DeactivationWithoutTrayClick_HidesLookup()
     {
         using var coordinator = new TrayClickCoordinator();
-        Assert.Equal(TrayClickActionKind.HideForDeactivation, coordinator.RecordDeactivated().Kind);
+        Assert.Equal(TrayClickActionKind.NoOp, coordinator.RecordDeactivated().Kind);
+        Assert.Equal(TrayClickActionKind.HideForDeactivation, coordinator.ConfirmDeactivation().Kind);
+    }
+
+    [Fact]
+    public void DeactivationBeforeTrayMouseDown_DoesNotChangeOriginalVisibility()
+    {
+        using var coordinator = new TrayClickCoordinator();
+
+        Assert.Equal(TrayClickActionKind.NoOp, coordinator.RecordDeactivated().Kind);
+        var snapshot = coordinator.RecordLeftButtonDown(true, new PhysicalPoint(10, 20));
+        Assert.Equal(TrayClickActionKind.NoOp, coordinator.ConfirmDeactivation().Kind);
+
+        Assert.Equal(TrayClickActionKind.HideLookup, coordinator.ConfirmSingleClick(snapshot.Sequence).Kind);
     }
 
     [Fact]
