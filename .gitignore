@@ -42,6 +42,8 @@ AGENTS.md
 PLAN.md
 docs/THOUGHTS.md
 BUGFIX_PLAN.md
+docs/design
+docs/QUICK_LOOKUP_PLAN.md
 
 ## Build output
 .build-output/
