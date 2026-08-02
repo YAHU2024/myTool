@@ -34,6 +34,7 @@ public sealed class QuickLookupWindowTests
                 Assert.Equal("查询", AutomationProperties.GetName(window.SubmitButton));
                 Assert.Equal("朗读词头", AutomationProperties.GetName(window.SpeakHeadwordButton));
                 Assert.Equal("复制查词结果", AutomationProperties.GetName(window.CopyButton));
+                Assert.Same(window.FindResource("Win11ScrollViewer"), window.ResultScroller.Style);
                 window.CloseForExit();
             }
             catch (Exception ex)

@@ -18,6 +18,10 @@
         PreviewKeyDown="Window_PreviewKeyDown">
 
     <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/QuickTranslate;component/UI/SharedToolWindowStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
         <Style x:Key="ToolbarButton" TargetType="{x:Type Button}">
             <Setter Property="Foreground" Value="#D7D7DE"/>
             <Setter Property="Background" Value="Transparent"/>
@@ -76,65 +80,12 @@
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
 
-        <Style x:Key="Win11Thumb" TargetType="{x:Type Thumb}">
-            <Setter Property="OverridesDefaultStyle" Value="True"/>
-            <Setter Property="IsTabStop" Value="False"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="{x:Type Thumb}">
-                        <Border Background="#80FFFFFF" CornerRadius="2" SnapsToDevicePixels="True"/>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="Win11VerticalScrollBar" TargetType="{x:Type ScrollBar}">
-            <Setter Property="Width" Value="4"/>
-            <Setter Property="MinWidth" Value="4"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Margin" Value="0,2"/>
-            <Setter Property="Opacity" Value="0"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="{x:Type ScrollBar}">
-                        <Grid>
-                            <Track x:Name="PART_Track" IsDirectionReversed="True">
-                                <Track.DecreaseRepeatButton>
-                                    <RepeatButton Command="ScrollBar.PageUpCommand"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton>
-                                </Track.DecreaseRepeatButton>
-                                <Track.Thumb><Thumb Style="{StaticResource Win11Thumb}"/></Track.Thumb>
-                                <Track.IncreaseRepeatButton>
-                                    <RepeatButton Command="ScrollBar.PageDownCommand"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton>
-                                </Track.IncreaseRepeatButton>
-                            </Track>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="1"/></Trigger>
-                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType={x:Type ScrollViewer}}}" Value="True"><Setter Property="Opacity" Value="1"/></DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="Win11ScrollViewer" TargetType="{x:Type ScrollViewer}">
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="{x:Type ScrollViewer}">
-                        <Grid>
-                            <ScrollContentPresenter CanContentScroll="{TemplateBinding CanContentScroll}" Margin="{TemplateBinding Padding}"/>
-                            <ScrollBar x:Name="PART_VerticalScrollBar" HorizontalAlignment="Right" VerticalAlignment="Stretch" Style="{StaticResource Win11VerticalScrollBar}" Value="{TemplateBinding VerticalOffset}" Maximum="{TemplateBinding ScrollableHeight}" ViewportSize="{TemplateBinding ViewportHeight}" Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}" Margin="0,0,1,0"/>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
         <Storyboard x:Key="LoadingDotsStoryboard" RepeatBehavior="Forever">
             <DoubleAnimation Storyboard.TargetName="LoadingDotOne" Storyboard.TargetProperty="Opacity" From="0.3" To="1" Duration="0:0:0.4" AutoReverse="True"/>
             <DoubleAnimation Storyboard.TargetName="LoadingDotTwo" Storyboard.TargetProperty="Opacity" From="0.3" To="1" BeginTime="0:0:0.13" Duration="0:0:0.4" AutoReverse="True"/>
             <DoubleAnimation Storyboard.TargetName="LoadingDotThree" Storyboard.TargetProperty="Opacity" From="0.3" To="1" BeginTime="0:0:0.26" Duration="0:0:0.4" AutoReverse="True"/>
         </Storyboard>
+        </ResourceDictionary>
     </Window.Resources>
 
     <Border Background="#E81E1E2E" CornerRadius="8" Padding="12,8" Margin="4">

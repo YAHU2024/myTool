@@ -23,10 +23,24 @@ public sealed class OpenAIWordLookupServiceTests
         Assert.Equal("run", result.Headword);
         Assert.Single(result.Pronunciations);
         Assert.Single(result.Senses);
+        Assert.Equal("动词", result.Senses[0].PartOfSpeech);
         Assert.Single(result.Examples);
         Assert.Single(result.Collocations);
         Assert.Equal(WordLookupSourceKind.AiGenerated, result.Source.Kind);
         Assert.Equal("AI 释义 · model-x", result.Source.DisplayName);
+    }
+
+    [Theory]
+    [InlineData("noun", "名词")]
+    [InlineData("n.", "名词")]
+    [InlineData("adjective", "形容词")]
+    [InlineData("adv.", "副词")]
+    [InlineData("phrasal verb", "短语动词")]
+    [InlineData("副词", "副词")]
+    [InlineData("unexpected-provider-label", "其他")]
+    public void NormalizePartOfSpeech_ReturnsChineseLabel(string input, string expected)
+    {
+        Assert.Equal(expected, OpenAIWordLookupService.NormalizePartOfSpeech(input));
     }
 
     [Fact]

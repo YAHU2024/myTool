@@ -25,6 +25,7 @@ public sealed class TrayClickCoordinator : IDisposable
     private readonly object _sync = new();
     private long _sequence;
     private TrayClickSnapshot? _pending;
+    private bool _deactivationPending;
     private bool _disposed;
 
     public TrayClickSnapshot RecordLeftButtonDown(bool lookupVisible, PhysicalPoint anchor)
@@ -44,6 +45,7 @@ public sealed class TrayClickCoordinator : IDisposable
                 return new(TrayClickActionKind.NoOp);
 
             _pending = null;
+            _deactivationPending = false;
             return snapshot.WasLookupVisible
                 ? new(TrayClickActionKind.HideLookup, snapshot)
                 : new(TrayClickActionKind.ShowLookup, snapshot);
@@ -57,6 +59,7 @@ public sealed class TrayClickCoordinator : IDisposable
             if (_disposed)
                 return new(TrayClickActionKind.NoOp);
             _pending = null;
+            _deactivationPending = false;
             return new(TrayClickActionKind.OpenSettings);
         }
     }
@@ -65,9 +68,24 @@ public sealed class TrayClickCoordinator : IDisposable
     {
         lock (_sync)
         {
-            if (_disposed || _pending is not null)
+            if (_disposed)
                 return new(TrayClickActionKind.NoOp);
-            return new(TrayClickActionKind.HideForDeactivation);
+            _deactivationPending = true;
+            return new(TrayClickActionKind.NoOp);
+        }
+    }
+
+    public TrayClickAction ConfirmDeactivation()
+    {
+        lock (_sync)
+        {
+            if (_disposed || !_deactivationPending)
+                return new(TrayClickActionKind.NoOp);
+
+            _deactivationPending = false;
+            return _pending is null
+                ? new(TrayClickActionKind.HideForDeactivation)
+                : new(TrayClickActionKind.NoOp);
         }
     }
 
@@ -77,6 +95,7 @@ public sealed class TrayClickCoordinator : IDisposable
         {
             _disposed = true;
             _pending = null;
+            _deactivationPending = false;
         }
     }
 }

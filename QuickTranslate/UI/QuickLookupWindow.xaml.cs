@@ -22,6 +22,10 @@ public partial class QuickLookupWindow : Window
     private int _ttsMaxChars = 2000;
     private bool _isImeComposing;
     private bool _isClosingForExit;
+    private readonly DispatcherTimer _feedbackTimer = new()
+    {
+        Interval = TimeSpan.FromSeconds(3)
+    };
 
     public QuickLookupWindow(
         IWordLookupService lookupService,
@@ -56,6 +60,11 @@ public partial class QuickLookupWindow : Window
         TextCompositionManager.AddPreviewTextInputStartHandler(QueryTextBox, OnTextInputStart);
         TextCompositionManager.AddPreviewTextInputUpdateHandler(QueryTextBox, OnTextInputUpdate);
         TextCompositionManager.AddPreviewTextInputHandler(QueryTextBox, OnTextInputCompleted);
+        _feedbackTimer.Tick += (_, _) =>
+        {
+            _feedbackTimer.Stop();
+            FeedbackBar.Visibility = Visibility.Collapsed;
+        };
         Render(_sessions.Current);
         RefreshRecentItems();
     }
@@ -264,9 +273,12 @@ public partial class QuickLookupWindow : Window
         catch (OperationCanceledException)
         {
         }
+        catch (TtsSpeakException ex) when (ex.ErrorKind == TtsSpeakException.Cancelled)
+        {
+        }
         catch (Exception)
         {
-            ShowMessage("朗读失败", "语音服务暂时不可用。", canRetry: false);
+            ShowTransientFeedback("朗读失败，语音服务暂时不可用。");
         }
     }
 
@@ -297,11 +309,20 @@ public partial class QuickLookupWindow : Window
         try
         {
             Clipboard.SetText(WordLookupTextFormatter.Format(result));
+            TransientButtonFeedback.ShowCopySuccess(CopyButton, "\uE8C8");
         }
         catch
         {
             ShowMessage("复制失败", "剪贴板当前不可用，请稍后重试。", canRetry: false);
         }
+    }
+
+    private void ShowTransientFeedback(string message)
+    {
+        FeedbackText.Text = message;
+        FeedbackBar.Visibility = Visibility.Visible;
+        _feedbackTimer.Stop();
+        _feedbackTimer.Start();
     }
 
     private void SubmitButton_Click(object sender, RoutedEventArgs e) => _ = SubmitAsync(QueryTextBox.Text);

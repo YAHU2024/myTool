@@ -390,7 +390,7 @@ public partial class FloatingWindow : Window
         try
         {
             Clipboard.SetText(metadata.Code);
-            ShowCopyFeedback(button, "\u29C9");
+            TransientButtonFeedback.ShowCopySuccess(button, "\u29C9");
             e.Handled = true;
         }
         catch
@@ -470,7 +470,7 @@ public partial class FloatingWindow : Window
         {
             Clipboard.SetText(text);
             if (sender is Button btn)
-                ShowCopyFeedback(btn, "\u29C9");
+                TransientButtonFeedback.ShowCopySuccess(btn, "\u29C9");
         }
         catch { /* Clipboard access can be temporarily unavailable. */ }
         ResetAutoHideTimer();
@@ -593,18 +593,6 @@ public partial class FloatingWindow : Window
             mode);
         ShowTransientStatus(message, FloatingStatusKind.Error);
     }
-    private static void ShowCopyFeedback(Button button, object originalContent)
-    {
-        button.Content = "\u2714";
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
-        timer.Tick += (_, _) =>
-        {
-            button.Content = originalContent;
-            timer.Stop();
-        };
-        timer.Start();
-    }
-
     private void PinButton_Click(object sender, RoutedEventArgs e)
     {
         IsPinned = !IsPinned;

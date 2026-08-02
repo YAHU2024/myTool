@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
+using System.Windows.Threading;
 using QuickTranslate.Core;
 using QuickTranslate.Database;
 using QuickTranslate.Helpers;
@@ -45,6 +46,10 @@ public partial class App : Application
     private readonly TrayClickCoordinator _trayClicks = new();
     private long _pendingTrayClickSequence;
     private int _lookupVisible;
+    private readonly DispatcherTimer _lookupDeactivationTimer = new()
+    {
+        Interval = TimeSpan.FromMilliseconds(100)
+    };
     private long _selectionGeneration;
     private CancellationTokenSource? _selectionCts;
     private ForegroundWindowInfo? _pendingSelection;
@@ -185,6 +190,11 @@ public partial class App : Application
             _settings.TtsMaxChars);
         _quickLookupWindow.DeactivationRequested += OnLookupDeactivated;
         _quickLookupWindow.HideRequested += () => Volatile.Write(ref _lookupVisible, 0);
+        _lookupDeactivationTimer.Tick += (_, _) =>
+        {
+            _lookupDeactivationTimer.Stop();
+            ApplyTrayClickAction(_trayClicks.ConfirmDeactivation());
+        };
 
         // 初始化红点窗口（单例复用）
         _redDotWindow = new RedDotWindow();
@@ -1173,18 +1183,28 @@ public partial class App : Application
 
     private void OnLookupSingleClickConfirmed()
     {
-        Dispatcher.BeginInvoke(() => ApplyTrayClickAction(
-            _trayClicks.ConfirmSingleClick(Interlocked.Read(ref _pendingTrayClickSequence))));
+        Dispatcher.BeginInvoke(() =>
+        {
+            _lookupDeactivationTimer.Stop();
+            ApplyTrayClickAction(
+                _trayClicks.ConfirmSingleClick(Interlocked.Read(ref _pendingTrayClickSequence)));
+        });
     }
 
     private void OnLookupDoubleClick()
     {
-        Dispatcher.BeginInvoke(() => ApplyTrayClickAction(_trayClicks.RecordDoubleClick()));
+        Dispatcher.BeginInvoke(() =>
+        {
+            _lookupDeactivationTimer.Stop();
+            ApplyTrayClickAction(_trayClicks.RecordDoubleClick());
+        });
     }
 
     private void OnLookupDeactivated()
     {
         ApplyTrayClickAction(_trayClicks.RecordDeactivated());
+        _lookupDeactivationTimer.Stop();
+        _lookupDeactivationTimer.Start();
     }
 
     private void ApplyTrayClickAction(TrayClickAction action)
@@ -1408,6 +1428,7 @@ public partial class App : Application
 
         CancelActiveTranslationRequest();
         _lookupSessions.CancelCurrent();
+        _lookupDeactivationTimer.Stop();
         Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
         _selectionCts?.Dispose();
