@@ -39,9 +39,11 @@ AGENTS.md
 .workbuddy
 
 ## Private docs
+/docs/design/
 PLAN.md
 docs/THOUGHTS.md
 BUGFIX_PLAN.md
+docs/QUICK_LOOKUP_PLAN.md
 
 ## Build output
 .build-output/
