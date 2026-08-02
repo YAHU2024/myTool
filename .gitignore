@@ -29,6 +29,10 @@ Desktop.ini
 .AppleDouble
 ._*
 
+## Python
+__pycache__/
+*.py[cod]
+
 ## App data (contains user API keys)
 **/settings.json
 
@@ -45,6 +49,7 @@ docs/THOUGHTS.md
 BUGFIX_PLAN.md
 docs/design
 docs/QUICK_LOOKUP_PLAN.md
+docs/WORD_DICTIONARY_MINIMAL_VALIDATION.md
 
 ## Build output
 .build-output/
