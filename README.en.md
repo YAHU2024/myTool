@@ -31,11 +31,11 @@ A lightweight .NET 8 WPF desktop translator that connects to OpenAI-compatible A
 | Core Translation | SSE streaming token-by-token output · drag / double-click / triple-click selection · red-dot guidance interaction · floating window instant preview · 14 languages · automatic language detection |
 | Smart Detection | Auto-classifies Translation / Code / Term and routes to specialized prompts · confidence diagnostics · browser / terminal scene awareness |
 | Multi-mode Sessions | Switch between Translate / Command-parse / Term-explain / Deep-analysis on the same text · instant restore of finished results |
-| Quick Lookup | Single-click tray panel · structured AI definitions / phonetics / examples / collocations · five recent items · speech and copy |
+| Quick Lookup | Single-click tray or Alt+W global hotkey opens compact lookup panel · structured AI definitions / phonetics / examples / collocations · five recent items · speech and copy · centered popup / toggle visibility |
 | Markdown | Safe parse & render · standalone copy of fenced code blocks · tables / lists / quotes · only http/https links allowed |
 | Text-to-Speech | Edge TTS online synthesis · read selected text · one-click read of translation result · automatic language matching |
 | Translation History | SQLite local persistence · search & filter by time / language · paginated browsing · double-click to copy · Anki-format export |
-| System Integration | Global hotkeys (customizable) · single-click tray lookup · restore latest translation from the context menu · launch on startup · in-browser trigger · single-instance guard |
+| System Integration | Two independent global hotkey sets (select-to-translate / quick lookup) · lookup hotkey has on/off toggle disabled by default · single-click tray lookup · restore latest translation from the context menu · launch on startup · in-browser trigger · single-instance guard |
 | Deep Analysis | 4 built-in presets (general / language-learning / literary / business) · custom profile create / duplicate / edit / delete · multi-turn profile management |
 | Performance | LRU + TTL semantic cache · latest-request-wins conflict protection · request snapshot isolation · live setting changes don't affect in-flight requests |
 | Auto Update | GitHub Release delivery · silent check on startup · system-proxy compatible · Inno Setup dual installer · SHA256 verification |
@@ -117,7 +117,7 @@ dotnet run
 
 The app minimizes to the system tray on launch; right-click the tray icon to open settings.
 
-Single-click the tray icon to show or hide Quick Lookup, then enter a word or phrase and press `Enter`. Lookup uses the current OpenAI-compatible configuration and labels results as “AI definition · model name.” The query is sent to the configured provider; the five recent items are process-local and cleared on exit. Use “Restore latest translation” in the tray context menu for the previous select-to-translate result.
+Single-click the tray icon or press `Alt+W` (enable "Quick Lookup hotkey" in Settings first) to show or hide Quick Lookup, then enter a word or phrase and press `Enter`. Lookup uses the current OpenAI-compatible configuration and labels results as "AI definition · model name." The query is sent to the configured provider; the five recent items are process-local and cleared on exit. Use "Restore latest translation" in the tray context menu for the previous select-to-translate result.
 
 ---
 
@@ -166,11 +166,16 @@ QuickTranslate/
 │   ├── ContentTypeDetector.cs         # Smart content detection (Translation/Code/Term)
 │   ├── BrowserDetector.cs             # Browser window awareness
 │   ├── TerminalDetector.cs            # Terminal window awareness
-│   ├── AutoScrollController.cs        # Streaming auto-scroll (pause/resume on user action)
 │   ├── CopyShortcut.cs                # Copy shortcut helper
+│   ├── AutoScrollController.cs        # Streaming auto-scroll (pause/resume on user action)
 │   ├── LatestRequestCoordinator.cs    # latest-request-wins coordinator
 │   ├── LatestPresentationCoordinator.cs  # Presentation identity coordinator
-│   └── FloatingResultSessionCoordinator.cs  # Multi-mode session manager
+│   ├── FloatingResultSessionCoordinator.cs  # Multi-mode session manager
+│   ├── TrayClickCoordinator.cs        # Tray click coordinator (left/right/scroll actions)
+│   ├── WordLookupSessionCoordinator.cs # Lookup session race-condition guard
+│   ├── WordLookupTextFormatter.cs     # Lookup result text formatter
+│   ├── RecentLookupBuffer.cs          # Recent lookup buffer
+│   └── TtsPlaybackCoordinator.cs      # TTS playback coordinator (multi-owner, busy avoidance)
 │
 ├── Database/                          # Persistence
 │   ├── TranslationRecord.cs           # History model
@@ -188,14 +193,18 @@ QuickTranslate/
 │   ├── EdgeTtsService.cs              # Edge TTS read-aloud
 │   ├── EdgeTtsClient.cs               # Edge TTS WebSocket client
 │   ├── TtsTextSelector.cs             # TTS text selector
-│   └── TtsSpeakException.cs           # TTS exception class
+│   ├── TtsSpeakException.cs           # TTS exception class
+│   ├── IWordLookupService.cs          # Word lookup service interface
+│   ├── OpenAIWordLookupService.cs     # OpenAI-compatible word lookup
+│   └── WordLookupPromptBuilder.cs     # Word lookup prompt builder
 │
 ├── Models/                            # Data models
 │   ├── AppSettings.cs                 # Settings (multi-model / hotkeys / profiles / update)
 │   ├── TranslationRequest.cs          # Immutable request snapshot
 │   ├── FloatingResultSession.cs       # Multi-mode session state
 │   ├── AnalysisPromptProfile.cs       # Custom analysis profile
-│   └── TranslationTriggerMode.cs      # Translation trigger mode enum
+│   ├── TranslationTriggerMode.cs      # Translation trigger mode enum
+│   └── WordLookupModels.cs            # Word lookup result models (definition/phonetic/example/collocation)
 │
 ├── Helpers/                           # Utilities
 │   ├── ConfigManager.cs               # JSON config read/write + migration
@@ -210,14 +219,16 @@ QuickTranslate/
 ├── UI/                                # User interface
 │   ├── FloatingWindow.xaml/.cs        # Floating window (multi-mode/Markdown/TTS/pin)
 │   ├── RedDotWindow.xaml/.cs          # Red-dot guidance window
+│   ├── QuickLookupWindow.xaml/.cs     # Quick lookup window (structured definition/speech)
 │   ├── TrayIconManager.cs            # System tray (context menu / toast)
-│   ├── SettingsWindow.xaml/.cs       # Settings (models / profiles / update)
+│   ├── SettingsWindow.xaml/.cs       # Settings (models / hotkeys / profiles / update)
 │   ├── DownloadUpdateWindow.xaml/.cs  # Update download window
 │   ├── HistoryWindow.xaml/.cs        # Translation history
 │   ├── LogViewerWindow.xaml/.cs      # Log viewer
 │   ├── LogEntryReader.cs             # Log read & filter
 │   ├── FloatingWindowAnchor.cs        # Window anchor positioning
 │   ├── FloatingWindowPlacement.cs     # Window placement management
+│   ├── TrayPanelPlacement.cs          # Tray panel placement (multi-monitor DPI)
 │   └── FloatingStatusMessage.cs       # Status messages
 │
 ├── Assets/                            # App icon resources
@@ -273,9 +284,10 @@ See [docs/RELEASE.md](docs/RELEASE.md) for details.
 | Phase | Core work | Status |
 |:----:|:---------|:----:|
 | 1–12 | Skeleton, select-to-translate, tray, history, smart detection, semantic cache, multi-mode sessions, structured logs, TTS, auto update | done |
-| 13 | Follow-up analysis | planned |
-| 14 | Performance optimization | planned |
-| 15 | UI unification & internationalization | planned |
+| 13 | Quick lookup panel + independent global hotkey + tray click integration | done |
+| 14 | Follow-up analysis | planned |
+| 15 | Performance optimization | planned |
+| 16 | UI unification & internationalization | planned |
 
 ---
 

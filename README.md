@@ -95,11 +95,11 @@ SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支
 | 核心翻译 | SSE 流式逐字输出 · 拖拽/双击/三击划词 · 红点引导交互 · 悬浮窗即时展示 · 14 种语言支持 · 语言自动检测 |
 | 智能识别 | 自动区分 Translation / Code / Term，路由专用 Prompt · 置信度诊断 · 浏览器/终端场景感知 |
 | 多模式会话 | 同文本支持翻译 · 命令解析 · 术语解释 · 深度解析四种模式切换 · 已完成结果瞬时恢复 |
-| 快速查词 | 单击托盘打开紧凑查词面板 · 结构化 AI 释义/音标/例句/搭配 · 最近 5 项 · 朗读与复制 |
+| 快速查词 | 单击托盘/全局快捷键 Alt+W 打开紧凑查词面板 · 结构化 AI 释义/音标/例句/搭配 · 最近 5 项 · 朗读与复制 · 居中弹出/切换隐显 |
 | Markdown | 安全解析渲染 · 围栏代码块独立复制 · 表格/列表/引用 · 仅允许 http/https 链接 |
 | 语音朗读 | Edge TTS 在线合成 · 选中文本朗读 · 翻译结果一键朗读 · 自动语种匹配 |
 | 翻译历史 | SQLite 本地持久化 · 按时间/语言搜索筛选 · 分页浏览 · 双击复制 · Anki 格式导出 |
-| 系统集成 | 全局快捷键（自定义组合键） · 托盘单击快速查词 · 右键恢复最近翻译 · 开机自启 · 浏览器内触发 · 单实例保护 |
+| 系统集成 | 两套独立全局快捷键（划词翻译 / 快速查词）· 查词快捷键带开关默认关闭 · 托盘单击快速查词 · 右键恢复最近翻译 · 开机自启 · 浏览器内触发 · 单实例保护 |
 | 深度解析 | 4 种内置预设（通用/语言学习/文学赏析/商务） · 自定义方案新建/复制/编辑/删除 · 多轮方案管理 |
 | 性能优化 | LRU+TTL 语义缓存 · latest-request-wins 请求冲突防护 · 请求快照隔离 · 设置修改不影响运行中请求 |
 | 自动更新 | GitHub Release 分发 · 启动时静默检查 · 系统代理兼容 · Inno Setup 双版本安装包 · SHA256 校验 |
@@ -126,7 +126,7 @@ dotnet run
 
 启动后自动最小化到系统托盘，右键托盘图标即可开始配置。
 
-单击托盘图标可显示或隐藏快速查词面板；输入单词或短语后按 `Enter` 查询。查词复用当前 OpenAI 兼容配置，结果区会明确显示“AI 释义 · 模型名”。查询词会发送到所配置的 Provider；最近 5 项仅保存在当前进程，退出后清空。右键托盘菜单中的“恢复最近翻译”用于恢复最近一次划词翻译结果。
+单击托盘图标或按 `Alt+W`（需先在设置中开启"快速查词快捷键"）可显示或隐藏快速查词面板；输入单词或短语后按 `Enter` 查询。查词复用当前 OpenAI 兼容配置，结果区会明确显示"AI 释义 · 模型名"。查询词会发送到所配置的 Provider；最近 5 项仅保存在当前进程，退出后清空。右键托盘菜单中的"恢复最近翻译"用于恢复最近一次划词翻译结果。
 
 > 不想装 .NET SDK？可直接跳到 [下载安装](#下载安装) 下载免依赖安装包。
 
@@ -194,7 +194,12 @@ QuickTranslate/
 │   ├── AutoScrollController.cs        # 流式自动滚动（用户操作暂停/恢复）
 │   ├── LatestRequestCoordinator.cs    # latest-request-wins 请求协调
 │   ├── LatestPresentationCoordinator.cs  # 展示身份协调
-│   └── FloatingResultSessionCoordinator.cs  # 多模式会话统一管理
+│   ├── FloatingResultSessionCoordinator.cs  # 多模式会话统一管理
+│   ├── TrayClickCoordinator.cs        # 托盘点击协调（左键/右键/滚轮动作）
+│   ├── WordLookupSessionCoordinator.cs # 查词会话防竞态管理
+│   ├── WordLookupTextFormatter.cs     # 查词结果格式化
+│   ├── RecentLookupBuffer.cs          # 最近查词缓冲区
+│   └── TtsPlaybackCoordinator.cs      # TTS 播放协调（多所有者、忙避让）
 │
 ├── Database/                          # 持久化层
 │   ├── TranslationRecord.cs           # 翻译历史模型
@@ -212,14 +217,18 @@ QuickTranslate/
 │   ├── EdgeTtsService.cs              # Edge TTS 朗读服务
 │   ├── EdgeTtsClient.cs               # Edge TTS WebSocket 客户端
 │   ├── TtsTextSelector.cs             # TTS 文本选择器
-│   └── TtsSpeakException.cs           # TTS 异常类
+│   ├── TtsSpeakException.cs           # TTS 异常类
+│   ├── IWordLookupService.cs          # 查词服务接口
+│   ├── OpenAIWordLookupService.cs     # OpenAI 兼容查词服务
+│   └── WordLookupPromptBuilder.cs     # 查词 Prompt 构建器
 │
 ├── Models/                            # 数据模型
 │   ├── AppSettings.cs                 # 配置模型（多模型/快捷键/解析预设/更新设置）
 │   ├── TranslationRequest.cs          # 不可变请求快照
 │   ├── FloatingResultSession.cs       # 多模式会话状态
 │   ├── AnalysisPromptProfile.cs       # 自定义解析方案
-│   └── TranslationTriggerMode.cs      # 翻译触发模式枚举
+│   ├── TranslationTriggerMode.cs      # 翻译触发模式枚举
+│   └── WordLookupModels.cs            # 查词结果模型（释义/音标/例句/搭配）
 │
 ├── Helpers/                           # 工具类
 │   ├── ConfigManager.cs               # JSON 配置读写 + 旧配置迁移
@@ -234,14 +243,16 @@ QuickTranslate/
 ├── UI/                                # 用户界面
 │   ├── FloatingWindow.xaml/.cs        # 悬浮窗（多模式/Markdown/TTS/图钉）
 │   ├── RedDotWindow.xaml/.cs          # 红点引导窗口
+│   ├── QuickLookupWindow.xaml/.cs     # 快速查词窗口（结构化释义/朗读）
 │   ├── TrayIconManager.cs             # 系统托盘（右键菜单/气泡通知）
-│   ├── SettingsWindow.xaml/.cs        # 设置窗口（模型/解析方案/更新管理）
+│   ├── SettingsWindow.xaml/.cs        # 设置窗口（模型/快捷键/解析方案/更新管理）
 │   ├── DownloadUpdateWindow.xaml/.cs  # 更新下载窗口
 │   ├── HistoryWindow.xaml/.cs         # 翻译历史查看
 │   ├── LogViewerWindow.xaml/.cs       # 日志查看器
 │   ├── LogEntryReader.cs              # 日志读取与筛选
 │   ├── FloatingWindowAnchor.cs        # 窗口锚点定位
 │   ├── FloatingWindowPlacement.cs     # 窗口位置管理
+│   ├── TrayPanelPlacement.cs          # 托盘面板位置计算（多显示器 DPI）
 │   └── FloatingStatusMessage.cs       # 状态消息
 │
 ├── Assets/                            # 应用图标资源
@@ -308,9 +319,10 @@ myTool/
 | 十 | 四类 Prompt 行为契约 + 内置/自定义解析方案管理 + 日志隐私 | done |
 | 十一 | TTS 语音朗读 + Edge TTS 合成 + 自动语种匹配 | done |
 | 十二 | 自动更新 + GitHub Release 分发 + Inno Setup 双版本安装包 | done |
-| 十三 | 解析追问功能 | 规划中 |
-| 十四 | 性能优化 | 规划中 |
-| 十五 | UI 统一与国际化 | 规划中 |
+| 十三 | 快速查词面板 + 独立全局快捷键 + 托盘单击集成 | done |
+| 十四 | 解析追问功能 | 规划中 |
+| 十五 | 性能优化 | 规划中 |
+| 十六 | UI 统一与国际化 | 规划中 |
 
 ---
 
