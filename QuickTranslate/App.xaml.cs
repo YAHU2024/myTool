@@ -22,6 +22,9 @@ public partial class App : Application
     private SelectionDetector? _selectionDetector;
     private OpenAITranslationService? _translationService;
     private ITtsService? _ttsService;
+    private TtsPlaybackCoordinator? _ttsPlayback;
+    private OpenAIWordLookupService? _wordLookupService;
+    private QuickLookupWindow? _quickLookupWindow;
     private AppSettings? _settings;
     private FloatingWindow? _floatingWindow;
     private RedDotWindow? _redDotWindow;
@@ -34,6 +37,11 @@ public partial class App : Application
     private readonly FloatingResultSessionCoordinator _resultSessions = new();
     private readonly TranslationCacheService _translationCache = new();
     private readonly TranslationMetrics _translationMetrics = new();
+    private readonly WordLookupSessionCoordinator _lookupSessions = new();
+    private readonly RecentLookupBuffer _recentLookups = new();
+    private readonly TrayClickCoordinator _trayClicks = new();
+    private long _pendingTrayClickSequence;
+    private int _lookupVisible;
     private long _selectionGeneration;
     private CancellationTokenSource? _selectionCts;
     private ForegroundWindowInfo? _pendingSelection;
@@ -147,12 +155,29 @@ public partial class App : Application
         _floatingWindow.ScrollStateChanged += OnScrollStateChanged;
 
         _ttsService = new EdgeTtsService();
-        _floatingWindow.AttachTts(_ttsService);
+        _ttsPlayback = new TtsPlaybackCoordinator(_ttsService);
+        _floatingWindow.AttachTts(_ttsPlayback);
         _floatingWindow.ApplyTtsSettings(
             _settings.TtsEnabled,
             _settings.TtsVoice,
             _settings.TtsRate,
             _settings.TtsMaxChars);
+
+        _wordLookupService = new OpenAIWordLookupService(CreateWordLookupSettings(_settings));
+        _quickLookupWindow = new QuickLookupWindow(
+            _wordLookupService,
+            _lookupSessions,
+            _recentLookups,
+            _ttsPlayback,
+            _settings.TargetLanguage);
+        _quickLookupWindow.ApplySettings(
+            _settings.TargetLanguage,
+            _settings.TtsEnabled,
+            _settings.TtsVoice,
+            _settings.TtsRate,
+            _settings.TtsMaxChars);
+        _quickLookupWindow.DeactivationRequested += OnLookupDeactivated;
+        _quickLookupWindow.HideRequested += () => Volatile.Write(ref _lookupVisible, 0);
 
         // 初始化红点窗口（单例复用）
         _redDotWindow = new RedDotWindow();
@@ -181,6 +206,9 @@ public partial class App : Application
         _trayIcon = new TrayIconManager();
         _trayIcon.SettingsRequested += OnSettingsRequested;
         _trayIcon.RestoreRequested += OnRestoreRequested;
+        _trayIcon.LookupClickStarted += OnLookupClickStarted;
+        _trayIcon.LookupSingleClickConfirmed += OnLookupSingleClickConfirmed;
+        _trayIcon.LookupDoubleClick += OnLookupDoubleClick;
         _trayIcon.HistoryRequested += OnHistoryRequested;
         _trayIcon.LogsRequested += OnLogsRequested;
         _trayIcon.UpdateRequested += OnUpdateRequested;
@@ -189,6 +217,7 @@ public partial class App : Application
         _trayIcon.ExitRequested += OnExitRequested;
 
         _trayIcon.SetPaused(TranslationTriggerModes.IsPaused(_settings.TranslationTriggerMode));
+        _trayIcon.SetRestoreAvailable(false);
 
         // 根据配置更新托盘提示
         UpdateTrayToolTip();
@@ -735,6 +764,8 @@ public partial class App : Application
             session.SessionId,
             session.ActiveMode,
             session.ModeStates[session.ActiveMode]);
+        _trayIcon?.SetRestoreAvailable(
+            session.ModeStates.Values.Any(state => state.Status == ModeResultStatus.Completed));
     }
 
     private async Task ShowMessageWithoutReplacingSessionAsync(
@@ -889,14 +920,24 @@ public partial class App : Application
         _translationCache.Clear();
         _settings = settings;
         _translationService?.UpdateSettings(settings);
+        _wordLookupService?.UpdateSettings(CreateWordLookupSettings(settings));
         Logger.Configure(
             Logger.ParseLevel(settings.LogLevel),
             settings.LogRetentionDays,
             settings.LogMaxTotalBytes);
 
         if (!settings.TtsEnabled)
-            _ = _ttsService?.StopAsync();
+        {
+            _ = _ttsPlayback?.StopAsync(TtsPlaybackOwner.FloatingResult);
+            _ = _ttsPlayback?.StopAsync(TtsPlaybackOwner.QuickLookup);
+        }
         _floatingWindow?.ApplyTtsSettings(
+            settings.TtsEnabled,
+            settings.TtsVoice,
+            settings.TtsRate,
+            settings.TtsMaxChars);
+        _quickLookupWindow?.ApplySettings(
+            settings.TargetLanguage,
             settings.TtsEnabled,
             settings.TtsVoice,
             settings.TtsRate,
@@ -1026,6 +1067,92 @@ public partial class App : Application
 
             _floatingWindow.ShowExistingResult();
         });
+    }
+
+    private static WordLookupProviderSettings CreateWordLookupSettings(AppSettings settings) => new(
+        settings.ApiBaseUrl,
+        settings.ApiKey,
+        settings.ModelName,
+        settings.TargetLanguage);
+
+    private void OnLookupClickStarted(PhysicalPoint anchor)
+    {
+        var snapshot = _trayClicks.RecordLeftButtonDown(
+            Volatile.Read(ref _lookupVisible) == 1,
+            anchor);
+        Interlocked.Exchange(ref _pendingTrayClickSequence, snapshot.Sequence);
+    }
+
+    private void OnLookupSingleClickConfirmed()
+    {
+        Dispatcher.BeginInvoke(() => ApplyTrayClickAction(
+            _trayClicks.ConfirmSingleClick(Interlocked.Read(ref _pendingTrayClickSequence))));
+    }
+
+    private void OnLookupDoubleClick()
+    {
+        Dispatcher.BeginInvoke(() => ApplyTrayClickAction(_trayClicks.RecordDoubleClick()));
+    }
+
+    private void OnLookupDeactivated()
+    {
+        ApplyTrayClickAction(_trayClicks.RecordDeactivated());
+    }
+
+    private void ApplyTrayClickAction(TrayClickAction action)
+    {
+        switch (action.Kind)
+        {
+            case TrayClickActionKind.ShowLookup when action.Snapshot is not null:
+                ShowQuickLookup(action.Snapshot.Anchor);
+                break;
+            case TrayClickActionKind.HideLookup:
+            case TrayClickActionKind.HideForDeactivation:
+                _quickLookupWindow?.HidePanel();
+                break;
+            case TrayClickActionKind.OpenSettings:
+                _quickLookupWindow?.HidePanel();
+                OnSettingsRequested();
+                break;
+        }
+    }
+
+    private void ShowQuickLookup(PhysicalPoint anchor)
+    {
+        if (_quickLookupWindow is null)
+            return;
+
+        var physicalAnchor = new Point(anchor.X, anchor.Y);
+        var work = Win32Api.GetPhysicalWorkAreaAtPoint(physicalAnchor);
+        if (work.IsEmpty)
+            return;
+        var scale = DpiHelper.GetScaleForPhysicalPoint(physicalAnchor);
+        var size = new PhysicalSize(
+            (int)Math.Round(_quickLookupWindow.Width * scale.X),
+            (int)Math.Round(_quickLookupWindow.Height * scale.Y));
+        var rect = TrayPanelPlacement.Calculate(
+            new PhysicalRect(
+                (int)work.Left,
+                (int)work.Top,
+                (int)work.Width,
+                (int)work.Height),
+            anchor,
+            size,
+            scale.X * 96,
+            scale.Y * 96);
+
+        _quickLookupWindow.PrepareForShow();
+        Volatile.Write(ref _lookupVisible, 1);
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(_quickLookupWindow).Handle;
+        Win32Api.SetWindowPos(
+            hwnd,
+            IntPtr.Zero,
+            rect.Left,
+            rect.Top,
+            rect.Width,
+            rect.Height,
+            0x0004);
+        _quickLookupWindow.Activate();
     }
 
     /// <summary>
@@ -1172,6 +1299,7 @@ public partial class App : Application
             $"thread_id={threadId} has_tts={hasTts}");
 
         CancelActiveTranslationRequest();
+        _lookupSessions.CancelCurrent();
         Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
         _selectionCts?.Dispose();
@@ -1185,9 +1313,18 @@ public partial class App : Application
         catch { /* best-effort */ }
         _trayIcon = null;
 
+        _quickLookupWindow?.CloseForExit();
+        _quickLookupWindow = null;
+        _wordLookupService?.Dispose();
+        _wordLookupService = null;
+        _lookupSessions.Dispose();
+        _trayClicks.Dispose();
+
         // 清理资源
         // NOTE: This runs on the WPF UI thread. EdgeTtsService must not post+wait
         // on the same dispatcher here (CheckAccess inline path), or exit deadlocks.
+        _ttsPlayback?.Dispose();
+        _ttsPlayback = null;
         if (_ttsService is not null)
         {
             var disposeWatch = Stopwatch.StartNew();
