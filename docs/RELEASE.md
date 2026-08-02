@@ -585,6 +585,27 @@ ISCC installer\QuickTranslate-setup.iss
 ISCC installer\QuickTranslate-setup.iss /DFullVersion
 ```
 
+### ISCC 编译报错需要 .NET 6 运行时怎么办？
+
+如果 Inno Setup 通过 `dotnet-innosetup` 全局工具安装（而非独立安装），它依赖 .NET 6 运行时。当系统只安装了 .NET 8 时，ISCC 会报错：
+
+```
+You must install or update .NET to run this application.
+Framework: 'Microsoft.NETCore.App', version '6.0.0'
+```
+
+**临时方案**：设置 `DOTNET_ROLL_FORWARD` 环境变量，允许 .NET 8 向前兼容运行：
+
+```powershell
+$env:DOTNET_ROLL_FORWARD = "LatestMajor"
+ISCC installer\QuickTranslate-setup.iss
+ISCC installer\QuickTranslate-setup-full.iss
+```
+
+**永久方案**：安装独立的 Inno Setup 6（非 dotnet 工具版），下载地址：https://jrsoftware.org/download.php/is.exe
+
+> 检查当前安装方式：`dotnet tool list --global`，若存在 `dotnet-innosetup` 则为全局工具安装。
+
 ### 签名失败怎么办？
 
 检查以下项目：
