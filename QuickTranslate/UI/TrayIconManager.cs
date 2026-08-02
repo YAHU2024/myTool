@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Windows;
 using System.Windows.Forms;
+using QuickTranslate.Core;
 
 namespace QuickTranslate.UI
 {
@@ -14,6 +15,7 @@ namespace QuickTranslate.UI
         private readonly ContextMenuStrip _contextMenu;
         private readonly System.Windows.Forms.Timer _singleClickTimer;
         private readonly ToolStripMenuItem _pauseResumeItem;
+        private readonly ToolStripMenuItem _restoreItem;
         private bool _isPaused;
         private bool _disposed;
 
@@ -23,6 +25,12 @@ namespace QuickTranslate.UI
         public event Action? SettingsRequested;
 
         public event Action? RestoreRequested;
+
+        public event Action<PhysicalPoint>? LookupClickStarted;
+
+        public event Action? LookupSingleClickConfirmed;
+
+        public event Action? LookupDoubleClick;
 
         /// <summary>
         /// 用户点击"翻译历史"
@@ -57,7 +65,7 @@ namespace QuickTranslate.UI
             _singleClickTimer.Tick += (_, _) =>
             {
                 _singleClickTimer.Stop();
-                RestoreRequested?.Invoke();
+                LookupSingleClickConfirmed?.Invoke();
             };
 
             // 创建右键菜单
@@ -81,10 +89,14 @@ namespace QuickTranslate.UI
             var updateItem = new ToolStripMenuItem("检查更新");
             updateItem.Click += (s, e) => UpdateRequested?.Invoke();
 
+            _restoreItem = new ToolStripMenuItem("恢复最近翻译") { Enabled = false };
+            _restoreItem.Click += (s, e) => RestoreRequested?.Invoke();
+
             var exitItem = new ToolStripMenuItem("退出");
             exitItem.Click += (s, e) => ExitRequested?.Invoke();
 
             _contextMenu.Items.Add(settingsItem);
+            _contextMenu.Items.Add(_restoreItem);
             _contextMenu.Items.Add(historyItem);
             _contextMenu.Items.Add(logsItem);
             _contextMenu.Items.Add(updateItem);
@@ -102,20 +114,25 @@ namespace QuickTranslate.UI
                 Visible = true
             };
 
-            _notifyIcon.MouseClick += (_, e) =>
+            _notifyIcon.MouseDown += (_, e) =>
             {
                 if (e.Button == MouseButtons.Left)
-                {
-                    _singleClickTimer.Stop();
-                    _singleClickTimer.Start();
-                }
+                    LookupClickStarted?.Invoke(new PhysicalPoint(Cursor.Position.X, Cursor.Position.Y));
+            };
+
+            _notifyIcon.MouseClick += (_, e) =>
+            {
+                if (e.Button != MouseButtons.Left)
+                    return;
+                _singleClickTimer.Stop();
+                _singleClickTimer.Start();
             };
 
             // 双击托盘图标打开设置
             _notifyIcon.DoubleClick += (s, e) =>
             {
                 _singleClickTimer.Stop();
-                SettingsRequested?.Invoke();
+                LookupDoubleClick?.Invoke();
             };
 
             _notifyIcon.BalloonTipClicked += (_, _) => BalloonTipClicked?.Invoke();
@@ -186,6 +203,13 @@ namespace QuickTranslate.UI
         public void SetPaused(bool isPaused)
         {
             SetPaused(isPaused, raiseEvent: false);
+        }
+
+        public void SetRestoreAvailable(bool available)
+        {
+            if (_disposed)
+                return;
+            _restoreItem.Enabled = available;
         }
 
         private void SetPaused(bool isPaused, bool raiseEvent)

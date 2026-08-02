@@ -24,6 +24,7 @@ namespace QuickTranslate.UI
 
         // 快捷键录入状态
         private bool _isCapturingHotKey = false;
+        private bool _isCapturingQuickLookupHotKey = false;
 
         public SettingsWindow(AppSettings settings, Action<AppSettings>? onSettingsSaved = null)
         {
@@ -81,6 +82,10 @@ namespace QuickTranslate.UI
 
             // 快捷键显示
             UpdateHotKeyDisplay();
+            UpdateQuickLookupHotKeyDisplay();
+
+            // 快速查词快捷键开关
+            QuickLookupHotKeyEnabledCheckBox.IsChecked = _settings.QuickLookupHotKeyEnabled;
 
             // 浏览器翻译开关
             EnableInBrowserCheckBox.IsChecked = _settings.EnableInBrowser;
@@ -154,8 +159,41 @@ namespace QuickTranslate.UI
             return vk switch
             {
                 0x51 => "Q",
+                0x57 => "W",
+                0x45 => "E",
+                0x52 => "R",
+                0x54 => "T",
+                0x59 => "Y",
+                0x55 => "U",
+                0x49 => "I",
+                0x4F => "O",
+                0x50 => "P",
                 0x41 => "A",
+                0x53 => "S",
+                0x44 => "D",
+                0x46 => "F",
+                0x47 => "G",
+                0x48 => "H",
+                0x4A => "J",
+                0x4B => "K",
+                0x4C => "L",
                 0x5A => "Z",
+                0x58 => "X",
+                0x43 => "C",
+                0x56 => "V",
+                0x42 => "B",
+                0x4E => "N",
+                0x4D => "M",
+                0x30 => "0",
+                0x31 => "1",
+                0x32 => "2",
+                0x33 => "3",
+                0x34 => "4",
+                0x35 => "5",
+                0x36 => "6",
+                0x37 => "7",
+                0x38 => "8",
+                0x39 => "9",
                 0x20 => "Space",
                 _ => $"VK_{vk:X2}"
             };
@@ -441,6 +479,15 @@ namespace QuickTranslate.UI
         }
 
         /// <summary>
+        /// 快速查词快捷键开关变更
+        /// </summary>
+        private void QuickLookupHotKeyEnabled_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_isInitializing) return;
+            _isDirty = true;
+        }
+
+        /// <summary>
         /// 输入框失去焦点 - 标记为已修改
         /// </summary>
         private void Input_LostFocus(object sender, RoutedEventArgs e)
@@ -596,6 +643,8 @@ namespace QuickTranslate.UI
             }
 
             _settings.CheckForUpdateOnStartup = CheckUpdateOnStartupCheckBox.IsChecked ?? true;
+
+            _settings.QuickLookupHotKeyEnabled = QuickLookupHotKeyEnabledCheckBox.IsChecked ?? false;
 
             // 保存到已保存配置列表
             if (!string.IsNullOrWhiteSpace(model))
@@ -770,6 +819,9 @@ namespace QuickTranslate.UI
         /// </summary>
         private void ChangeHotKeyButton_Click(object sender, RoutedEventArgs e)
         {
+            if (_isCapturingQuickLookupHotKey)
+                return; // 快速查词快捷键正在录入，忽略
+
             if (_isCapturingHotKey)
             {
                 // 取消录入
@@ -841,6 +893,96 @@ namespace QuickTranslate.UI
                 System.Windows.Media.Color.FromRgb(0xE0, 0xE0, 0xE0)); // 白色
 
             this.PreviewKeyDown -= HotKeyCapture_KeyDown;
+        }
+
+        // ==================== 快速查词快捷键录入 ====================
+
+        /// <summary>
+        /// 更新快速查词快捷键显示文本
+        /// </summary>
+        private void UpdateQuickLookupHotKeyDisplay()
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            if (_settings.QuickLookupHotKeyRequireCtrl) parts.Add("Ctrl");
+            if (_settings.QuickLookupHotKeyRequireAlt) parts.Add("Alt");
+            if (_settings.QuickLookupHotKeyRequireShift) parts.Add("Shift");
+            parts.Add(GetKeyName(_settings.QuickLookupHotKeyVK));
+            QuickLookupHotKeyDisplayText.Text = string.Join("+", parts);
+        }
+
+        /// <summary>
+        /// 快速查词快捷键修改按钮
+        /// </summary>
+        private void ChangeQuickLookupHotKeyButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isCapturingHotKey)
+                return; // 划词翻译快捷键正在录入，忽略
+
+            if (_isCapturingQuickLookupHotKey)
+            {
+                StopQuickLookupHotKeyCapture();
+                return;
+            }
+
+            _isCapturingQuickLookupHotKey = true;
+            ChangeQuickLookupHotKeyButton.Content = "取消";
+            QuickLookupHotKeyCaptureHint.Visibility = Visibility.Visible;
+            QuickLookupHotKeyDisplayText.Foreground = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0xFF, 0xA5, 0x00));
+
+            this.PreviewKeyDown += QuickLookupHotKey_KeyDown;
+        }
+
+        /// <summary>
+        /// 快速查词快捷键录入键盘事件
+        /// </summary>
+        private void QuickLookupHotKey_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (!_isCapturingQuickLookupHotKey) return;
+
+            // 忽略单独的修饰键
+            if (e.Key == System.Windows.Input.Key.LeftCtrl || e.Key == System.Windows.Input.Key.RightCtrl ||
+                e.Key == System.Windows.Input.Key.LeftAlt || e.Key == System.Windows.Input.Key.RightAlt ||
+                e.Key == System.Windows.Input.Key.LeftShift || e.Key == System.Windows.Input.Key.RightShift)
+            {
+                return;
+            }
+
+            var vk = (byte)System.Windows.Input.KeyInterop.VirtualKeyFromKey(e.Key);
+            var requireAlt = System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Alt);
+            var requireCtrl = System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Control);
+            var requireShift = System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Shift);
+
+            if (!requireAlt && !requireCtrl && !requireShift)
+            {
+                MessageBox.Show("快捷键必须包含 Ctrl、Alt 或 Shift 中的至少一个修饰键", "快捷键设置", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            _settings.QuickLookupHotKeyVK = vk;
+            _settings.QuickLookupHotKeyRequireAlt = requireAlt;
+            _settings.QuickLookupHotKeyRequireCtrl = requireCtrl;
+            _settings.QuickLookupHotKeyRequireShift = requireShift;
+
+            UpdateQuickLookupHotKeyDisplay();
+            StopQuickLookupHotKeyCapture();
+            _isDirty = true;
+
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// 停止快速查词快捷键录入
+        /// </summary>
+        private void StopQuickLookupHotKeyCapture()
+        {
+            _isCapturingQuickLookupHotKey = false;
+            ChangeQuickLookupHotKeyButton.Content = "修改";
+            QuickLookupHotKeyCaptureHint.Visibility = Visibility.Collapsed;
+            QuickLookupHotKeyDisplayText.Foreground = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0xE0, 0xE0, 0xE0));
+
+            this.PreviewKeyDown -= QuickLookupHotKey_KeyDown;
         }
 
         private async void CheckUpdateButton_Click(object sender, RoutedEventArgs e)

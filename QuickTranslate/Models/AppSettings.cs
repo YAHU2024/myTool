@@ -134,6 +134,33 @@ namespace QuickTranslate.Models
         /// </summary>
         public bool HotKeyRequireShift { get; set; } = false;
 
+        // ==================== 快速查词窗口热键 ====================
+
+        /// <summary>
+        /// 快速查词窗口快捷键虚拟键码（默认 W = 0x57）
+        /// </summary>
+        public byte QuickLookupHotKeyVK { get; set; } = 0x57;
+
+        /// <summary>
+        /// 快速查词窗口快捷键是否需要 Alt 修饰键
+        /// </summary>
+        public bool QuickLookupHotKeyRequireAlt { get; set; } = true;
+
+        /// <summary>
+        /// 快速查词窗口快捷键是否需要 Ctrl 修饰键
+        /// </summary>
+        public bool QuickLookupHotKeyRequireCtrl { get; set; } = false;
+
+        /// <summary>
+        /// 快速查词窗口快捷键是否需要 Shift 修饰键
+        /// </summary>
+        public bool QuickLookupHotKeyRequireShift { get; set; } = false;
+
+        /// <summary>
+        /// 是否启用快速查词全局快捷键（默认关闭，需用户主动开启）
+        /// </summary>
+        public bool QuickLookupHotKeyEnabled { get; set; } = false;
+
         /// <summary>
         /// 是否启用语言自动检测（根据源语言自动决定翻译方向）
         /// </summary>

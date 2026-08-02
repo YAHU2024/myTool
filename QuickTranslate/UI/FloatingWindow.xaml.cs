@@ -52,7 +52,7 @@ public partial class FloatingWindow : Window
     private const int ResizeBorderPhysical = 8;
     private string _rawText = string.Empty;
     private ModeResultStatus _modeStatus = ModeResultStatus.NotStarted;
-    private ITtsService? _tts;
+    private TtsPlaybackCoordinator? _tts;
     private bool _ttsEnabled = true;
     private string _ttsVoice = string.Empty;
     private double _ttsRate = 1.0;
@@ -125,13 +125,13 @@ public partial class FloatingWindow : Window
 
     internal FloatingWindowAnchor CurrentAnchor => _anchor;
 
-    internal void AttachTts(ITtsService tts)
+    internal void AttachTts(TtsPlaybackCoordinator tts)
     {
         if (_tts is not null)
             _tts.StateChanged -= OnTtsStateChanged;
         _tts = tts;
         _tts.StateChanged += OnTtsStateChanged;
-        _isTtsBusy = _tts.IsBusy;
+        _isTtsBusy = _tts.IsBusy(TtsPlaybackOwner.FloatingResult);
         RefreshSpeakButton();
     }
 
@@ -144,12 +144,12 @@ public partial class FloatingWindow : Window
         RefreshSpeakButton();
     }
 
-    private void OnTtsStateChanged()
+    private void OnTtsStateChanged(TtsPlaybackState state)
     {
-        var busy = _tts?.IsBusy == true;
+        var busy = state.IsBusy && state.Owner == TtsPlaybackOwner.FloatingResult;
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.BeginInvoke(OnTtsStateChanged);
+            Dispatcher.BeginInvoke(() => OnTtsStateChanged(state));
             return;
         }
 
@@ -484,7 +484,7 @@ public partial class FloatingWindow : Window
         if (_tts is null)
             return;
 
-        if (_tts.IsBusy || _isTtsBusy)
+        if (_tts.IsBusy(TtsPlaybackOwner.FloatingResult) || _isTtsBusy)
         {
             await StopTtsAsync().ConfigureAwait(true);
             return;
@@ -518,14 +518,14 @@ public partial class FloatingWindow : Window
         {
             var voiceOverride = string.IsNullOrWhiteSpace(_ttsVoice) ? null : _ttsVoice;
             await _tts.SpeakAsync(
+                TtsPlaybackOwner.FloatingResult,
                 speechText,
                 languageHint: null,
                 voiceOverride,
                 _ttsRate,
                 CancellationToken.None).ConfigureAwait(true);
 
-            if (_tts is EdgeTtsService edgeTts)
-                successHint = edgeTts.TakeLastUiHint();
+            successHint = _tts.TakeLastUiHint();
         }
         catch (OperationCanceledException)
         {
@@ -554,7 +554,7 @@ public partial class FloatingWindow : Window
     {
         if (_tts is null)
             return Task.CompletedTask;
-        return _tts.StopAsync();
+        return _tts.StopAsync(TtsPlaybackOwner.FloatingResult);
     }
 
     private void RefreshSpeakButton()
@@ -562,7 +562,7 @@ public partial class FloatingWindow : Window
         if (SpeakButton is null)
             return;
 
-        var busy = _tts?.IsBusy == true || _isTtsBusy;
+        var busy = _tts?.IsBusy(TtsPlaybackOwner.FloatingResult) == true || _isTtsBusy;
         _isTtsBusy = busy;
         var canSpeak = TtsTextSelector.CanSpeak(_modeStatus, _rawText, _ttsEnabled);
 
