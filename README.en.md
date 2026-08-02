@@ -117,7 +117,7 @@ dotnet run
 
 The app minimizes to the system tray on launch; right-click the tray icon to open settings.
 
-Single-click the tray icon or press `Alt+W` (enable "Quick Lookup hotkey" in Settings first) to show or hide Quick Lookup, then enter a word or phrase and press `Enter`. Lookup uses the current OpenAI-compatible configuration and labels results as "AI definition · model name." The query is sent to the configured provider; the five recent items are process-local and cleared on exit. Use "Restore latest translation" in the tray context menu for the previous select-to-translate result.
+Single-click the tray icon or press `Alt+W` (enable "Quick Lookup hotkey" in Settings first) to show or hide Quick Lookup, then enter a word or phrase and press `Enter`. Lookup prefers the local dictionary at `Data\word-dictionary.db` (ECDICT + OEWN); hits are labeled "Local dictionary · ECDICT + OEWN" and the query stays local. If there is no local hit or no bundled database, it falls back to the current OpenAI-compatible configuration and labels results as "AI definition · model name." The five recent items are process-local and cleared on exit. Use "Restore latest translation" in the tray context menu for the previous select-to-translate result.
 
 ---
 
@@ -133,7 +133,7 @@ Right-click the tray icon and open the settings window:
 
 The model dropdown groups saved configurations by domain and auto-fills URL and Key on selection.
 
-Quick Lookup shares the translation Base URL, API Key, and Model settings. AI-generated definitions are learning aids rather than authoritative dictionary data, and uncertain optional fields such as phonetics may be omitted.
+Quick Lookup shares the translation Base URL, API Key, and Model settings. Local dictionary hits do not require an API key or network; only local misses send the query to the configured provider. AI-generated definitions are learning aids rather than authoritative dictionary data, and uncertain optional fields such as phonetics may be omitted.
 
 <details>
 <summary>One-click provider reference (expand)</summary>
@@ -196,6 +196,8 @@ QuickTranslate/
 │   ├── TtsSpeakException.cs           # TTS exception class
 │   ├── IWordLookupService.cs          # Word lookup service interface
 │   ├── OpenAIWordLookupService.cs     # OpenAI-compatible word lookup
+│   ├── LocalDictionaryWordLookupService.cs # ECDICT + OEWN local lookup
+│   ├── CompositeWordLookupService.cs   # Local dictionary first, AI fallback
 │   └── WordLookupPromptBuilder.cs     # Word lookup prompt builder
 │
 ├── Models/                            # Data models

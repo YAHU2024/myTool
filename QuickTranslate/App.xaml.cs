@@ -24,7 +24,9 @@ public partial class App : Application
     private OpenAITranslationService? _translationService;
     private ITtsService? _ttsService;
     private TtsPlaybackCoordinator? _ttsPlayback;
-    private OpenAIWordLookupService? _wordLookupService;
+    private IWordLookupService? _wordLookupService;
+    private OpenAIWordLookupService? _openAiWordLookupService;
+    private LocalDictionaryWordLookupService? _localWordLookupService;
     private QuickLookupWindow? _quickLookupWindow;
     private AppSettings? _settings;
     private FloatingWindow? _floatingWindow;
@@ -164,7 +166,11 @@ public partial class App : Application
             _settings.TtsRate,
             _settings.TtsMaxChars);
 
-        _wordLookupService = new OpenAIWordLookupService(CreateWordLookupSettings(_settings));
+        _openAiWordLookupService = new OpenAIWordLookupService(CreateWordLookupSettings(_settings));
+        _localWordLookupService = TryCreateLocalDictionaryWordLookupService();
+        _wordLookupService = _localWordLookupService is null
+            ? _openAiWordLookupService
+            : new CompositeWordLookupService(_localWordLookupService, _openAiWordLookupService);
         _quickLookupWindow = new QuickLookupWindow(
             _wordLookupService,
             _lookupSessions,
@@ -983,7 +989,7 @@ public partial class App : Application
         _translationCache.Clear();
         _settings = settings;
         _translationService?.UpdateSettings(settings);
-        _wordLookupService?.UpdateSettings(CreateWordLookupSettings(settings));
+        _openAiWordLookupService?.UpdateSettings(CreateWordLookupSettings(settings));
         Logger.Configure(
             Logger.ParseLevel(settings.LogLevel),
             settings.LogRetentionDays,
@@ -1138,6 +1144,24 @@ public partial class App : Application
         settings.ApiKey,
         settings.ModelName,
         settings.TargetLanguage);
+
+    private LocalDictionaryWordLookupService? TryCreateLocalDictionaryWordLookupService()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "Data", "word-dictionary.db"),
+            Path.Combine(AppContext.BaseDirectory, "word-dictionary.db")
+        };
+        var path = candidates.FirstOrDefault(File.Exists);
+        if (path is null)
+        {
+            Logger.Info("App", "word_lookup.local_dictionary_disabled", new { });
+            return null;
+        }
+
+        Logger.Info("App", "word_lookup.local_dictionary_enabled", new { });
+        return new LocalDictionaryWordLookupService(path);
+    }
 
     private void OnLookupClickStarted(PhysicalPoint anchor)
     {
@@ -1399,7 +1423,9 @@ public partial class App : Application
 
         _quickLookupWindow?.CloseForExit();
         _quickLookupWindow = null;
-        _wordLookupService?.Dispose();
+        _openAiWordLookupService?.Dispose();
+        _openAiWordLookupService = null;
+        _localWordLookupService = null;
         _wordLookupService = null;
         _lookupSessions.Dispose();
         _trayClicks.Dispose();

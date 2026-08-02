@@ -126,7 +126,7 @@ dotnet run
 
 启动后自动最小化到系统托盘，右键托盘图标即可开始配置。
 
-单击托盘图标或按 `Alt+W`（需先在设置中开启"快速查词快捷键"）可显示或隐藏快速查词面板；输入单词或短语后按 `Enter` 查询。查词复用当前 OpenAI 兼容配置，结果区会明确显示"AI 释义 · 模型名"。查询词会发送到所配置的 Provider；最近 5 项仅保存在当前进程，退出后清空。右键托盘菜单中的"恢复最近翻译"用于恢复最近一次划词翻译结果。
+单击托盘图标或按 `Alt+W`（需先在设置中开启"快速查词快捷键"）可显示或隐藏快速查词面板；输入单词或短语后按 `Enter` 查询。查词优先使用程序目录下 `Data\word-dictionary.db` 中的本地词典（ECDICT + OEWN），命中时显示"本地词典 · ECDICT + OEWN"，不会发送查询词；未命中或未安装本地词典时，回退到当前 OpenAI 兼容配置并显示"AI 释义 · 模型名"。最近 5 项仅保存在当前进程，退出后清空。右键托盘菜单中的"恢复最近翻译"用于恢复最近一次划词翻译结果。
 
 > 不想装 .NET SDK？可直接跳到 [下载安装](#下载安装) 下载免依赖安装包。
 
@@ -157,7 +157,7 @@ dotnet run
 
 模型下拉框按域名分组展示已保存配置，选中自动填充 URL 和 Key。
 
-快速查词与翻译使用同一组 Base URL、API Key 和 Model 配置。AI 生成的释义用于辅助理解，不代表权威词典数据；音标等不确定字段可能省略。
+快速查词与翻译使用同一组 Base URL、API Key 和 Model 配置。本地词典命中时不需要 API Key 或网络；只有本地未命中时查询词才会发送到所配置的 Provider。AI 生成的释义用于辅助理解，不代表权威词典数据；音标等不确定字段可能省略。
 
 <details>
 <summary>一键配置参考（点击展开）</summary>
@@ -220,6 +220,8 @@ QuickTranslate/
 │   ├── TtsSpeakException.cs           # TTS 异常类
 │   ├── IWordLookupService.cs          # 查词服务接口
 │   ├── OpenAIWordLookupService.cs     # OpenAI 兼容查词服务
+│   ├── LocalDictionaryWordLookupService.cs # ECDICT + OEWN 本地查词
+│   ├── CompositeWordLookupService.cs   # 本地词典优先，AI 兜底
 │   └── WordLookupPromptBuilder.cs     # 查词 Prompt 构建器
 │
 ├── Models/                            # 数据模型
