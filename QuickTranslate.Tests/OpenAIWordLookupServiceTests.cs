@@ -35,12 +35,14 @@ public sealed class OpenAIWordLookupServiceTests
     [InlineData("n.", "名词")]
     [InlineData("adjective", "形容词")]
     [InlineData("adv.", "副词")]
+    [InlineData("r", "副词")]
+    [InlineData("vt.", "动词")]
     [InlineData("phrasal verb", "短语动词")]
     [InlineData("副词", "副词")]
     [InlineData("unexpected-provider-label", "其他")]
-    public void NormalizePartOfSpeech_ReturnsChineseLabel(string input, string expected)
+    public void PartOfSpeechNormalizer_ReturnsChineseLabel(string input, string expected)
     {
-        Assert.Equal(expected, OpenAIWordLookupService.NormalizePartOfSpeech(input));
+        Assert.Equal(expected, WordPartOfSpeechNormalizer.ToDisplayLabel(input));
     }
 
     [Fact]
@@ -160,6 +162,47 @@ public sealed class OpenAIWordLookupServiceTests
         Assert.Equal(0, handler.CallCount);
     }
 
+    [Fact]
+    public async Task EnrichAsync_TranslatesMissingFields_AndPreservesLocalEnglish()
+    {
+        var enrichment = """
+            {"senses":[{"index":0,"definition":"快速移动"}],"examples":[{"index":0,"translation":"他们每天跑步。"}]}
+            """;
+        var handler = new RecordingHandler(_ => JsonResponse(CompletionEnvelope(enrichment)));
+        using var service = CreateService(handler);
+        var local = LocalResult();
+
+        var result = await service.EnrichAsync(
+            new WordLookupRequest("run", "简体中文"),
+            local,
+            CancellationToken.None);
+
+        Assert.Equal("快速移动", result.Senses[0].Definition);
+        Assert.Equal("move quickly", result.Senses[0].EnglishDefinition);
+        Assert.Equal("They run daily.", result.Examples[0].Sentence);
+        Assert.Equal("他们每天跑步。", result.Examples[0].Translation);
+        Assert.Equal(WordLookupSourceKind.Hybrid, result.Source.Kind);
+        Assert.Contains("AI 补全", result.Source.DisplayName);
+        Assert.Contains("They run daily.", handler.UserContent);
+        Assert.DoesNotContain("快速移动", handler.UserContent);
+        using var payload = JsonDocument.Parse(handler.UserContent!);
+        Assert.False(payload.RootElement.TryGetProperty("headword", out _));
+        Assert.True(payload.RootElement.TryGetProperty("senses", out _));
+        Assert.True(payload.RootElement.TryGetProperty("examples", out _));
+    }
+
+    [Fact]
+    public void ApplyEnrichment_RejectsPartialResponse()
+    {
+        var local = LocalResult();
+
+        Assert.Throws<WordLookupFormatException>(() =>
+            OpenAIWordLookupService.ApplyEnrichment(
+                "{\"senses\":[{\"index\":0,\"definition\":\"快速移动\"}],\"examples\":[]}",
+                local,
+                "model-a"));
+    }
+
     private static OpenAIWordLookupService CreateService(HttpMessageHandler handler) => new(
         new WordLookupProviderSettings(
             "https://example.test/v1", "secret", "model-a", "简体中文"),
@@ -168,11 +211,27 @@ public sealed class OpenAIWordLookupServiceTests
     private static string FoundEnvelope(string headword)
     {
         var content = $"{{\"status\":\"found\",\"headword\":\"{headword}\",\"senses\":[{{\"definition\":\"释义\"}}]}}";
+        return CompletionEnvelope(content);
+    }
+
+    private static string CompletionEnvelope(string content)
+    {
         return JsonSerializer.Serialize(new
         {
             choices = new[] { new { message = new { content } } }
         });
     }
+
+    private static WordLookupResult LocalResult() => new(
+        "run",
+        Array.Empty<WordPronunciation>(),
+        [new WordSense("动词", string.Empty, "move quickly")],
+        [new WordExample("They run daily.", string.Empty)],
+        Array.Empty<string>(),
+        new WordLookupSource(
+            "ecdict-oewn-local",
+            "本地词典 · ECDICT + OEWN",
+            WordLookupSourceKind.Dictionary));
 
     private static HttpResponseMessage JsonResponse(string body) => new(HttpStatusCode.OK)
     {

@@ -28,5 +28,10 @@ public sealed class LocalDictionaryWordLookupServiceIntegrationTests
         Assert.Equal(WordLookupSourceKind.Dictionary, result.Source.Kind);
         Assert.NotEmpty(result.Pronunciations);
         Assert.NotEmpty(result.Senses);
+        Assert.DoesNotContain(result.Senses, sense =>
+            sense.PartOfSpeech is "noun" or "verb" or "adjective" or "adverb");
+        Assert.All(result.Senses.Where(sense => sense.Definition.Length > 0), sense =>
+            Assert.Contains(sense.Definition, character => character is >= '\u3400' and <= '\u9fff'));
+        Assert.All(result.Examples, example => Assert.Empty(example.Translation));
     }
 }

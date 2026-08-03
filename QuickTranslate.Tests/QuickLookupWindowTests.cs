@@ -23,6 +23,7 @@ public sealed class QuickLookupWindowTests
                 using var sessions = new WordLookupSessionCoordinator();
                 var window = new QuickLookupWindow(
                     new NoOpLookupService(),
+                    new NoOpEnrichmentService(),
                     sessions,
                     new RecentLookupBuffer(),
                     playback,
@@ -34,7 +35,11 @@ public sealed class QuickLookupWindowTests
                 Assert.Equal("查询", AutomationProperties.GetName(window.SubmitButton));
                 Assert.Equal("朗读词头", AutomationProperties.GetName(window.SpeakHeadwordButton));
                 Assert.Equal("复制查词结果", AutomationProperties.GetName(window.CopyButton));
+                Assert.Equal("AI 补全中文", AutomationProperties.GetName(window.EnrichButton));
                 Assert.Same(window.FindResource("Win11ScrollViewer"), window.ResultScroller.Style);
+                var scope = sessions.Begin("run");
+                Assert.True(sessions.TryComplete(scope, LocalResultWithMissingChinese()));
+                Assert.Equal(Visibility.Visible, window.EnrichButton.Visibility);
                 window.CloseForExit();
             }
             catch (Exception ex)
@@ -55,6 +60,14 @@ public sealed class QuickLookupWindowTests
             CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
+    private sealed class NoOpEnrichmentService : IWordLookupEnrichmentService
+    {
+        public Task<WordLookupResult> EnrichAsync(
+            WordLookupRequest request,
+            WordLookupResult localResult,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
     private sealed class NoOpTtsService : ITtsService
     {
         public bool IsBusy => false;
@@ -63,4 +76,15 @@ public sealed class QuickLookupWindowTests
         public Task StopAsync() => Task.CompletedTask;
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
+
+    private static WordLookupResult LocalResultWithMissingChinese() => new(
+        "run",
+        Array.Empty<WordPronunciation>(),
+        [new WordSense("动词", "跑", "move quickly")],
+        [new WordExample("They run daily.", string.Empty)],
+        Array.Empty<string>(),
+        new WordLookupSource(
+            "ecdict-oewn-local",
+            "本地词典 · ECDICT + OEWN",
+            WordLookupSourceKind.Dictionary));
 }

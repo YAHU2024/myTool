@@ -131,7 +131,9 @@
                                                 <Border.Style><Style TargetType="Border"><Style.Triggers><DataTrigger Binding="{Binding PartOfSpeech}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Border.Style>
                                                 <TextBlock Text="{Binding PartOfSpeech}" Foreground="#102B2A" FontWeight="SemiBold" FontSize="11"/>
                                             </Border>
-                                            <TextBlock Grid.Column="1" Text="{Binding Definition}" Foreground="{StaticResource Text}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Top"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Definition}" Foreground="{StaticResource Text}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Top">
+                                                <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><DataTrigger Binding="{Binding Definition}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                            </TextBlock>
                                         </Grid>
                                         <TextBlock Text="{Binding EnglishDefinition}" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
                                     </StackPanel>
@@ -143,9 +145,13 @@
                                     <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Accent}" BorderThickness="3,0,0,0" CornerRadius="3" Padding="11,9" Margin="0,0,0,12">
                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                             <StackPanel>
-                                                <TextBlock Text="例句" Foreground="{StaticResource Accent}" FontSize="11" FontWeight="SemiBold"/>
+                                                <TextBlock Foreground="{StaticResource Accent}" FontSize="11" FontWeight="SemiBold">
+                                                    <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="例句"/><Style.Triggers><DataTrigger Binding="{Binding Translation}" Value=""><Setter Property="Text" Value="英文例句"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                                </TextBlock>
                                                 <TextBlock Text="{Binding Sentence}" Foreground="{StaticResource Text}" TextWrapping="Wrap" Margin="0,5,0,0"/>
-                                                <TextBlock Text="{Binding Translation}" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                                <TextBlock Text="{Binding Translation}" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,4,0,0">
+                                                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><DataTrigger Binding="{Binding Translation}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                                </TextBlock>
                                             </StackPanel>
                                             <Button Grid.Column="1" Style="{StaticResource IconButton}" Content="&#xE767;" Tag="{Binding Sentence}" ToolTip="朗读例句" AutomationProperties.Name="朗读例句" TabIndex="4" Click="SpeakButton_Click"/>
                                         </Grid>
@@ -160,7 +166,16 @@
                                     <ItemsControl.ItemTemplate><DataTemplate><Border Background="#303640" CornerRadius="4" Padding="9,5" Margin="0,0,7,7"><TextBlock Text="{Binding}" Foreground="{StaticResource Muted}" FontSize="11"/></Border></DataTemplate></ItemsControl.ItemTemplate>
                                 </ItemsControl>
                             </StackPanel>
-                            <TextBlock x:Name="SourceText" Foreground="#74808E" FontSize="10" HorizontalAlignment="Right" Margin="0,2,0,4"/>
+                            <Grid Margin="0,2,0,4">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Button x:Name="EnrichButton" Visibility="Collapsed" Padding="7,4" Background="#303640" BorderBrush="#46515E" BorderThickness="1" Foreground="{StaticResource Accent}" Cursor="Hand" AutomationProperties.Name="AI 补全中文" Click="EnrichButton_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE945;" FontFamily="Segoe MDL2 Assets" FontSize="11" Margin="0,0,5,0"/>
+                                        <TextBlock Text="AI 补全中文" FontSize="11"/>
+                                    </StackPanel>
+                                </Button>
+                                <TextBlock x:Name="SourceText" Grid.Column="1" Foreground="#74808E" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>

@@ -26,6 +26,7 @@ public sealed class LocalDictionaryWordLookupServiceTests
         Assert.Equal("hello", result.Headword);
         Assert.Equal(WordLookupSourceKind.Dictionary, result.Source.Kind);
         Assert.Contains("本地词典", result.Source.DisplayName);
+        Assert.Equal("名词", result.Senses[0].PartOfSpeech);
         Assert.Contains("喂；你好", result.Senses[0].Definition);
         Assert.Contains("an expression of greeting", result.Senses[0].EnglishDefinition);
         Assert.Contains("every morning", result.Examples[0].Sentence);
@@ -79,7 +80,8 @@ public sealed class LocalDictionaryWordLookupServiceTests
             CancellationToken.None);
 
         Assert.Equal("take", result.Headword);
-        Assert.Contains("to move or carry something", result.Senses[0].Definition);
+        Assert.Empty(result.Senses[0].Definition);
+        Assert.Contains("to move or carry something", result.Senses[0].EnglishDefinition);
         Assert.Equal(WordLookupSourceKind.Dictionary, result.Source.Kind);
     }
 
@@ -99,10 +101,47 @@ public sealed class LocalDictionaryWordLookupServiceTests
             CancellationToken.None);
 
         Assert.Equal(2, result.Senses.Count);
-        Assert.Equal("noun", result.Senses[0].PartOfSpeech);
-        Assert.Equal("verb", result.Senses[1].PartOfSpeech);
+        Assert.Equal("名词", result.Senses[0].PartOfSpeech);
+        Assert.Equal("动词", result.Senses[1].PartOfSpeech);
         Assert.Contains("跑", result.Senses[0].Definition);
         Assert.Contains("跑", result.Senses[1].Definition);
+    }
+
+    [Fact]
+    public async Task Lookup_DoesNotAppendEnglishWordNetSense_AsChineseDefinition()
+    {
+        using var db = new TestDictionaryDb();
+        db.InsertEcdict("run", "", "v. 跑", "");
+        db.InsertWordNet("run", "v", "move quickly", "They run daily.");
+        db.InsertWordNet("run", "n", "an act of running", "He went for a run.");
+
+        using var service = new LocalDictionaryWordLookupService(db.Path);
+        var result = await service.LookupAsync(
+            new WordLookupRequest("run", "简体中文"),
+            CancellationToken.None);
+
+        var sense = Assert.Single(result.Senses);
+        Assert.Equal("动词", sense.PartOfSpeech);
+        Assert.Equal("跑", sense.Definition);
+        Assert.Equal("move quickly", sense.EnglishDefinition);
+        Assert.All(result.Examples, example => Assert.Empty(example.Translation));
+    }
+
+    [Fact]
+    public async Task Lookup_TreatsEnglishOnlyTranslationField_AsEnglishDefinition()
+    {
+        using var db = new TestDictionaryDb();
+        db.InsertEcdict("sprint", "", "v. move at full speed", "");
+
+        using var service = new LocalDictionaryWordLookupService(db.Path);
+        var result = await service.LookupAsync(
+            new WordLookupRequest("sprint", "简体中文"),
+            CancellationToken.None);
+
+        var sense = Assert.Single(result.Senses);
+        Assert.Equal("动词", sense.PartOfSpeech);
+        Assert.Empty(sense.Definition);
+        Assert.Equal("move at full speed", sense.EnglishDefinition);
     }
 
     [Fact]

@@ -23,9 +23,14 @@ public static class WordLookupTextFormatter
             text.AppendLine().AppendLine();
             if (!string.IsNullOrWhiteSpace(sense.PartOfSpeech))
                 text.Append(sense.PartOfSpeech).Append(' ');
-            text.Append(sense.Definition);
+            if (!string.IsNullOrWhiteSpace(sense.Definition))
+                text.Append(sense.Definition);
             if (!string.IsNullOrWhiteSpace(sense.EnglishDefinition))
-                text.AppendLine().Append(sense.EnglishDefinition);
+            {
+                if (!string.IsNullOrWhiteSpace(sense.Definition))
+                    text.AppendLine();
+                text.Append(sense.EnglishDefinition);
+            }
         }
 
         foreach (var example in result.Examples)

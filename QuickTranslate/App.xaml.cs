@@ -178,6 +178,7 @@ public partial class App : Application
             : new CompositeWordLookupService(_localWordLookupService, _openAiWordLookupService);
         _quickLookupWindow = new QuickLookupWindow(
             _wordLookupService,
+            _openAiWordLookupService,
             _lookupSessions,
             _recentLookups,
             _ttsPlayback,

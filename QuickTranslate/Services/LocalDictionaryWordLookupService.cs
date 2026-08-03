@@ -200,37 +200,58 @@ public sealed class LocalDictionaryWordLookupService : IWordLookupService, IDisp
         IReadOnlyList<WordNetSense> wordnet)
     {
         var senses = new List<WordSense>(MaxSenses);
-        var lines = SplitLines(ecdict?.Translation);
-        if (lines.Count == 0)
-            lines = SplitLines(ecdict?.Definition);
+        var translationCandidates = ParseSenseLines(ecdict?.Translation);
+        var translations = translationCandidates
+            .Where(sense => ContainsCjk(sense.Definition))
+            .ToList();
+        var ecdictDefinitions = ParseSenseLines(ecdict?.Definition);
+        ecdictDefinitions.AddRange(translationCandidates.Where(sense =>
+            !ContainsCjk(sense.Definition)));
 
-        foreach (var line in lines.Take(MaxSenses))
+        for (var index = 0; index < translations.Count && senses.Count < MaxSenses; index++)
         {
-            var (pos, definition) = SplitPosLine(line, string.Empty);
-            var matchingSense = wordnet
-                .FirstOrDefault(item => SamePos(item.Pos, pos))
-                ?? (pos.Length == 0 ? wordnet.FirstOrDefault() : null);
-            var english = matchingSense?.Definition ?? string.Empty;
-            senses.Add(new WordSense(pos, definition, english));
+            var translation = translations[index];
+            var ecdictDefinition = FindSense(ecdictDefinitions, translation.Pos, index);
+            var wordnetSense = FindSense(wordnet, translation.Pos, index);
+            var effectivePos = translation.Pos;
+            if (effectivePos.Length == 0)
+                effectivePos = ecdictDefinition?.Pos ?? string.Empty;
+            if (effectivePos.Length == 0)
+                effectivePos = wordnetSense?.Pos ?? string.Empty;
+            var english = ecdictDefinition?.Definition
+                ?? wordnetSense?.Definition
+                ?? string.Empty;
+            senses.Add(new WordSense(
+                WordPartOfSpeechNormalizer.ToDisplayLabel(effectivePos),
+                translation.Definition,
+                english));
         }
 
-        foreach (var item in wordnet)
+        if (translations.Count > 0)
+            return senses;
+
+        foreach (var item in ecdictDefinitions.Concat(
+                     wordnet.Select(sense => new ParsedSense(
+                         WordPartOfSpeechNormalizer.ToCanonical(sense.Pos),
+                         sense.Definition))))
         {
             if (senses.Count >= MaxSenses)
                 break;
 
-            var pos = NormalizePos(item.Pos);
             var definition = item.Definition.Trim();
             if (definition.Length == 0 ||
                 senses.Any(sense => string.Equals(
-                    sense.Definition,
+                    sense.EnglishDefinition,
                     definition,
                     StringComparison.Ordinal)))
             {
                 continue;
             }
 
-            senses.Add(new WordSense(pos, definition, string.Empty));
+            senses.Add(new WordSense(
+                WordPartOfSpeechNormalizer.ToDisplayLabel(item.Pos),
+                string.Empty,
+                definition));
         }
 
         return senses;
@@ -281,39 +302,46 @@ public sealed class LocalDictionaryWordLookupService : IWordLookupService, IDisp
             if (prefix.Length > 0 && prefix.All(char.IsLetter))
             {
                 return (
-                    NormalizePos(prefix),
+                    WordPartOfSpeechNormalizer.ToCanonical(prefix),
                     line[(dot + 1)..].Trim());
             }
         }
 
-        return (NormalizePos(fallbackPos), line);
+        return (WordPartOfSpeechNormalizer.ToCanonical(fallbackPos), line);
     }
 
-    private static bool SamePos(string left, string right)
+    private static List<ParsedSense> ParseSenseLines(string? text) =>
+        SplitLines(text)
+            .Select(line => SplitPosLine(line, string.Empty))
+            .Select(item => new ParsedSense(item.Pos, item.Definition))
+            .ToList();
+
+    private static bool ContainsCjk(string text) =>
+        text.Any(character => character is >= '\u3400' and <= '\u9fff');
+
+    private static ParsedSense? FindSense(
+        IReadOnlyList<ParsedSense> senses,
+        string pos,
+        int fallbackIndex)
     {
-        var normalizedLeft = NormalizePos(left);
-        var normalizedRight = NormalizePos(right);
-        return normalizedLeft.Length > 0 &&
-               normalizedLeft == normalizedRight;
+        var canonical = WordPartOfSpeechNormalizer.ToCanonical(pos);
+        return (canonical.Length > 0
+                ? senses.FirstOrDefault(sense => sense.Pos == canonical)
+                : null)
+            ?? senses.ElementAtOrDefault(fallbackIndex);
     }
 
-    private static string NormalizePos(string pos)
+    private static WordNetSense? FindSense(
+        IReadOnlyList<WordNetSense> senses,
+        string pos,
+        int fallbackIndex)
     {
-        var value = pos.Trim().TrimEnd('.').ToLowerInvariant();
-        return value switch
-        {
-            "n" or "noun" => "noun",
-            "v" or "verb" or "vt" or "vi" or "vtr" or "vintr" => "verb",
-            "a" or "adj" or "adjective" or "s" => "adjective",
-            "adv" or "adverb" or "ad" => "adverb",
-            "int" or "interj" or "interjection" => "interjection",
-            "prep" or "preposition" => "preposition",
-            "conj" or "conjunction" => "conjunction",
-            "pron" or "pronoun" => "pronoun",
-            "num" or "numeral" => "numeral",
-            "art" or "article" => "article",
-            _ => value
-        };
+        var canonical = WordPartOfSpeechNormalizer.ToCanonical(pos);
+        return (canonical.Length > 0
+                ? senses.FirstOrDefault(sense =>
+                    WordPartOfSpeechNormalizer.ToCanonical(sense.Pos) == canonical)
+                : null)
+            ?? senses.ElementAtOrDefault(fallbackIndex);
     }
 
     private static string NormalizeKey(string word) =>
@@ -324,6 +352,8 @@ public sealed class LocalDictionaryWordLookupService : IWordLookupService, IDisp
         string Phonetic,
         string Translation,
         string Definition);
+
+    private sealed record ParsedSense(string Pos, string Definition);
 
     private sealed record WordNetSense(
         string Lemma,
