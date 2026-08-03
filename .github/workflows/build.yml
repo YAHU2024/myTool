@@ -28,6 +28,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
 jobs:
   # ── CI: build + test on every push/PR (skipped for manual release) ─
   build-and-test:
