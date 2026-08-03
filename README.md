@@ -126,7 +126,7 @@ dotnet run
 
 启动后自动最小化到系统托盘，右键托盘图标即可开始配置。
 
-单击托盘图标或按 `Alt+W`（需先在设置中开启"快速查词快捷键"）可显示或隐藏快速查词面板；输入单词或短语后按 `Enter` 查询。查词优先使用程序目录下 `Data\word-dictionary.db` 中的本地词典（ECDICT + OEWN），命中时显示"本地词典 · ECDICT + OEWN"，不会发送查询词；未命中或未安装本地词典时，回退到当前 OpenAI 兼容配置并显示"AI 释义 · 模型名"。最近 5 项仅保存在当前进程，退出后清空。右键托盘菜单中的"恢复最近翻译"用于恢复最近一次划词翻译结果。
+单击托盘图标或按 `Alt+W`（需先在设置中开启"快速查词快捷键"）可显示或隐藏快速查词面板；输入单词或短语后按 `Enter` 查询。查词优先使用程序目录下 `Data\word-dictionary.db` 中的本地词典（ECDICT + OEWN），命中时显示"本地词典 · ECDICT + OEWN"，不会发送查询词；未命中或未安装本地词典时，回退到当前 OpenAI 兼容配置并显示"AI 释义 · 模型名"。正式发布包默认携带本地词典；源码运行需要先从仓库根目录执行 `scripts\prepare-word-dictionary.ps1` 生成该数据库。最近 5 项仅保存在当前进程，退出后清空。右键托盘菜单中的"恢复最近翻译"用于恢复最近一次划词翻译结果。
 
 > 不想装 .NET SDK？可直接跳到 [下载安装](#下载安装) 下载免依赖安装包。
 
@@ -138,8 +138,8 @@ dotnet run
 
 | 版本 | 体积 | 说明 |
 |:-----|:-----|:-----|
-| **完整版（推荐）** | ~150 MB | 自包含运行时，开箱即用 → [下载最新完整版](https://github.com/YAHU2024/myTool/releases/latest) |
-| **标准版** | ~15 MB | 需先安装 [.NET 8 运行时](https://dotnet.microsoft.com/download/dotnet/8.0) → [所有版本](https://github.com/YAHU2024/myTool/releases) |
+| **完整版（推荐）** | ~85 MB | 自包含运行时和本地词典，开箱即用 → [下载最新完整版](https://github.com/YAHU2024/myTool/releases/latest) |
+| **标准版** | ~47 MB | 含本地词典，需先安装 [.NET 8 运行时](https://dotnet.microsoft.com/download/dotnet/8.0) → [所有版本](https://github.com/YAHU2024/myTool/releases) |
 
 所有历史版本、更新日志与 SHA256 校验值见 [Releases 页面](https://github.com/YAHU2024/myTool/releases)。安装后启动会自动最小化到系统托盘，右键托盘图标即可配置。
 
@@ -294,8 +294,8 @@ myTool/
 
 | 版本 | 体积 | 依赖 |
 |:-----|:-----|:-----|
-| 标准版 | ~15 MB | 需安装 .NET 8 运行时 |
-| 完整版 | ~150 MB | 自包含，免运行时 |
+| 标准版 | ~47 MB | 含本地词典，需安装 .NET 8 运行时 |
+| 完整版 | ~85 MB | 含本地词典，自包含，免运行时 |
 
 ### 自动更新
 

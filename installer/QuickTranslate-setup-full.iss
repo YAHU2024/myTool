@@ -1,4 +1,4 @@
-; QuickTranslate Installer — 完整版（自包含，~150MB）
+; QuickTranslate Installer — 完整版（自包含，含本地词典，~85MB）
 ; 已内置 .NET 8 运行时，普通用户双击即用
 ; 编译：ISCC QuickTranslate-setup-full.iss
 ;
@@ -26,7 +26,9 @@
 ; 证书到期前 30 天开始续期流程，详见 docs/RELEASE.md
 
 #define MyAppName "QuickTranslate"
+#ifndef MyAppVersion
 #define MyAppVersion "1.8.5"
+#endif
 #define MyAppPublisher "YaHu"
 #define MyAppURL "https://github.com/YAHU2024/myTool"
 #define MyAppExeName "QuickTranslate.exe"

@@ -53,6 +53,9 @@ docs/WORD_DICTIONARY_MINIMAL_VALIDATION.md
 
 ## Build output
 .build-output/
+*.db
+*.db-shm
+*.db-wal
 
 ## Test output
 **/TestResults/

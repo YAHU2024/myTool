@@ -92,8 +92,8 @@ Don't want to set up a dev environment? Just download the installer — **double
 
 | Edition | Size | Notes |
 |:-----|:-----|:-----|
-| **Full (recommended)** | ~150 MB | Self-contained runtime, works out of the box → [Download latest full edition](https://github.com/YAHU2024/myTool/releases/latest) |
-| **Standard** | ~15 MB | Requires the [.NET 8 runtime](https://dotnet.microsoft.com/download/dotnet/8.0) first → [All releases](https://github.com/YAHU2024/myTool/releases) |
+| **Full (recommended)** | ~85 MB | Bundles the runtime and local dictionary → [Download latest full edition](https://github.com/YAHU2024/myTool/releases/latest) |
+| **Standard** | ~47 MB | Bundles the local dictionary; requires the [.NET 8 runtime](https://dotnet.microsoft.com/download/dotnet/8.0) → [All releases](https://github.com/YAHU2024/myTool/releases) |
 
 All past versions, changelogs, and SHA256 checksums are on the [Releases page](https://github.com/YAHU2024/myTool/releases). After install, the app minimizes to the system tray; right-click the tray icon to configure.
 
@@ -117,7 +117,7 @@ dotnet run
 
 The app minimizes to the system tray on launch; right-click the tray icon to open settings.
 
-Single-click the tray icon or press `Alt+W` (enable "Quick Lookup hotkey" in Settings first) to show or hide Quick Lookup, then enter a word or phrase and press `Enter`. Lookup prefers the local dictionary at `Data\word-dictionary.db` (ECDICT + OEWN); hits are labeled "Local dictionary · ECDICT + OEWN" and the query stays local. If there is no local hit or no bundled database, it falls back to the current OpenAI-compatible configuration and labels results as "AI definition · model name." The five recent items are process-local and cleared on exit. Use "Restore latest translation" in the tray context menu for the previous select-to-translate result.
+Single-click the tray icon or press `Alt+W` (enable "Quick Lookup hotkey" in Settings first) to show or hide Quick Lookup, then enter a word or phrase and press `Enter`. Lookup prefers the local dictionary at `Data\word-dictionary.db` (ECDICT + OEWN); hits are labeled "Local dictionary · ECDICT + OEWN" and the query stays local. If there is no local hit or no bundled database, it falls back to the current OpenAI-compatible configuration and labels results as "AI definition · model name." Release packages bundle the local dictionary by default; source builds must run `scripts\prepare-word-dictionary.ps1` from the repository root first to generate it. The five recent items are process-local and cleared on exit. Use "Restore latest translation" in the tray context menu for the previous select-to-translate result.
 
 ---
 
@@ -270,8 +270,8 @@ Inno Setup produces two installers:
 
 | Edition | Size | Dependency |
 |:-----|:-----|:-----|
-| Standard | ~15 MB | Requires .NET 8 runtime |
-| Full | ~150 MB | Self-contained, no runtime needed |
+| Standard | ~47 MB | Local dictionary included; requires .NET 8 runtime |
+| Full | ~85 MB | Local dictionary included; self-contained |
 
 ### Auto update
 

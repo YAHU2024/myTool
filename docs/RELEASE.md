@@ -22,6 +22,7 @@
 ## 前置准备
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- Python 3（用于从 ECDICT/OEWN 源文件生成发布词典）
 - [Inno Setup 6+](https://jrsoftware.org/download.php/is.exe)（用于生成安装程序）
 - [GitHub CLI](https://cli.github.com/)（`gh`，需登录 `gh auth login`）
 - [Windows SDK SignTool](https://developer.microsoft.com/windows/downloads/windows-sdk/)（用于 Authenticode 签名，通常随 Visual Studio 安装）
@@ -56,7 +57,17 @@
 
 项目同时交付两种安装包，因此需要编译两类源文件。
 
-### 2.1 编译轻量版源文件（框架依赖，~15MB）
+### 2.1 准备本地词典
+
+将已校验版本的 `ecdict.csv` 和 `oewn-2025-json.zip` 放在 `.build-output\word-dict-mini\`，然后执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\prepare-word-dictionary.ps1
+```
+
+脚本会核对固定 SHA-256，并原子生成 `QuickTranslate\Data\word-dictionary.db`。该数据库被 Git 忽略，但后续两个 `dotnet publish` 都会把它复制到 `Data\`；`THIRD_PARTY_NOTICES.md` 也会随包发布。缺少数据库时 publish 仍可成功，但发布包将只能使用 AI 查词，因此正式发布前必须检查这两个文件。
+
+### 2.2 编译轻量版源文件（框架依赖，含词典）
 
 ```powershell
 dotnet publish QuickTranslate\QuickTranslate.csproj `
@@ -64,7 +75,7 @@ dotnet publish QuickTranslate\QuickTranslate.csproj `
   -o publish\source\v1.8.0
 ```
 
-### 2.2 编译完整版源文件（自包含，~150MB）
+### 2.3 编译完整版源文件（自包含，含词典）
 
 ```powershell
 dotnet publish QuickTranslate\QuickTranslate.csproj `
@@ -74,7 +85,7 @@ dotnet publish QuickTranslate\QuickTranslate.csproj `
   -o publish\source\v1.8.0-full
 ```
 
-### 2.3 创建发布目录 + 打包 zip
+### 2.4 创建发布目录 + 打包 zip
 
 ```powershell
 $ver = "1.8.0"
@@ -99,8 +110,8 @@ Compress-Archive -Path publish\source\v$ver-full\* `
 
 | 脚本 | 产物 | 体积 | 适用人群 |
 |:-----|:-----|:-----|:---------|
-| `QuickTranslate-setup.iss` | `Setup-{ver}-win-x64.exe` | ~15 MB | 已安装 .NET 8 的专业用户 |
-| `QuickTranslate-setup-full.iss` | `Setup-{ver}-win-x64-full.exe` | ~150 MB | 普通用户，双击安装即用 |
+| `QuickTranslate-setup.iss` | `Setup-{ver}-win-x64.exe` | ~47 MB | 已安装 .NET 8 的专业用户 |
+| `QuickTranslate-setup-full.iss` | `Setup-{ver}-win-x64-full.exe` | ~85 MB | 普通用户，双击安装即用 |
 
 ### 3.2 编译安装程序
 
@@ -494,18 +505,21 @@ $ver = "1.8.0"
 #    - installer\version.xml 中的 <version>、<url>、<changelog>
 #      （<checksum> 要等安装包编译出来才能算，见步骤 4.5）
 
-# 1. 编译轻量版源
+# 1. 校验源文件并生成两个发布包共用的本地词典
+powershell -ExecutionPolicy Bypass -File scripts\prepare-word-dictionary.ps1
+
+# 2. 编译轻量版源
 dotnet publish QuickTranslate\QuickTranslate.csproj -c Release -o publish\source\v$ver
 
-# 2. 编译完整版源（自包含，约 150MB）
+# 3. 编译完整版源（自包含）
 dotnet publish QuickTranslate\QuickTranslate.csproj -c Release -r win-x64 --self-contained true -o publish\source\v$ver-full
 
-# 3. 打包 zip
+# 4. 打包 zip
 New-Item publish\releases\v$ver -ItemType Directory -Force
 Compress-Archive -Path publish\source\v$ver\*      -DestinationPath publish\releases\v$ver\QuickTranslate-v$ver-win-x64.zip
 Compress-Archive -Path publish\source\v$ver-full\*  -DestinationPath publish\releases\v$ver\QuickTranslate-v$ver-win-x64-full.zip
 
-# 4. 编译两个安装程序
+# 5. 编译两个安装程序
 ISCC installer\QuickTranslate-setup.iss
 ISCC installer\QuickTranslate-setup-full.iss
 
