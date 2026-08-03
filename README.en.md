@@ -66,6 +66,16 @@ Multi-model switching, customizable global hotkeys, analysis profile management 
 
 ---
 
+### Quick Lookup · Local Dictionary & AI Completion
+
+<p align="center">
+  <img src="docs/images/快速查词窗口.png" alt="Quick Lookup window" width="85%">
+</p>
+
+Single-click tray or `Alt+W` opens a compact lookup panel with **local dictionary priority** (ECDICT + OEWN), unified Chinese POS labels, one-click AI completion for missing Chinese definitions, phonetics, examples, collocations, and text-to-speech.
+
+---
+
 ### Translation History · Search & Anki Export
 
 <p align="center">
@@ -286,7 +296,7 @@ See [docs/RELEASE.md](docs/RELEASE.md) for details.
 | Phase | Core work | Status |
 |:----:|:---------|:----:|
 | 1–12 | Skeleton, select-to-translate, tray, history, smart detection, semantic cache, multi-mode sessions, structured logs, TTS, auto update | done |
-| 13 | Quick lookup panel + independent global hotkey + tray click integration | done |
+| 13 | Quick lookup panel + independent global hotkey + tray click integration + local dictionary (ECDICT/OEWN) + AI Chinese completion + POS normalization | done |
 | 14 | Follow-up analysis | planned |
 | 15 | Performance optimization | planned |
 | 16 | UI unification & internationalization | planned |
