@@ -166,7 +166,11 @@ public sealed class OpenAIWordLookupServiceTests
     public async Task EnrichAsync_TranslatesMissingFields_AndPreservesLocalEnglish()
     {
         var enrichment = """
-            {"senses":[{"index":0,"definition":"快速移动"}],"examples":[{"index":0,"translation":"他们每天跑步。"}]}
+            <think>The result needs two fields. {"draft":true}</think>
+            Here is the requested JSON:
+            ```json
+            {"sense_0":"快速移动","example_0":"他们每天跑步。"}
+            ```
             """;
         var handler = new RecordingHandler(_ => JsonResponse(CompletionEnvelope(enrichment)));
         using var service = CreateService(handler);
@@ -187,8 +191,22 @@ public sealed class OpenAIWordLookupServiceTests
         Assert.DoesNotContain("快速移动", handler.UserContent);
         using var payload = JsonDocument.Parse(handler.UserContent!);
         Assert.False(payload.RootElement.TryGetProperty("headword", out _));
-        Assert.True(payload.RootElement.TryGetProperty("senses", out _));
-        Assert.True(payload.RootElement.TryGetProperty("examples", out _));
+        var senses = payload.RootElement.GetProperty("senses");
+        var examples = payload.RootElement.GetProperty("examples");
+        Assert.Equal("sense_0", senses[0].GetProperty("key").GetString());
+        Assert.Equal("example_0", examples[0].GetProperty("key").GetString());
+    }
+
+    [Fact]
+    public void ApplyEnrichment_AcceptsLegacyArrayResponse()
+    {
+        var result = OpenAIWordLookupService.ApplyEnrichment(
+            "{\"senses\":[{\"index\":0,\"definition\":\"快速移动\"}],\"examples\":[{\"index\":0,\"translation\":\"他们每天跑步。\"}]}",
+            LocalResult(),
+            "model-a");
+
+        Assert.Equal("快速移动", result.Senses[0].Definition);
+        Assert.Equal("他们每天跑步。", result.Examples[0].Translation);
     }
 
     [Fact]
@@ -198,7 +216,7 @@ public sealed class OpenAIWordLookupServiceTests
 
         Assert.Throws<WordLookupFormatException>(() =>
             OpenAIWordLookupService.ApplyEnrichment(
-                "{\"senses\":[{\"index\":0,\"definition\":\"快速移动\"}],\"examples\":[]}",
+                "{\"sense_0\":\"快速移动\"}",
                 local,
                 "model-a"));
     }
