@@ -353,7 +353,6 @@ public partial class FloatingWindow : Window
             return;
         _lastPositioningTicks = now;
 
-        UpdateLayout();
         if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5)
         {
             _lastPositionedHeight = ActualHeight;
