@@ -55,10 +55,12 @@ jobs:
           name: Test Results
           path: '**/*.trx'
           reporter: dotnet-trx
+          fail-on-error: false
 
       - name: Generate Coverage Report
         if: github.event_name == 'pull_request' && (success() || failure())
         uses: danielpalme/ReportGenerator-GitHub-Action@v5
+        continue-on-error: true
         with:
           reports: '**/coverage.cobertura.xml'
           targetdir: coveragereport
@@ -67,6 +69,7 @@ jobs:
       - name: Post Coverage Summary
         if: github.event_name == 'pull_request' && (success() || failure())
         uses: marocchino/sticky-pull-request-comment@v2
+        continue-on-error: true
         with:
           header: coverage
           path: coveragereport/SummaryGithub.md

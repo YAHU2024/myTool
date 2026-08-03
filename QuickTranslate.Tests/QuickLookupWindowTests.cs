@@ -11,9 +11,14 @@ namespace QuickTranslate.Tests;
 
 public sealed class QuickLookupWindowTests
 {
+    private static bool IsRunningOnCI =>
+        Environment.GetEnvironmentVariable("CI") == "true" ||
+        Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true";
+
     [Fact]
     public void Constructor_LoadsXamlAndExposesAccessibleCoreControls()
     {
+        Skip.If(IsRunningOnCI, "WPF window tests require a real message pump, unavailable on headless CI.");
         Exception? failure = null;
         var thread = new Thread(() =>
         {
@@ -59,6 +64,7 @@ public sealed class QuickLookupWindowTests
     [Fact]
     public void EnrichmentButton_ShowsBusyStateImmediately()
     {
+        Skip.If(IsRunningOnCI, "WPF window tests require a real message pump, unavailable on headless CI.");
         Exception? failure = null;
         var thread = new Thread(() =>
         {
