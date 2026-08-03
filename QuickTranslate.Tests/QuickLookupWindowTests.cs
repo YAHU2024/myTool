@@ -36,10 +36,52 @@ public sealed class QuickLookupWindowTests
                 Assert.Equal("朗读词头", AutomationProperties.GetName(window.SpeakHeadwordButton));
                 Assert.Equal("复制查词结果", AutomationProperties.GetName(window.CopyButton));
                 Assert.Equal("AI 补全中文", AutomationProperties.GetName(window.EnrichButton));
+                Assert.Same(window.FindResource("EnrichmentButton"), window.EnrichButton.Style);
                 Assert.Same(window.FindResource("Win11ScrollViewer"), window.ResultScroller.Style);
                 var scope = sessions.Begin("run");
                 Assert.True(sessions.TryComplete(scope, LocalResultWithMissingChinese()));
                 Assert.Equal(Visibility.Visible, window.EnrichButton.Visibility);
+                window.CloseForExit();
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(5)));
+        Assert.Null(failure);
+    }
+
+    [Fact]
+    public void EnrichmentButton_ShowsBusyStateImmediately()
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var ttsService = new NoOpTtsService();
+                using var playback = new TtsPlaybackCoordinator(ttsService);
+                using var sessions = new WordLookupSessionCoordinator();
+                var window = new QuickLookupWindow(
+                    new NoOpLookupService(),
+                    new PendingEnrichmentService(),
+                    sessions,
+                    new RecentLookupBuffer(),
+                    playback,
+                    "简体中文");
+                var scope = sessions.Begin("run");
+                Assert.True(sessions.TryComplete(scope, LocalResultWithMissingChinese()));
+
+                window.EnrichButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+
+                Assert.False(window.EnrichButton.IsEnabled);
+                Assert.Equal("AI 补全中...", window.EnrichButtonLabel.Text);
+                Assert.Equal("AI 中文补全中", AutomationProperties.GetName(window.EnrichButton));
+                Assert.Equal(Visibility.Collapsed, window.EnrichButtonIcon.Visibility);
+                Assert.Equal(Visibility.Visible, window.EnrichProgress.Visibility);
                 window.CloseForExit();
             }
             catch (Exception ex)
@@ -66,6 +108,18 @@ public sealed class QuickLookupWindowTests
             WordLookupRequest request,
             WordLookupResult localResult,
             CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private sealed class PendingEnrichmentService : IWordLookupEnrichmentService
+    {
+        public async Task<WordLookupResult> EnrichAsync(
+            WordLookupRequest request,
+            WordLookupResult localResult,
+            CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return localResult;
+        }
     }
 
     private sealed class NoOpTtsService : ITtsService

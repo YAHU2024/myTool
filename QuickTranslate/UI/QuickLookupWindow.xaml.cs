@@ -1,5 +1,6 @@
 using System.Net.Http;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -238,7 +239,7 @@ public partial class QuickLookupWindow : Window
                                   HasMissingChinese(result)
             ? Visibility.Visible
             : Visibility.Collapsed;
-        EnrichButton.IsEnabled = true;
+        SetEnrichmentBusy(false);
         ResultScroller.ScrollToTop();
         RefreshSpeakButtons(_tts.Current);
     }
@@ -269,7 +270,7 @@ public partial class QuickLookupWindow : Window
         CancelEnrichment();
         var cts = new CancellationTokenSource();
         _enrichmentCts = cts;
-        EnrichButton.IsEnabled = false;
+        SetEnrichmentBusy(true);
         try
         {
             var enriched = await _enrichmentService.EnrichAsync(
@@ -305,7 +306,7 @@ public partial class QuickLookupWindow : Window
                 _enrichmentCts = null;
                 cts.Dispose();
                 var current = _sessions.Current.Result;
-                EnrichButton.IsEnabled = true;
+                SetEnrichmentBusy(false);
                 EnrichButton.Visibility = current is not null &&
                                           current.Source.Kind == WordLookupSourceKind.Dictionary &&
                                           HasMissingChinese(current)
@@ -326,6 +327,18 @@ public partial class QuickLookupWindow : Window
         var source = Interlocked.Exchange(ref _enrichmentCts, null);
         source?.Cancel();
         source?.Dispose();
+        SetEnrichmentBusy(false);
+    }
+
+    private void SetEnrichmentBusy(bool isBusy)
+    {
+        EnrichButton.IsEnabled = !isBusy;
+        EnrichButtonLabel.Text = isBusy ? "AI 补全中..." : "AI 补全中文";
+        EnrichButtonIcon.Visibility = isBusy ? Visibility.Collapsed : Visibility.Visible;
+        EnrichProgress.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+        AutomationProperties.SetName(
+            EnrichButton,
+            isBusy ? "AI 中文补全中" : "AI 补全中文");
     }
 
     private async void SpeakButton_Click(object sender, RoutedEventArgs e)

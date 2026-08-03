@@ -49,6 +49,22 @@
                 <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#303640"/><Setter Property="Foreground" Value="{StaticResource Text}"/></Trigger></ControlTemplate.Triggers>
             </ControlTemplate></Setter.Value></Setter>
         </Style>
+        <Style x:Key="EnrichmentButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="112"/><Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="7,4"/><Setter Property="Foreground" Value="{StaticResource Accent}"/>
+            <Setter Property="Background" Value="#303640"/><Setter Property="BorderBrush" Value="#46515E"/>
+            <Setter Property="BorderThickness" Value="1"/><Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+                <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#343B46"/><Setter Property="Foreground" Value="{StaticResource Text}"/></Trigger>
+                    <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#3E4854"/></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Background" Value="#303640"/><Setter TargetName="Surface" Property="BorderBrush" Value="#46515E"/><Setter Property="Foreground" Value="{StaticResource Accent}"/><Setter Property="Opacity" Value="0.72"/><Setter Property="Cursor" Value="Arrow"/></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
         </ResourceDictionary>
     </Window.Resources>
 
@@ -168,10 +184,11 @@
                             </StackPanel>
                             <Grid Margin="0,2,0,4">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <Button x:Name="EnrichButton" Visibility="Collapsed" Padding="7,4" Background="#303640" BorderBrush="#46515E" BorderThickness="1" Foreground="{StaticResource Accent}" Cursor="Hand" AutomationProperties.Name="AI 补全中文" Click="EnrichButton_Click">
+                                <Button x:Name="EnrichButton" Style="{StaticResource EnrichmentButton}" Visibility="Collapsed" AutomationProperties.Name="AI 补全中文" Click="EnrichButton_Click">
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="&#xE945;" FontFamily="Segoe MDL2 Assets" FontSize="11" Margin="0,0,5,0"/>
-                                        <TextBlock Text="AI 补全中文" FontSize="11"/>
+                                        <TextBlock x:Name="EnrichButtonIcon" Text="&#xE945;" FontFamily="Segoe MDL2 Assets" FontSize="11" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                                        <ProgressBar x:Name="EnrichProgress" Visibility="Collapsed" IsIndeterminate="True" Width="14" Height="3" Margin="0,0,6,0" VerticalAlignment="Center" Foreground="{StaticResource Accent}" Background="#46515E" BorderThickness="0"/>
+                                        <TextBlock x:Name="EnrichButtonLabel" Text="AI 补全中文" FontSize="11" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
                                 <TextBlock x:Name="SourceText" Grid.Column="1" Foreground="#74808E" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center"/>
