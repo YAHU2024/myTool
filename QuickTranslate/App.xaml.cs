@@ -784,6 +784,7 @@ public partial class App : Application
                 return;
             }
 
+            _floatingWindow?.FlushStreamingUpdate();
             UpdateFloatingSessionView();
             _translationCache.Set(request, result);
             SaveTranslationHistory(
