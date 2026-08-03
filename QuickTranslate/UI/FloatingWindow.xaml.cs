@@ -67,6 +67,9 @@ public partial class FloatingWindow : Window
     private Action? _statusAction;
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
+    private long _lastPositioningTicks;
+    private const long MinPositioningIntervalTicks = 30 * TimeSpan.TicksPerMillisecond;
+    private double _lastPositionedHeight;
     private bool _placeAbove;
     private Guid _sessionId;
     private ContentType _activeMode = ContentType.Translation;
@@ -337,22 +340,48 @@ public partial class FloatingWindow : Window
             return;
 
         _rawText = translation;
-        ShowPlainText();
+        ShowPlainText(ensureFooter: false);
         if (_isLoading && !string.IsNullOrEmpty(translation))
             HideLoadingIndicator();
         if (_autoScroll.OnContentOrViewportChanged())
             ScrollToEndProgrammatically();
 
-        UpdateLayout();
-        PositionWindowAtAnchor();
+        // Throttle expensive work to ~30 fps so the dispatcher
+        // has time to render between streaming chunks.
+        var now = DateTime.UtcNow.Ticks;
+        if (now - _lastPositioningTicks < MinPositioningIntervalTicks)
+            return;
+        _lastPositioningTicks = now;
+
+        if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5)
+        {
+            _lastPositionedHeight = ActualHeight;
+            PositionWindowAtAnchor();
+        }
         ResetAutoHideTimer();
     }
 
-    private void ShowPlainText()
+    /// <summary>
+    /// Forces one final position update after streaming completes.
+    /// Call this before rendering the completed markdown view so the
+    /// last throttled frame is never lost.
+    /// </summary>
+    public void FlushStreamingUpdate()
+    {
+        if (string.IsNullOrWhiteSpace(_rawText))
+            return;
+
+        UpdateLayout();
+        _lastPositionedHeight = ActualHeight;
+        PositionWindowAtAnchor();
+    }
+
+    private void ShowPlainText(bool ensureFooter = true)
     {
         MarkdownDocumentHost.Visibility = Visibility.Collapsed;
         ExpandMarkdownButton.Visibility = Visibility.Collapsed;
-        EnsureFooterFitsWindow();
+        if (ensureFooter)
+            EnsureFooterFitsWindow();
         TranslationTextBlock.Visibility = Visibility.Visible;
         TranslationTextBlock.Text = _rawText;
     }
@@ -437,6 +466,8 @@ public partial class FloatingWindow : Window
         Hide();
         _rawText = string.Empty;
         _isMarkdownExpanded = false;
+        _lastPositioningTicks = 0;
+        _lastPositionedHeight = 0;
         ShowPlainText();
         SetActiveModeButton(ContentType.Translation);
         RefreshSpeakButton();

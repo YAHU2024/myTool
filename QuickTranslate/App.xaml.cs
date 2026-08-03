@@ -769,7 +769,7 @@ public partial class App : Application
                     {
                         _floatingWindow.UpdateTranslation(presentationId, chunk);
                     }
-                }),
+                }, DispatcherPriority.Render),
                 requestScope.Token);
 
             requestScope.Token.ThrowIfCancellationRequested();
@@ -784,6 +784,7 @@ public partial class App : Application
                 return;
             }
 
+            _floatingWindow?.FlushStreamingUpdate();
             UpdateFloatingSessionView();
             _translationCache.Set(request, result);
             SaveTranslationHistory(
