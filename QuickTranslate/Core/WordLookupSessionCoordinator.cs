@@ -73,6 +73,25 @@ public sealed class WordLookupSessionCoordinator : IDisposable
     public bool TryCancel(WordLookupRequestScope scope) =>
         TryFinish(scope, WordLookupSessionStatus.Cancelled, null, null);
 
+    public bool TryReplaceCompletedResult(long requestId, WordLookupResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        WordLookupSessionState state;
+        lock (_sync)
+        {
+            if (_state.RequestId != requestId ||
+                _state.Status != WordLookupSessionStatus.Completed ||
+                _state.Result is null)
+            {
+                return false;
+            }
+
+            state = _state = _state with { Result = result };
+        }
+        StateChanged?.Invoke(state);
+        return true;
+    }
+
     public void CancelCurrent()
     {
         CancellationTokenSource? source;

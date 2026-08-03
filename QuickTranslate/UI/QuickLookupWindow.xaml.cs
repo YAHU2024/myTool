@@ -1,5 +1,6 @@
 using System.Net.Http;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -12,6 +13,7 @@ namespace QuickTranslate.UI;
 public partial class QuickLookupWindow : Window
 {
     private readonly IWordLookupService _lookupService;
+    private readonly IWordLookupEnrichmentService _enrichmentService;
     private readonly WordLookupSessionCoordinator _sessions;
     private readonly RecentLookupBuffer _recent;
     private readonly TtsPlaybackCoordinator _tts;
@@ -22,6 +24,7 @@ public partial class QuickLookupWindow : Window
     private int _ttsMaxChars = 2000;
     private bool _isImeComposing;
     private bool _isClosingForExit;
+    private CancellationTokenSource? _enrichmentCts;
     private readonly DispatcherTimer _feedbackTimer = new()
     {
         Interval = TimeSpan.FromSeconds(3)
@@ -29,12 +32,14 @@ public partial class QuickLookupWindow : Window
 
     public QuickLookupWindow(
         IWordLookupService lookupService,
+        IWordLookupEnrichmentService enrichmentService,
         WordLookupSessionCoordinator sessions,
         RecentLookupBuffer recent,
         TtsPlaybackCoordinator tts,
         string explanationLanguage)
     {
         _lookupService = lookupService ?? throw new ArgumentNullException(nameof(lookupService));
+        _enrichmentService = enrichmentService ?? throw new ArgumentNullException(nameof(enrichmentService));
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         _recent = recent ?? throw new ArgumentNullException(nameof(recent));
         _tts = tts ?? throw new ArgumentNullException(nameof(tts));
@@ -103,6 +108,7 @@ public partial class QuickLookupWindow : Window
 
     public void HidePanel()
     {
+        CancelEnrichment();
         _ = _tts.StopAsync(TtsPlaybackOwner.QuickLookup);
         Hide();
         HideRequested?.Invoke();
@@ -113,11 +119,13 @@ public partial class QuickLookupWindow : Window
         _isClosingForExit = true;
         _sessions.StateChanged -= OnSessionStateChanged;
         _tts.StateChanged -= OnTtsStateChanged;
+        CancelEnrichment();
         Close();
     }
 
     private async Task SubmitAsync(string rawQuery)
     {
+        CancelEnrichment();
         string query;
         try
         {
@@ -227,6 +235,11 @@ public partial class QuickLookupWindow : Window
             ? Visibility.Collapsed
             : Visibility.Visible;
         SourceText.Text = result.Source.DisplayName;
+        EnrichButton.Visibility = result.Source.Kind == WordLookupSourceKind.Dictionary &&
+                                  HasMissingChinese(result)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        SetEnrichmentBusy(false);
         ResultScroller.ScrollToTop();
         RefreshSpeakButtons(_tts.Current);
     }
@@ -243,6 +256,90 @@ public partial class QuickLookupWindow : Window
     }
 
     private void RefreshRecentItems() => RecentItems.ItemsSource = _recent.Items;
+
+    private async void EnrichButton_Click(object sender, RoutedEventArgs e)
+    {
+        var state = _sessions.Current;
+        if (state is not { Status: WordLookupSessionStatus.Completed, Result: { } localResult } ||
+            localResult.Source.Kind != WordLookupSourceKind.Dictionary ||
+            !HasMissingChinese(localResult))
+        {
+            return;
+        }
+
+        CancelEnrichment();
+        var cts = new CancellationTokenSource();
+        _enrichmentCts = cts;
+        SetEnrichmentBusy(true);
+        try
+        {
+            var enriched = await _enrichmentService.EnrichAsync(
+                new WordLookupRequest(state.Query, _explanationLanguage),
+                localResult,
+                cts.Token).ConfigureAwait(true);
+            if (_sessions.TryReplaceCompletedResult(state.RequestId, enriched))
+                ShowTransientFeedback("AI 中文补全完成。");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+            ShowTransientFeedback("请先在设置中填写可用的 API Key 和模型。");
+        }
+        catch (WordLookupFormatException)
+        {
+            ShowTransientFeedback("AI 补全结果格式无效，请重试。");
+        }
+        catch (HttpRequestException)
+        {
+            ShowTransientFeedback("AI 补全服务暂时不可用，请稍后重试。");
+        }
+        catch (Exception)
+        {
+            ShowTransientFeedback("AI 补全失败，请稍后重试。");
+        }
+        finally
+        {
+            if (ReferenceEquals(_enrichmentCts, cts))
+            {
+                _enrichmentCts = null;
+                cts.Dispose();
+                var current = _sessions.Current.Result;
+                SetEnrichmentBusy(false);
+                EnrichButton.Visibility = current is not null &&
+                                          current.Source.Kind == WordLookupSourceKind.Dictionary &&
+                                          HasMissingChinese(current)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+        }
+    }
+
+    private static bool HasMissingChinese(WordLookupResult result) =>
+        result.Senses.Any(sense =>
+            string.IsNullOrWhiteSpace(sense.Definition) &&
+            !string.IsNullOrWhiteSpace(sense.EnglishDefinition)) ||
+        result.Examples.Any(example => string.IsNullOrWhiteSpace(example.Translation));
+
+    private void CancelEnrichment()
+    {
+        var source = Interlocked.Exchange(ref _enrichmentCts, null);
+        source?.Cancel();
+        source?.Dispose();
+        SetEnrichmentBusy(false);
+    }
+
+    private void SetEnrichmentBusy(bool isBusy)
+    {
+        EnrichButton.IsEnabled = !isBusy;
+        EnrichButtonLabel.Text = isBusy ? "AI 补全中..." : "AI 补全中文";
+        EnrichButtonIcon.Visibility = isBusy ? Visibility.Collapsed : Visibility.Visible;
+        EnrichProgress.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+        AutomationProperties.SetName(
+            EnrichButton,
+            isBusy ? "AI 中文补全中" : "AI 补全中文");
+    }
 
     private async void SpeakButton_Click(object sender, RoutedEventArgs e)
     {

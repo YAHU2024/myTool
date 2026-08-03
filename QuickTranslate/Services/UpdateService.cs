@@ -818,8 +818,11 @@ public static class UpdateService
 
             _pending = null;
             Logger.Warn("Update", "update.late_callback_cleanup",
-                new { gen = Interlocked.Read(ref _checkGeneration),
-                      grace_period_s = LateCallbackGracePeriod.TotalSeconds });
+                new
+                {
+                    gen = Interlocked.Read(ref _checkGeneration),
+                    grace_period_s = LateCallbackGracePeriod.TotalSeconds
+                });
         };
         _cleanupTimer.Start();
     }

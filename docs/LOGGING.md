@@ -50,7 +50,8 @@
 2. 本地词典是否启用由 `App` 模块的 `word_lookup.local_dictionary_enabled/disabled` 记录。
 3. `lookup.started` 只记录查询的 Unicode 字符数量和 Provider 标识（`ecdict-oewn-local` 或 `openai-compatible`）。
 4. `lookup.completed` 只记录释义、例句和搭配数量以及耗时。
-5. 查词日志不会记录查询词、Prompt、释义、例句、API Key 或 Provider 响应正文。
+5. 用户主动点击“AI 补全中文”时会记录 `enrichment.started/completed`；事件只包含输入长度、缺失项数量、耗时和 Provider 标识 `openai-compatible-enrichment`，不包含义项或例句文本。
+6. 查词日志不会记录查询词、Prompt、释义、例句、API Key 或 Provider 响应正文。
 
 划词、剪贴板或 UIA 异常：
 

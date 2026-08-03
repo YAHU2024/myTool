@@ -178,6 +178,7 @@ public partial class App : Application
             : new CompositeWordLookupService(_localWordLookupService, _openAiWordLookupService);
         _quickLookupWindow = new QuickLookupWindow(
             _wordLookupService,
+            _openAiWordLookupService,
             _lookupSessions,
             _recentLookups,
             _ttsPlayback,
@@ -271,7 +272,8 @@ public partial class App : Application
         // ★ 创建隐藏主窗口：稳定 WPF Application 生命周期 + 接收 Shell 激活消息
         _hiddenWindow = new Window
         {
-            Width = 0, Height = 0,
+            Width = 0,
+            Height = 0,
             WindowStyle = WindowStyle.None,
             ShowInTaskbar = false,
             ShowActivated = false,
@@ -1087,8 +1089,8 @@ public partial class App : Application
                     MessageBox.Show("更新检查长时间无响应，请稍后重试。", "QuickTranslate 更新",
                         MessageBoxButton.OK, MessageBoxImage.Warning);
                     break;
-                // UpdateAvailable: UpdateService 已弹出更新对话框
-                // Skipped: 已有检查在进行或更新窗口已打开，无需打扰
+                    // UpdateAvailable: UpdateService 已弹出更新对话框
+                    // Skipped: 已有检查在进行或更新窗口已打开，无需打扰
             }
         });
     }

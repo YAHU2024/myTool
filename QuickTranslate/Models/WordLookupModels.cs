@@ -27,7 +27,8 @@ public sealed record WordLookupSource(
 public enum WordLookupSourceKind
 {
     AiGenerated,
-    Dictionary
+    Dictionary,
+    Hybrid
 }
 
 public sealed record WordLookupProviderSettings(

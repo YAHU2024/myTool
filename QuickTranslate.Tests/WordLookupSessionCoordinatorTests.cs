@@ -37,6 +37,20 @@ public sealed class WordLookupSessionCoordinatorTests
         Assert.Equal(WordLookupSessionStatus.Cancelled, coordinator.Current.Status);
     }
 
+    [Fact]
+    public void ReplaceCompletedResult_RejectsStaleRequest()
+    {
+        using var coordinator = new WordLookupSessionCoordinator();
+        var first = coordinator.Begin("first");
+        Assert.True(coordinator.TryComplete(first, Result("first")));
+        Assert.True(coordinator.TryReplaceCompletedResult(first.RequestId, Result("enriched")));
+
+        var second = coordinator.Begin("second");
+        Assert.False(coordinator.TryReplaceCompletedResult(first.RequestId, Result("stale")));
+        Assert.True(coordinator.TryComplete(second, Result("second")));
+        Assert.Equal("second", coordinator.Current.Result?.Headword);
+    }
+
     private static WordLookupResult Result(string headword) => new(
         headword,
         Array.Empty<WordPronunciation>(),

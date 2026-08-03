@@ -25,4 +25,21 @@ public sealed class WordLookupTextFormatterTests
         Assert.Contains("highly resilient", text);
         Assert.EndsWith("AI 释义 · model-x", text);
     }
+
+    [Fact]
+    public void Format_DoesNotInsertBlankDefinitionBeforeEnglishOnlySense()
+    {
+        var result = new WordLookupResult(
+            "take",
+            Array.Empty<WordPronunciation>(),
+            [new WordSense("动词", string.Empty, "move or carry something")],
+            Array.Empty<WordExample>(),
+            Array.Empty<string>(),
+            new WordLookupSource("local", "本地词典", WordLookupSourceKind.Dictionary));
+
+        var text = WordLookupTextFormatter.Format(result);
+
+        Assert.Contains("动词 move or carry something", text);
+        Assert.DoesNotContain("动词 \r\n", text);
+    }
 }
