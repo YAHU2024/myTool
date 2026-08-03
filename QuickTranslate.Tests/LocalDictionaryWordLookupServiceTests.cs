@@ -11,7 +11,7 @@ public sealed class LocalDictionaryWordLookupServiceTests
     public async Task Lookup_ReturnsDictionaryResult_ForExactWord()
     {
         using var db = new TestDictionaryDb();
-        db.InsertEcdict("hello", "həˈləʊ", "喂；你好", "an expression of greeting", "n");
+        db.InsertEcdict("hello", "həˈləʊ", "喂；你好", "an expression of greeting");
         db.InsertWordNet(
             "hello",
             "n",
@@ -35,7 +35,7 @@ public sealed class LocalDictionaryWordLookupServiceTests
     public async Task Lookup_UsesSwFallback_ForSpacedVariant()
     {
         using var db = new TestDictionaryDb();
-        db.InsertEcdict("long-time", "lɒŋ taɪm", "长时间的", string.Empty, "a");
+        db.InsertEcdict("long-time", "lɒŋ taɪm", "长时间的", string.Empty);
 
         using var service = new LocalDictionaryWordLookupService(db.Path);
         var result = await service.LookupAsync(
@@ -44,6 +44,22 @@ public sealed class LocalDictionaryWordLookupServiceTests
 
         Assert.Equal("long-time", result.Headword);
         Assert.Contains("长时间的", result.Senses[0].Definition);
+    }
+
+    [Fact]
+    public async Task Lookup_PrefersExactWord_WhenNormalizedKeysCollide()
+    {
+        using var db = new TestDictionaryDb();
+        db.InsertEcdict("long-time", "", "精确词条", string.Empty, bnc: 100);
+        db.InsertEcdict("long time", "", "高频变体", string.Empty, bnc: 1);
+
+        using var service = new LocalDictionaryWordLookupService(db.Path);
+        var result = await service.LookupAsync(
+            new WordLookupRequest("long-time", "简体中文"),
+            CancellationToken.None);
+
+        Assert.Equal("long-time", result.Headword);
+        Assert.Contains("精确词条", result.Senses[0].Definition);
     }
 
     [Fact]
@@ -75,8 +91,7 @@ public sealed class LocalDictionaryWordLookupServiceTests
             "run",
             "rʌn",
             "n. 跑；奔跑\nvi. 跑；跑步",
-            string.Empty,
-            "n");
+            string.Empty);
 
         using var service = new LocalDictionaryWordLookupService(db.Path);
         var result = await service.LookupAsync(
@@ -115,28 +130,20 @@ public sealed class LocalDictionaryWordLookupServiceTests
             command.CommandText =
                 """
                 CREATE TABLE ecdict_entries (
-                    word TEXT NOT NULL COLLATE NOCASE PRIMARY KEY,
+                    word TEXT NOT NULL,
                     phonetic TEXT,
                     definition TEXT,
                     translation TEXT,
-                    pos TEXT,
-                    collins TEXT,
-                    oxford TEXT,
-                    tag TEXT,
                     bnc INTEGER,
                     frq INTEGER,
-                    exchange TEXT,
                     sw TEXT NOT NULL
                 );
                 CREATE INDEX idx_ecdict_sw ON ecdict_entries(sw);
                 CREATE TABLE wordnet_senses (
                     lemma TEXT NOT NULL COLLATE NOCASE,
                     pos TEXT,
-                    sense_id TEXT,
-                    synset_id TEXT,
                     definition TEXT,
-                    example TEXT,
-                    members TEXT
+                    example TEXT
                 );
                 CREATE INDEX idx_wordnet_lemma ON wordnet_senses(lemma);
                 CREATE TABLE wordnet_forms (
@@ -154,20 +161,20 @@ public sealed class LocalDictionaryWordLookupServiceTests
             string phonetic,
             string translation,
             string definition,
-            string pos)
+            int? bnc = null)
         {
             Execute(
                 """
                 INSERT INTO ecdict_entries
-                    (word, phonetic, definition, translation, pos, sw)
+                    (word, phonetic, definition, translation, bnc, sw)
                 VALUES
-                    (@word, @phonetic, @definition, @translation, @pos, @sw)
+                    (@word, @phonetic, @definition, @translation, @bnc, @sw)
                 """,
                 ("@word", word),
                 ("@phonetic", phonetic),
                 ("@definition", definition),
                 ("@translation", translation),
-                ("@pos", pos),
+                ("@bnc", bnc ?? (object)DBNull.Value),
                 ("@sw", NormalizeKey(word)));
         }
 
@@ -180,14 +187,12 @@ public sealed class LocalDictionaryWordLookupServiceTests
             Execute(
                 """
                 INSERT INTO wordnet_senses
-                    (lemma, pos, sense_id, synset_id, definition, example, members)
+                    (lemma, pos, definition, example)
                 VALUES
-                    (@lemma, @pos, @sense_id, @synset_id, @definition, @example, '')
+                    (@lemma, @pos, @definition, @example)
                 """,
                 ("@lemma", lemma),
                 ("@pos", pos),
-                ("@sense_id", $"{lemma}%1:00:00::"),
-                ("@synset_id", "test-synset"),
                 ("@definition", definition),
                 ("@example", example));
         }

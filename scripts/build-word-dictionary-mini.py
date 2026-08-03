@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Build a small SQLite validation database from ECDICT and OEWN 2025 JSON.
+"""Build the release SQLite dictionary from ECDICT and OEWN 2025 JSON.
 
-This is a minimal validation script, not the production importer. It keeps the
-raw source files out of Git and writes generated databases under an ignored
-output directory such as .build-output/.
+The raw source files and generated database stay outside Git. The schema keeps
+only fields consumed by QuickTranslate's local dictionary provider.
 """
 
 from __future__ import annotations
@@ -38,42 +37,31 @@ SAMPLE_WORDS = [
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ecdict_entries (
-    word TEXT NOT NULL COLLATE NOCASE PRIMARY KEY,
+    word TEXT NOT NULL,
     phonetic TEXT,
     definition TEXT,
     translation TEXT,
-    pos TEXT,
-    collins TEXT,
-    oxford TEXT,
-    tag TEXT,
     bnc INTEGER,
     frq INTEGER,
-    exchange TEXT,
     sw TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_ecdict_sw ON ecdict_entries(sw);
 
 CREATE TABLE IF NOT EXISTS wordnet_senses (
     lemma TEXT NOT NULL COLLATE NOCASE,
     pos TEXT,
-    sense_id TEXT,
-    synset_id TEXT,
     definition TEXT,
-    example TEXT,
-    members TEXT
+    example TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_wordnet_lemma ON wordnet_senses(lemma);
-CREATE INDEX IF NOT EXISTS idx_wordnet_synset ON wordnet_senses(synset_id);
 
 CREATE TABLE IF NOT EXISTS wordnet_forms (
     form TEXT NOT NULL COLLATE NOCASE PRIMARY KEY,
     lemma TEXT NOT NULL COLLATE NOCASE
 );
+"""
 
-CREATE TABLE IF NOT EXISTS dictionary_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
+INDEXES = """
+CREATE INDEX idx_ecdict_sw ON ecdict_entries(sw);
+CREATE INDEX idx_wordnet_lemma ON wordnet_senses(lemma);
 """
 
 
@@ -110,20 +98,15 @@ def import_ecdict(conn: sqlite3.Connection, path: Path) -> int:
                     record.get("phonetic") or "",
                     record.get("definition") or "",
                     record.get("translation") or "",
-                    record.get("pos") or "",
-                    record.get("collins") or "",
-                    record.get("oxford") or "",
-                    record.get("tag") or "",
                     parse_int(record.get("bnc")),
                     parse_int(record.get("frq")),
-                    record.get("exchange") or "",
                     strip_word(word),
                 )
             )
             if len(rows) >= 50_000:
                 cursor.executemany(
                     """INSERT OR REPLACE INTO ecdict_entries
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     rows,
                 )
                 count += len(rows)
@@ -131,7 +114,7 @@ def import_ecdict(conn: sqlite3.Connection, path: Path) -> int:
     if rows:
         cursor.executemany(
             """INSERT OR REPLACE INTO ecdict_entries
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         count += len(rows)
@@ -154,7 +137,6 @@ def build_synset_map(zip_handle: zipfile.ZipFile) -> dict[str, dict[str, object]
             synsets[synset_id] = {
                 "definition": value.get("definition") or [],
                 "example": value.get("example") or [],
-                "members": value.get("members") or [],
                 "pos": value.get("partOfSpeech") or "",
             }
     return synsets
@@ -173,7 +155,7 @@ def import_oewn(conn: sqlite3.Connection, path: Path) -> tuple[int, int]:
     ]
     with zipfile.ZipFile(path) as zip_handle:
         synsets = build_synset_map(zip_handle)
-        sense_rows: list[tuple[str, str, str, str, str, str, str]] = []
+        sense_rows: list[tuple[str, str, str, str]] = []
         form_rows: list[tuple[str, str]] = []
         for name in entry_names:
             payload = json.loads(zip_handle.read(name).decode("utf-8"))
@@ -205,24 +187,18 @@ def import_oewn(conn: sqlite3.Connection, path: Path) -> tuple[int, int]:
                         example = " ".join(
                             str(item) for item in synset.get("example") or []
                         )
-                        members = "; ".join(
-                            str(item) for item in synset.get("members") or []
-                        )
                         sense_rows.append(
                             (
                                 lemma,
                                 str(pos),
-                                str(sense.get("id") or ""),
-                                str(synset_id),
                                 definition,
                                 example,
-                                members,
                             )
                         )
                         if len(sense_rows) >= 50_000:
                             cursor.executemany(
                                 """INSERT INTO wordnet_senses
-                                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                                   VALUES (?, ?, ?, ?)""",
                                 sense_rows,
                             )
                             sense_count += len(sense_rows)
@@ -237,7 +213,7 @@ def import_oewn(conn: sqlite3.Connection, path: Path) -> tuple[int, int]:
         if sense_rows:
             cursor.executemany(
                 """INSERT INTO wordnet_senses
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?)""",
                 sense_rows,
             )
             sense_count += len(sense_rows)
@@ -257,9 +233,11 @@ def count_table(conn: sqlite3.Connection, table: str) -> int:
 
 def lookup_word(conn: sqlite3.Connection, word: str) -> dict[str, object]:
     exact = conn.execute(
-        """SELECT word, phonetic, translation, definition, pos, collins, oxford, tag
-           FROM ecdict_entries WHERE word = ? LIMIT 1""",
-        (word,),
+        """SELECT word, phonetic, translation, definition
+           FROM ecdict_entries
+           WHERE sw = ? AND word = ? COLLATE NOCASE
+           LIMIT 1""",
+        (strip_word(word), word),
     ).fetchone()
     sw_hits = conn.execute(
         """SELECT word, translation, bnc, frq
@@ -273,7 +251,7 @@ def lookup_word(conn: sqlite3.Connection, word: str) -> dict[str, object]:
         """SELECT s.lemma, s.pos, s.definition, s.example
            FROM wordnet_senses s
            WHERE s.lemma = ?
-           ORDER BY s.pos, s.sense_id
+           ORDER BY s.pos, s.definition
            LIMIT 5""",
         (word,),
     ).fetchall()
@@ -286,7 +264,7 @@ def lookup_word(conn: sqlite3.Connection, word: str) -> dict[str, object]:
             """SELECT s.lemma, s.pos, s.definition, s.example
                FROM wordnet_senses s
                WHERE s.lemma = ?
-               ORDER BY s.pos, s.sense_id
+               ORDER BY s.pos, s.definition
                LIMIT 5""",
             (oewn_form[0],),
         ).fetchall()
@@ -357,7 +335,7 @@ def build_report(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Build a minimal validation SQLite database from ECDICT and OEWN."
+        description="Build a release SQLite database from ECDICT and OEWN."
     )
     parser.add_argument(
         "--ecdict",
@@ -401,26 +379,31 @@ def main() -> int:
     words = [word.strip() for word in args.words.split(",") if word.strip()]
 
     started = time.monotonic()
-    conn = sqlite3.connect(args.output)
+    temporary_output = args.output.with_name(args.output.name + ".tmp")
+    temporary_output.unlink(missing_ok=True)
+    conn = sqlite3.connect(temporary_output)
     try:
         conn.executescript(
             """
             DROP TABLE IF EXISTS ecdict_entries;
             DROP TABLE IF EXISTS wordnet_senses;
             DROP TABLE IF EXISTS wordnet_forms;
-            DROP TABLE IF EXISTS dictionary_meta;
             """
         )
         conn.executescript(SCHEMA)
         ecdict_count = import_ecdict(conn, args.ecdict)
         sense_count, form_count = import_oewn(conn, args.oewn)
-        conn.execute(
-            "INSERT OR REPLACE INTO dictionary_meta VALUES ('built_at', ?)",
-            (datetime.now(timezone.utc).isoformat(),),
-        )
-        conn.commit()
-    finally:
+        conn.executescript(INDEXES)
         conn.close()
+        os.replace(temporary_output, args.output)
+    except BaseException:
+        conn.close()
+        temporary_output.unlink(missing_ok=True)
+        raise
+    finally:
+        if temporary_output.exists():
+            conn.close()
+            temporary_output.unlink(missing_ok=True)
 
     report = build_report(args.output, args.ecdict, args.oewn, words)
     report["import"] = {

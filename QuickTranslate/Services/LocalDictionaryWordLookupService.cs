@@ -99,33 +99,23 @@ public sealed class LocalDictionaryWordLookupService : IWordLookupService, IDisp
         SqliteConnection connection,
         string word)
     {
-        using var exact = connection.CreateCommand();
-        exact.CommandText =
+        using var command = connection.CreateCommand();
+        command.CommandText =
             """
-            SELECT word, phonetic, translation, definition, pos
-            FROM ecdict_entries
-            WHERE word = @word COLLATE NOCASE
-            LIMIT 1
-            """;
-        exact.Parameters.AddWithValue("@word", word);
-        using (var reader = exact.ExecuteReader())
-        {
-            if (reader.Read())
-                return ReadEcdict(reader);
-        }
-
-        using var fuzzy = connection.CreateCommand();
-        fuzzy.CommandText =
-            """
-            SELECT word, phonetic, translation, definition, pos
+            SELECT word, phonetic, translation, definition
             FROM ecdict_entries
             WHERE sw = @sw
-            ORDER BY COALESCE(bnc, 999999999), COALESCE(frq, 999999999), word
+            ORDER BY
+                CASE WHEN word = @word COLLATE NOCASE THEN 0 ELSE 1 END,
+                COALESCE(bnc, 999999999),
+                COALESCE(frq, 999999999),
+                word
             LIMIT 1
             """;
-        fuzzy.Parameters.AddWithValue("@sw", NormalizeKey(word));
-        using var fuzzyReader = fuzzy.ExecuteReader();
-        return fuzzyReader.Read() ? ReadEcdict(fuzzyReader) : null;
+        command.Parameters.AddWithValue("@word", word);
+        command.Parameters.AddWithValue("@sw", NormalizeKey(word));
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? ReadEcdict(reader) : null;
     }
 
     private static IReadOnlyList<WordNetSense> QueryWordNet(
@@ -167,7 +157,7 @@ public sealed class LocalDictionaryWordLookupService : IWordLookupService, IDisp
             SELECT lemma, pos, definition, example
             FROM wordnet_senses
             WHERE lemma = @lemma COLLATE NOCASE
-            ORDER BY pos, sense_id
+            ORDER BY pos, definition
             LIMIT 24
             """;
         command.Parameters.AddWithValue("@lemma", lemma);
@@ -190,8 +180,7 @@ public sealed class LocalDictionaryWordLookupService : IWordLookupService, IDisp
         reader.GetString(0),
         reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
         reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-        reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-        reader.IsDBNull(4) ? string.Empty : reader.GetString(4));
+        reader.IsDBNull(3) ? string.Empty : reader.GetString(3));
 
     private static IReadOnlyList<WordPronunciation> BuildPronunciations(
         EcdictEntry? ecdict)
@@ -217,10 +206,11 @@ public sealed class LocalDictionaryWordLookupService : IWordLookupService, IDisp
 
         foreach (var line in lines.Take(MaxSenses))
         {
-            var (pos, definition) = SplitPosLine(line, ecdict?.Pos ?? string.Empty);
-            var english = wordnet
+            var (pos, definition) = SplitPosLine(line, string.Empty);
+            var matchingSense = wordnet
                 .FirstOrDefault(item => SamePos(item.Pos, pos))
-                ?.Definition ?? string.Empty;
+                ?? (pos.Length == 0 ? wordnet.FirstOrDefault() : null);
+            var english = matchingSense?.Definition ?? string.Empty;
             senses.Add(new WordSense(pos, definition, english));
         }
 
@@ -333,8 +323,7 @@ public sealed class LocalDictionaryWordLookupService : IWordLookupService, IDisp
         string Word,
         string Phonetic,
         string Translation,
-        string Definition,
-        string Pos);
+        string Definition);
 
     private sealed record WordNetSense(
         string Lemma,
