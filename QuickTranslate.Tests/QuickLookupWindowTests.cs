@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Threading;
 using QuickTranslate.Core;
 using QuickTranslate.Models;
 using QuickTranslate.Services;
@@ -42,6 +43,7 @@ public sealed class QuickLookupWindowTests
                 Assert.True(sessions.TryComplete(scope, LocalResultWithMissingChinese()));
                 Assert.Equal(Visibility.Visible, window.EnrichButton.Visibility);
                 window.CloseForExit();
+                PumpDispatcher();
             }
             catch (Exception ex)
             {
@@ -83,6 +85,7 @@ public sealed class QuickLookupWindowTests
                 Assert.Equal(Visibility.Collapsed, window.EnrichButtonIcon.Visibility);
                 Assert.Equal(Visibility.Visible, window.EnrichProgress.Visibility);
                 window.CloseForExit();
+                PumpDispatcher();
             }
             catch (Exception ex)
             {
@@ -93,6 +96,17 @@ public sealed class QuickLookupWindowTests
         thread.Start();
         Assert.True(thread.Join(TimeSpan.FromSeconds(5)));
         Assert.Null(failure);
+    }
+
+    /// <summary>
+    /// Drains pending WPF cleanup operations queued by <see cref="Window.Close"/>.
+    /// Required on headless CI where the Dispatcher lacks a native message pump.
+    /// </summary>
+    private static void PumpDispatcher()
+    {
+        Dispatcher.CurrentDispatcher.Invoke(
+            () => { },
+            DispatcherPriority.Background);
     }
 
     private sealed class NoOpLookupService : IWordLookupService
