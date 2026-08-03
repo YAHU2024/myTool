@@ -31,7 +31,7 @@ A lightweight .NET 8 WPF desktop translator that connects to OpenAI-compatible A
 | Core Translation | SSE streaming token-by-token output · drag / double-click / triple-click selection · red-dot guidance interaction · floating window instant preview · 14 languages · automatic language detection |
 | Smart Detection | Auto-classifies Translation / Code / Term and routes to specialized prompts · confidence diagnostics · browser / terminal scene awareness |
 | Multi-mode Sessions | Switch between Translate / Command-parse / Term-explain / Deep-analysis on the same text · instant restore of finished results |
-| Quick Lookup | Single-click tray or Alt+W global hotkey opens compact lookup panel · structured AI definitions / phonetics / examples / collocations · five recent items · speech and copy · centered popup / toggle visibility |
+| Quick Lookup | Local dictionary priority (ECDICT/OEWN) · automatic AI fallback on miss · one-click AI Chinese completion · unified POS labels · structured definitions / phonetics / examples / collocations · five recent items · speech and copy · centered popup / toggle visibility |
 | Markdown | Safe parse & render · standalone copy of fenced code blocks · tables / lists / quotes · only http/https links allowed |
 | Text-to-Speech | Edge TTS online synthesis · read selected text · one-click read of translation result · automatic language matching |
 | Translation History | SQLite local persistence · search & filter by time / language · paginated browsing · double-click to copy · Anki-format export |
@@ -66,13 +66,13 @@ Multi-model switching, customizable global hotkeys, analysis profile management 
 
 ---
 
-### Quick Lookup · Local Dictionary & AI Completion
+### Quick Lookup · Local Dictionary & AI Completion · AI Fallback
 
 <p align="center">
   <img src="docs/images/快速查词窗口.png" alt="Quick Lookup window" width="85%">
 </p>
 
-Single-click tray or `Alt+W` opens a compact lookup panel with **local dictionary priority** (ECDICT + OEWN), unified Chinese POS labels, one-click AI completion for missing Chinese definitions, phonetics, examples, collocations, and text-to-speech.
+Single-click tray or `Alt+W` opens a compact lookup panel with **local dictionary priority** (ECDICT + OEWN), unified Chinese POS labels, one-click AI completion for missing Chinese definitions, automatic fallback to AI lookup when the local dictionary misses or is not installed, phonetics, examples, collocations, and text-to-speech.
 
 ---
 
