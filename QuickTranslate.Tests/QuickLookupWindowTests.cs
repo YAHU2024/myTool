@@ -15,7 +15,7 @@ public sealed class QuickLookupWindowTests
         Environment.GetEnvironmentVariable("CI") == "true" ||
         Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true";
 
-    [Fact]
+    [SkippableFact]
     public void Constructor_LoadsXamlAndExposesAccessibleCoreControls()
     {
         Skip.If(IsRunningOnCI, "WPF window tests require a real message pump, unavailable on headless CI.");
@@ -61,7 +61,7 @@ public sealed class QuickLookupWindowTests
         Assert.Null(failure);
     }
 
-    [Fact]
+    [SkippableFact]
     public void EnrichmentButton_ShowsBusyStateImmediately()
     {
         Skip.If(IsRunningOnCI, "WPF window tests require a real message pump, unavailable on headless CI.");
