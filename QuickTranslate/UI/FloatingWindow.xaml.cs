@@ -476,7 +476,7 @@ public partial class FloatingWindow : Window
         ResetAutoHideTimer();
     }
 
-    
+
 
     private async void SpeakButton_Click(object sender, RoutedEventArgs e)
     {

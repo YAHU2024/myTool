@@ -82,7 +82,8 @@ namespace QuickTranslate.Helpers
                 if (monitor != IntPtr.Zero && GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, out var x, out var y) == 0 && x > 0 && y > 0)
                     return new Point(x / 96.0, y / 96.0);
             }
-            catch (DllNotFoundException) { } catch (EntryPointNotFoundException) { }
+            catch (DllNotFoundException) { }
+            catch (EntryPointNotFoundException) { }
             var hdc = GetDC(IntPtr.Zero);
             try { return new Point(Math.Max(GetDeviceCaps(hdc, LOGPIXELSX) / 96.0, 1), Math.Max(GetDeviceCaps(hdc, LOGPIXELSY) / 96.0, 1)); }
             finally { if (hdc != IntPtr.Zero) ReleaseDC(IntPtr.Zero, hdc); }
