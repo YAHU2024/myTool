@@ -76,12 +76,12 @@ public partial class DownloadUpdateWindow : Window
         {
             StatusText.Text = "准备安装";
             DownloadProgress.Value = 100;
+            DownloadProgress.Visibility = Visibility.Visible;
         }
         else
         {
             StatusText.Text = "更新失败";
-            DownloadProgress.IsIndeterminate = false;
-            DownloadProgress.Value = 0;
+            DownloadProgress.Visibility = Visibility.Collapsed;
         }
 
         DetailText.Text = message;

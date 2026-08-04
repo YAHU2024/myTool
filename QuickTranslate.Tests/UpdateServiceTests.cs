@@ -23,6 +23,7 @@ public sealed class UpdateServiceTests : IDisposable
     public void Dispose()
     {
         UpdateService.ResetPendingState();
+        UpdateService.ShowConfirmDialogForTesting = null;
         // Restore production adapter (null triggers creation of real one on next Configure)
         UpdateService.SetAdapterForTesting(new AutoUpdaterAdapter());
     }
@@ -406,10 +407,17 @@ public sealed class UpdateServiceTests : IDisposable
         var resultA = await taskA;
         Assert.Equal(UpdateCheckOutcome.Timeout, resultA.Outcome);
 
-        // Cache should have been updated by the late callback
-        // NOTE: ShowUpdateFormForLastCheck triggers download (sets _installInProgress=true),
-        // so it must be called after all CheckAsync assertions are complete.
-        Assert.True(UpdateService.ShowUpdateFormForLastCheck());
+        // Cache should have been updated by the late callback.
+        // Use test hook to avoid creating real WPF window in test context.
+        UpdateService.ShowConfirmDialogForTesting = (_, _) => true;
+        try
+        {
+            Assert.True(UpdateService.ShowUpdateFormForLastCheck());
+        }
+        finally
+        {
+            UpdateService.ShowConfirmDialogForTesting = null;
+        }
     }
 
     [Fact]
