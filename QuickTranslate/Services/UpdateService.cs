@@ -288,7 +288,7 @@ public static class UpdateService
 
     /// <summary>
     /// 弹出最近一次检查发现的更新对话框（供托盘气泡点击后调用）。
-    /// 下载、签名验证和安装均由本方法接管。
+    /// 展示版本信息和 changelog，用户确认后由 <see cref="DownloadAndInstallAsync"/> 接管下载安装流程。
     /// </summary>
     public static bool ShowUpdateFormForLastCheck()
     {
@@ -297,7 +297,7 @@ public static class UpdateService
 
         if (UpdateFormRunner.IsBusy || _installInProgress) return false;
 
-        return UpdateFormRunner.TryRun(() => _ = DownloadAndInstallAsync(args, null));
+        return UpdateFormRunner.TryRun(() => ShowUpdateConfirmation(args, null));
     }
 
     /// <summary>
@@ -363,8 +363,9 @@ public static class UpdateService
 
             if (autoShow)
             {
-                // 接管下载安装流程（不再委托 AutoUpdater.ShowUpdateForm）
-                _ = DownloadAndInstallAsync(args, null);
+                // 先弹出确认对话框展示版本信息和 changelog，
+                // 用户确认后由 DownloadAndInstallAsync 接管下载安装流程
+                ShowUpdateConfirmation(args, null);
             }
             return;
         }
@@ -381,6 +382,47 @@ public static class UpdateService
 
         if (!isLate)
             tcs?.TrySetResult(new UpdateCheckResult(UpdateCheckOutcome.UpToDate, null));
+    }
+
+    /// <summary>
+    /// [仅测试] 替换确认对话框实现为无 WPF 依赖的委托。
+    /// 返回 true 表示"用户确认更新"，返回 false 表示"用户取消"。
+    /// 设置为 null 恢复生产环境的 WPF 对话框。
+    /// </summary>
+    internal static Func<UpdateInfoEventArgs, Window?, bool>? ShowConfirmDialogForTesting { get; set; }
+
+    /// <summary>
+    /// 弹出确认对话框，展示新版本信息和 changelog（内嵌 WebBrowser）。
+    /// 用户点击"立即更新"后调用 <see cref="DownloadAndInstallAsync"/> 接管下载安装流程。
+    /// </summary>
+    private static void ShowUpdateConfirmation(UpdateInfoEventArgs args, Window? owner)
+    {
+        if (ShowConfirmDialogForTesting is not null)
+        {
+            if (ShowConfirmDialogForTesting(args, owner))
+                _ = DownloadAndInstallAsync(args, owner);
+            return;
+        }
+
+        var window = new UpdateAvailableWindow(
+            args.InstalledVersion?.ToString(),
+            args.CurrentVersion?.ToString(),
+            args.ChangelogURL)
+        {
+            Mandatory = args.Mandatory.Value
+        };
+
+        if (owner is not null)
+            window.Owner = owner;
+        else
+            window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+        window.ShowDialog();
+
+        if (window.UpdateConfirmed)
+        {
+            _ = DownloadAndInstallAsync(args, owner);
+        }
     }
 
     /// <summary>
