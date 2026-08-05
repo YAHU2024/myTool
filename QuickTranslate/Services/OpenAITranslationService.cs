@@ -14,6 +14,9 @@ namespace QuickTranslate.Services;
 /// </summary>
 public sealed class OpenAITranslationService : ITranslationService, IDisposable
 {
+    internal const int MaxFollowUpQuestionRunes = 1000;
+    internal const int MaxFollowUpContextCharacters = 60000;
+
     private readonly HttpClient _httpClient;
     private AppSettings _settings;
 
@@ -102,61 +105,13 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             text_len = request.Text.Length
         });
 
-        var requestBody = BuildRequestBody(request, stream: true);
-        using var response = await SendAsync(
-            request,
-            requestBody,
-            HttpCompletionOption.ResponseHeadersRead,
+        var result = await ExecuteChatStreamingAsync(
+            request.ApiBaseUrl,
+            request.ApiKey,
+            BuildRequestBody(request, stream: true),
+            operation,
+            onChunk,
             cancellationToken).ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new HttpRequestException(
-                $"{operation} request failed ({(int)response.StatusCode})");
-        }
-
-        var fullResult = new StringBuilder();
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using var reader = new StreamReader(stream);
-
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
-            if (line == null)
-                break;
-            if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data: ", StringComparison.Ordinal))
-                continue;
-
-            var data = line[6..];
-            if (data == "[DONE]")
-                break;
-
-            try
-            {
-                using var document = JsonDocument.Parse(data);
-                var choices = document.RootElement.GetProperty("choices");
-                if (choices.GetArrayLength() == 0)
-                    continue;
-
-                var delta = choices[0].GetProperty("delta");
-                if (!delta.TryGetProperty("content", out var contentElement))
-                    continue;
-
-                var chunk = contentElement.GetString();
-                if (string.IsNullOrEmpty(chunk))
-                    continue;
-
-                fullResult.Append(chunk);
-                onChunk(fullResult.ToString());
-            }
-            catch (JsonException)
-            {
-                // Ignore malformed provider chunks and continue reading the stream.
-            }
-        }
-
-        var result = fullResult.ToString().Trim();
         Logger.Info("TranslationService", "translation.completed", new
         {
             operation,
@@ -167,6 +122,123 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds
         });
         return result;
+    }
+
+    public AnalysisFollowUpRequest CreateAnalysisFollowUpRequest(
+        string sourceText,
+        string rootAnalysis,
+        AnalysisSemanticSnapshot semanticSnapshot,
+        IReadOnlyList<AnalysisFollowUpExchange> completedTurns,
+        string question,
+        int turnNumber)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceText);
+        ArgumentException.ThrowIfNullOrWhiteSpace(rootAnalysis);
+        ArgumentNullException.ThrowIfNull(semanticSnapshot);
+        ArgumentNullException.ThrowIfNull(completedTurns);
+
+        if (string.IsNullOrWhiteSpace(semanticSnapshot.SystemPrompt))
+            throw new ArgumentException("解析 Prompt 不能为空", nameof(semanticSnapshot));
+        if (turnNumber is < 1 or > 10)
+            throw new ArgumentOutOfRangeException(nameof(turnNumber));
+        if (completedTurns.Count > 9)
+            throw new ArgumentOutOfRangeException(nameof(completedTurns));
+
+        var normalizedQuestion = question?.Trim() ?? string.Empty;
+        if (normalizedQuestion.Length == 0)
+            throw new ArgumentException("追问不能为空", nameof(question));
+        if (normalizedQuestion.EnumerateRunes().Count() > MaxFollowUpQuestionRunes)
+            throw new ArgumentException($"追问不能超过 {MaxFollowUpQuestionRunes} 个字符", nameof(question));
+
+        var messages = new List<ChatCompletionMessage>(4 + completedTurns.Count * 2)
+        {
+            new("system", semanticSnapshot.SystemPrompt),
+            new("user", sourceText),
+            new("assistant", rootAnalysis)
+        };
+        foreach (var turn in completedTurns)
+        {
+            if (string.IsNullOrWhiteSpace(turn.Question) || string.IsNullOrWhiteSpace(turn.Answer))
+                throw new ArgumentException("已完成追问必须包含问题和回答", nameof(completedTurns));
+            messages.Add(new ChatCompletionMessage("user", turn.Question));
+            messages.Add(new ChatCompletionMessage("assistant", turn.Answer));
+        }
+        messages.Add(new ChatCompletionMessage("user", normalizedQuestion));
+
+        var contextCharacters = messages.Sum(message => message.Content.Length);
+        if (contextCharacters > MaxFollowUpContextCharacters)
+            throw new InvalidOperationException("当前解析内容过长，无法继续追问");
+
+        var settings = PromptSettings.From(Volatile.Read(ref _settings));
+        return new AnalysisFollowUpRequest(
+            turnNumber,
+            messages.ToArray(),
+            settings.ApiBaseUrl,
+            settings.ApiKey,
+            settings.ModelName,
+            normalizedQuestion.Length,
+            contextCharacters);
+    }
+
+    public async Task<string> ExecuteAnalysisFollowUpStreamingAsync(
+        AnalysisFollowUpRequest request,
+        Action<string> onChunk,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateFollowUpRequest(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        var startedAt = Stopwatch.GetTimestamp();
+        Logger.Info("TranslationService", "analysis.follow_up.started", new
+        {
+            turn = request.TurnNumber,
+            question_len = request.QuestionLength,
+            context_chars = request.ContextCharacters
+        });
+
+        try
+        {
+            var result = await ExecuteChatStreamingAsync(
+                request.ApiBaseUrl,
+                request.ApiKey,
+                BuildRequestBody(
+                    request.ModelName,
+                    request.Messages,
+                    request.ApiBaseUrl,
+                    stream: true),
+                "analysis follow-up",
+                onChunk,
+                cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(result))
+                throw new FormatException("追问返回为空");
+
+            Logger.Info("TranslationService", "analysis.follow_up.completed", new
+            {
+                turn = request.TurnNumber,
+                answer_len = result.Length,
+                duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds
+            });
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.Debug("TranslationService", "analysis.follow_up.cancelled", new
+            {
+                turn = request.TurnNumber
+            });
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn("TranslationService", "analysis.follow_up.failed", new
+            {
+                turn = request.TurnNumber,
+                error_type = ex.GetType().Name,
+                status_code = ex is HttpRequestException { StatusCode: { } statusCode }
+                    ? (int?)statusCode
+                    : null
+            });
+            throw;
+        }
     }
 
     public Task<string> TranslateStreamingAsync(
@@ -194,7 +266,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
         var requestBody = BuildRequestBody(request, stream: false);
         using var response = await SendAsync(
-            request,
+            request.ApiBaseUrl,
+            request.ApiKey,
             requestBody,
             HttpCompletionOption.ResponseContentRead,
             cancellationToken).ConfigureAwait(false);
@@ -236,41 +309,119 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
     }
 
     private async Task<HttpResponseMessage> SendAsync(
-        TranslationRequest request,
+        string apiBaseUrl,
+        string apiKey,
         Dictionary<string, object> requestBody,
         HttpCompletionOption completionOption,
         CancellationToken cancellationToken)
     {
-        var url = $"{request.ApiBaseUrl.TrimEnd('/')}/chat/completions";
+        var url = $"{apiBaseUrl.TrimEnd('/')}/chat/completions";
         var jsonContent = JsonSerializer.Serialize(requestBody, JsonOptions);
         using var message = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = new StringContent(jsonContent, Encoding.UTF8, "application/json")
         };
-        message.Headers.Add("Authorization", $"Bearer {request.ApiKey}");
+        message.Headers.Add("Authorization", $"Bearer {apiKey}");
         return await _httpClient.SendAsync(message, completionOption, cancellationToken).ConfigureAwait(false);
     }
 
     private static Dictionary<string, object> BuildRequestBody(TranslationRequest request, bool stream)
     {
+        return BuildRequestBody(
+            request.ModelName,
+            [
+                new ChatCompletionMessage("system", request.SystemPrompt),
+                new ChatCompletionMessage("user", request.Text)
+            ],
+            request.ApiBaseUrl,
+            stream);
+    }
+
+    private static Dictionary<string, object> BuildRequestBody(
+        string modelName,
+        IReadOnlyList<ChatCompletionMessage> messages,
+        string apiBaseUrl,
+        bool stream)
+    {
         var body = new Dictionary<string, object>
         {
-            ["model"] = request.ModelName,
-            ["messages"] = new[]
-            {
-                new { role = "system", content = request.SystemPrompt },
-                new { role = "user", content = request.Text }
-            },
+            ["model"] = modelName,
+            ["messages"] = messages,
             ["temperature"] = 0.3,
             ["stream"] = stream
         };
 
-        if (request.ApiBaseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase))
+        if (apiBaseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase))
             body["thinking"] = new { type = "disabled" };
-        else if (request.ApiBaseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
+        else if (apiBaseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
             body["enable_thinking"] = false;
 
         return body;
+    }
+
+    private async Task<string> ExecuteChatStreamingAsync(
+        string apiBaseUrl,
+        string apiKey,
+        Dictionary<string, object> requestBody,
+        string operation,
+        Action<string> onChunk,
+        CancellationToken cancellationToken)
+    {
+        using var response = await SendAsync(
+            apiBaseUrl,
+            apiKey,
+            requestBody,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                $"{operation} request failed ({(int)response.StatusCode})",
+                inner: null,
+                response.StatusCode);
+        }
+
+        var fullResult = new StringBuilder();
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var reader = new StreamReader(stream);
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            if (line == null)
+                break;
+            if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data: ", StringComparison.Ordinal))
+                continue;
+
+            var data = line[6..];
+            if (data == "[DONE]")
+                break;
+
+            try
+            {
+                using var document = JsonDocument.Parse(data);
+                var choices = document.RootElement.GetProperty("choices");
+                if (choices.GetArrayLength() == 0)
+                    continue;
+
+                var delta = choices[0].GetProperty("delta");
+                if (!delta.TryGetProperty("content", out var contentElement))
+                    continue;
+
+                var chunk = contentElement.GetString();
+                if (string.IsNullOrEmpty(chunk))
+                    continue;
+                fullResult.Append(chunk);
+                onChunk(fullResult.ToString());
+            }
+            catch (JsonException)
+            {
+                // Ignore malformed provider chunks and continue reading the stream.
+            }
+        }
+
+        return fullResult.ToString().Trim();
     }
 
     private static PromptResult BuildSystemPromptCore(
@@ -387,6 +538,16 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         // Enforce HTTPS for remote endpoints — credentials must not travel
         // as plaintext over the network. HTTP is only permitted for
         // loopback addresses used during local development.
+        ApiEndpointValidator.ValidateAndNormalize(request.ApiBaseUrl);
+    }
+
+    private static void ValidateFollowUpRequest(AnalysisFollowUpRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Messages.Count < 4)
+            throw new ArgumentException("追问上下文不完整", nameof(request));
+        if (string.IsNullOrWhiteSpace(request.ApiKey))
+            throw new InvalidOperationException("请先在设置中配置 API Key");
         ApiEndpointValidator.ValidateAndNormalize(request.ApiBaseUrl);
     }
 

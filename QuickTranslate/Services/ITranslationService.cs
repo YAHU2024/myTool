@@ -22,6 +22,19 @@ namespace QuickTranslate.Services
             Action<string> onChunk,
             CancellationToken cancellationToken = default);
 
+        AnalysisFollowUpRequest CreateAnalysisFollowUpRequest(
+            string sourceText,
+            string rootAnalysis,
+            AnalysisSemanticSnapshot semanticSnapshot,
+            IReadOnlyList<AnalysisFollowUpExchange> completedTurns,
+            string question,
+            int turnNumber);
+
+        Task<string> ExecuteAnalysisFollowUpStreamingAsync(
+            AnalysisFollowUpRequest request,
+            Action<string> onChunk,
+            CancellationToken cancellationToken = default);
+
         /// <summary>
         /// 流式翻译文本，通过回调函数逐步返回中间结果
         /// </summary>
