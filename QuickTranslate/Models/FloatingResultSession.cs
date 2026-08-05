@@ -41,6 +41,38 @@ internal readonly record struct FloatingResultRequestIdentity(
     long RequestId,
     long PresentationId);
 
+internal enum AnalysisFollowUpTurnStatus
+{
+    Loading,
+    Completed,
+    Failed,
+    Cancelled
+}
+
+internal sealed record AnalysisFollowUpTurnState(
+    int TurnNumber,
+    string Question,
+    string AnswerRawText,
+    AnalysisFollowUpTurnStatus Status,
+    long LastRequestId);
+
+internal sealed record AnalysisConversationState(
+    long? RootAnalysisRequestId,
+    AnalysisSemanticSnapshot? SemanticSnapshot,
+    string Draft,
+    IReadOnlyList<AnalysisFollowUpTurnState> Turns)
+{
+    internal static AnalysisConversationState Empty() =>
+        new(null, null, string.Empty, Array.Empty<AnalysisFollowUpTurnState>());
+}
+
+internal readonly record struct AnalysisFollowUpRequestIdentity(
+    Guid SessionId,
+    long RootAnalysisRequestId,
+    int TurnNumber,
+    long RequestId,
+    long PresentationId);
+
 /// <summary>
 /// A read-only result session for one selected source text.
 /// State transitions are owned exclusively by <see cref="FloatingResultSessionCoordinator"/>.
@@ -49,6 +81,7 @@ internal sealed class FloatingResultSession
 {
     private readonly Dictionary<ContentType, ModeResultState> _modeStates;
     private readonly ReadOnlyDictionary<ContentType, ModeResultState> _readOnlyModeStates;
+    private AnalysisConversationState _analysisConversation = AnalysisConversationState.Empty();
 
     internal FloatingResultSession(
         Guid sessionId,
@@ -76,10 +109,13 @@ internal sealed class FloatingResultSession
     public ContentType ActiveMode { get; private set; }
     public DetectionResult? Detection { get; }
     public IReadOnlyDictionary<ContentType, ModeResultState> ModeStates => _readOnlyModeStates;
+    public AnalysisConversationState AnalysisConversation => _analysisConversation;
 
     internal ModeResultState GetModeState(ContentType mode) => _modeStates[mode];
 
     internal void SetActiveMode(ContentType mode) => ActiveMode = mode;
 
     internal void SetModeState(ContentType mode, ModeResultState state) => _modeStates[mode] = state;
+
+    internal void SetAnalysisConversation(AnalysisConversationState state) => _analysisConversation = state;
 }

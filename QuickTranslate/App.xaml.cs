@@ -599,6 +599,8 @@ public partial class App : Application
 
     private void OnHideRequested()
     {
+        if (_resultSessions.CancelActiveFollowUp())
+            _translationRequests.Cancel();
         _floatingWindow?.ResetPin();
         _floatingWindow?.Hide();
     }
@@ -721,7 +723,10 @@ public partial class App : Application
                     _translationMetrics.RecordExpired();
                     return;
                 }
-                if (!_resultSessions.TryComplete(sessionIdentity, cachedResult))
+                if (!_resultSessions.TryComplete(
+                    sessionIdentity,
+                    cachedResult,
+                    CreateAnalysisSemanticSnapshot(request)))
                 {
                     _translationMetrics.RecordExpired();
                     return;
@@ -778,7 +783,10 @@ public partial class App : Application
                 _translationMetrics.RecordExpired();
                 return;
             }
-            if (!_resultSessions.TryComplete(sessionIdentity, result))
+            if (!_resultSessions.TryComplete(
+                sessionIdentity,
+                result,
+                CreateAnalysisSemanticSnapshot(request)))
             {
                 _translationMetrics.RecordExpired();
                 return;
@@ -849,6 +857,11 @@ public partial class App : Application
         _trayIcon?.SetRestoreAvailable(
             session.ModeStates.Values.Any(state => state.Status == ModeResultStatus.Completed));
     }
+
+    private static AnalysisSemanticSnapshot? CreateAnalysisSemanticSnapshot(TranslationRequest request) =>
+        request.Kind == TranslationRequestKind.Analysis
+            ? new AnalysisSemanticSnapshot(request.SystemPrompt, request.TargetLanguage)
+            : null;
 
     private async Task ShowMessageWithoutReplacingSessionAsync(
         string message,

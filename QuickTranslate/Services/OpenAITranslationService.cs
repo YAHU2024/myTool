@@ -14,7 +14,7 @@ namespace QuickTranslate.Services;
 /// </summary>
 public sealed class OpenAITranslationService : ITranslationService, IDisposable
 {
-    internal const int MaxFollowUpQuestionRunes = 1000;
+    internal const int MaxFollowUpQuestionRunes = AnalysisConversationFormatter.MaxQuestionRunes;
     internal const int MaxFollowUpContextCharacters = 60000;
 
     private readonly HttpClient _httpClient;
@@ -144,11 +144,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         if (completedTurns.Count > 9)
             throw new ArgumentOutOfRangeException(nameof(completedTurns));
 
-        var normalizedQuestion = question?.Trim() ?? string.Empty;
-        if (normalizedQuestion.Length == 0)
-            throw new ArgumentException("追问不能为空", nameof(question));
-        if (normalizedQuestion.EnumerateRunes().Count() > MaxFollowUpQuestionRunes)
-            throw new ArgumentException($"追问不能超过 {MaxFollowUpQuestionRunes} 个字符", nameof(question));
+        var normalizedQuestion = AnalysisConversationFormatter.NormalizeQuestion(question);
 
         var messages = new List<ChatCompletionMessage>(4 + completedTurns.Count * 2)
         {
