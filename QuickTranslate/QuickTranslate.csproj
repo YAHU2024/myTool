@@ -7,9 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>1.8.6</Version>
-    <AssemblyVersion>1.8.6.0</AssemblyVersion>
-    <FileVersion>1.8.6.0</FileVersion>
+    <Version>1.8.7</Version>
+    <AssemblyVersion>1.8.7.0</AssemblyVersion>
+    <FileVersion>1.8.7.0</FileVersion>
     <Product>QuickTranslate</Product>
     <Authors>YaHu</Authors>
     <Description>QuickTranslate - 智能快捷翻译工具</Description>
