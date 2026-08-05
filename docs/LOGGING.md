@@ -390,6 +390,20 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 
 自动化测试不能替代以下 Windows 桌面验证：托盘入口、日志窗口关闭/重开、日志刷新、真实文件轮转、设置即时生效、文件占用以及混合 DPI 下的窗口显示。
 
+## Analysis follow-up events (Phase 11)
+
+| Event | Level | Context keys (no text body) |
+|------|-------|-----------------------------|
+| analysis.follow_up.started | Info | turn, question_len, context_chars, request_id |
+| analysis.follow_up.completed | Info | turn, answer_len, duration_ms, request_id |
+| analysis.follow_up.cancelled | Debug | turn, request_id |
+| analysis.follow_up.failed | Warn | turn, error_type, status_code, request_id |
+| analysis.follow_up.limit_reached | Info | turn_count, context_chars, limit_kind, request_id |
+
+These events never contain the selected source text, questions, answers, summaries,
+message bodies, system prompts, API keys, Authorization headers, endpoint/model
+configuration, provider response bodies, or exception messages.
+
 ## TTS events (Phase 14 / 14.1)
 
 | Event | Level | Context keys (no text body) |

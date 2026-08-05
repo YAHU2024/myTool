@@ -130,7 +130,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         AnalysisSemanticSnapshot semanticSnapshot,
         IReadOnlyList<AnalysisFollowUpExchange> completedTurns,
         string question,
-        int turnNumber)
+        int turnNumber,
+        long requestId = 0)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceText);
         ArgumentException.ThrowIfNullOrWhiteSpace(rootAnalysis);
@@ -163,7 +164,16 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
         var contextCharacters = messages.Sum(message => message.Content.Length);
         if (contextCharacters > MaxFollowUpContextCharacters)
+        {
+            Logger.Info("TranslationService", "analysis.follow_up.limit_reached", new
+            {
+                turn_count = turnNumber,
+                context_chars = contextCharacters,
+                limit_kind = "context_chars",
+                request_id = requestId
+            });
             throw new InvalidOperationException("当前解析内容过长，无法继续追问");
+        }
 
         var settings = PromptSettings.From(Volatile.Read(ref _settings));
         return new AnalysisFollowUpRequest(
@@ -173,7 +183,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             settings.ApiKey,
             settings.ModelName,
             normalizedQuestion.Length,
-            contextCharacters);
+            contextCharacters,
+            requestId);
     }
 
     public async Task<string> ExecuteAnalysisFollowUpStreamingAsync(
@@ -188,7 +199,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         {
             turn = request.TurnNumber,
             question_len = request.QuestionLength,
-            context_chars = request.ContextCharacters
+            context_chars = request.ContextCharacters,
+            request_id = request.RequestId
         });
 
         try
@@ -211,7 +223,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             {
                 turn = request.TurnNumber,
                 answer_len = result.Length,
-                duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds
+                duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+                request_id = request.RequestId
             });
             return result;
         }
@@ -219,7 +232,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         {
             Logger.Debug("TranslationService", "analysis.follow_up.cancelled", new
             {
-                turn = request.TurnNumber
+                turn = request.TurnNumber,
+                request_id = request.RequestId
             });
             throw;
         }
@@ -229,6 +243,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             {
                 turn = request.TurnNumber,
                 error_type = ex.GetType().Name,
+                request_id = request.RequestId,
                 status_code = ex is HttpRequestException { StatusCode: { } statusCode }
                     ? (int?)statusCode
                     : null

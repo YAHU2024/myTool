@@ -13,4 +13,5 @@ public sealed record AnalysisFollowUpRequest(
     string ApiKey,
     string ModelName,
     int QuestionLength,
-    int ContextCharacters);
+    int ContextCharacters,
+    long RequestId = 0);

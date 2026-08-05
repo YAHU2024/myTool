@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
@@ -73,13 +74,24 @@ public partial class FloatingWindow : Window
     private bool _placeAbove;
     private Guid _sessionId;
     private ContentType _activeMode = ContentType.Translation;
+    private AnalysisConversationState _analysisConversation = AnalysisConversationState.Empty();
+    private readonly Dictionary<int, TextBlock> _streamingFollowUpAnswers = new();
+    private bool _isImeComposing;
+    private bool _suppressDraftEvent;
+    private string _copyText = string.Empty;
+    private string _speechText = string.Empty;
 
     public event Action<ContentType>? ModeRequested;
     public event Action? RefreshRequested;
     public event Action? HideRequested;
     public event Action<Guid, ContentType, double, bool>? ScrollStateChanged;
+    public event Action<string>? AnalysisFollowUpRequested;
+    public event Action? AnalysisFollowUpRetryRequested;
+    public event Action<Guid, string>? AnalysisDraftChanged;
 
     internal bool IsTtsBusy => _isTtsBusy;
+    internal int AnalysisTurnViewCount => AnalysisTurnsPanel.Children.Count;
+    internal int ConversationNodeCount => ConversationNodeRail.Children.Count;
 
     public bool IsPinned { get; private set; }
 
@@ -93,7 +105,9 @@ public partial class FloatingWindow : Window
         TitleBar.PreviewMouseMove += TitleBar_PreviewMouseMove;
         TitleBar.PreviewMouseLeftButtonUp += TitleBar_PreviewMouseLeftButtonUp;
         TitleBar.LostMouseCapture += TitleBar_LostMouseCapture;
-
+        TextCompositionManager.AddPreviewTextInputStartHandler(FollowUpTextBox, OnFollowUpTextInputStart);
+        TextCompositionManager.AddPreviewTextInputUpdateHandler(FollowUpTextBox, OnFollowUpTextInputUpdate);
+        TextCompositionManager.AddPreviewTextInputHandler(FollowUpTextBox, OnFollowUpTextInputCompleted);
         _autoHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _autoHideTimer.Tick += (_, _) =>
         {
@@ -101,6 +115,8 @@ public partial class FloatingWindow : Window
                 Hide();
             _autoHideTimer.Stop();
         };
+        FollowUpTextBox.GotKeyboardFocus += (_, _) => _autoHideTimer.Stop();
+        FollowUpTextBox.LostKeyboardFocus += (_, _) => ResetAutoHideTimer();
 
         _scrollBarHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.2) };
         _scrollBarHideTimer.Tick += (_, _) =>
@@ -213,7 +229,11 @@ public partial class FloatingWindow : Window
     /// Applies the current mode state from the session coordinator, including its saved scroll state.
     /// This method does not start work or mutate coordinator state.
     /// </summary>
-    internal void SetSessionView(Guid sessionId, ContentType mode, ModeResultState state)
+    internal void SetSessionView(
+        Guid sessionId,
+        ContentType mode,
+        ModeResultState state,
+        AnalysisConversationState? analysisConversation = null)
     {
         // Persist the currently visible mode before its view is replaced.
         RaiseScrollStateChanged();
@@ -226,6 +246,9 @@ public partial class FloatingWindow : Window
         _modeStatus = state.Status;
         SetActiveModeButton(mode);
         _rawText = state.RawText;
+        _analysisConversation = mode == ContentType.Analysis
+            ? analysisConversation ?? AnalysisConversationState.Empty()
+            : AnalysisConversationState.Empty();
         _isMarkdownExpanded = false;
         _autoScroll.BeginRequest();
         if (!state.AutoScrollEnabled)
@@ -237,6 +260,7 @@ public partial class FloatingWindow : Window
         else
             ShowPlainText();
         SetLoading(state.Status == ModeResultStatus.Loading);
+        RenderAnalysisConversation();
         RefreshSpeakButton();
 
         var expectedSessionId = sessionId;
@@ -290,6 +314,8 @@ public partial class FloatingWindow : Window
             return false;
 
         _rawText = translation;
+        _copyText = translation;
+        _speechText = translation;
         if (!_isLoading)
             _modeStatus = ModeResultStatus.Completed;
         else
@@ -304,7 +330,7 @@ public partial class FloatingWindow : Window
         var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(anchor.PreferredPoint);
         var scale = DpiHelper.GetScaleForPhysicalPoint(anchor.PreferredPoint);
         var exclusionBounds = anchor.GetEffectiveExclusionBounds(scale);
-        const double chromeHeightDip = 54;
+        var chromeHeightDip = contentType == ContentType.Analysis ? 94 : 54;
         var gap = PlacementGapDip * scale.Y;
         var minimumWindowHeight = (80 + chromeHeightDip) * scale.Y;
         _placeAbove = FloatingWindowPlacement.ShouldPlaceAbove(exclusionBounds, workArea, minimumWindowHeight, gap);
@@ -340,6 +366,11 @@ public partial class FloatingWindow : Window
             return;
 
         _rawText = translation;
+        if (_analysisConversation.Turns.Count == 0)
+        {
+            _copyText = translation;
+            _speechText = translation;
+        }
         ShowPlainText(ensureFooter: false);
         if (_isLoading && !string.IsNullOrEmpty(translation))
             HideLoadingIndicator();
@@ -359,6 +390,33 @@ public partial class FloatingWindow : Window
             PositionWindowAtAnchor();
         }
         ResetAutoHideTimer();
+    }
+
+    internal void UpdateAnalysisFollowUpStreaming(
+        long presentationId,
+        AnalysisFollowUpTurnState turn)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            _sessionId == Guid.Empty ||
+            _activeMode != ContentType.Analysis ||
+            !_streamingFollowUpAnswers.TryGetValue(turn.TurnNumber, out var answer))
+        {
+            return;
+        }
+
+        answer.Text = string.IsNullOrEmpty(turn.AnswerRawText)
+            ? "回答中..."
+            : turn.AnswerRawText;
+        if (_autoScroll.OnContentOrViewportChanged())
+            ScrollToEndProgrammatically();
+
+        var now = DateTime.UtcNow.Ticks;
+        if (now - _lastPositioningTicks >= MinPositioningIntervalTicks)
+        {
+            _lastPositioningTicks = now;
+            UpdateLayout();
+            PositionWindowAtAnchor();
+        }
     }
 
     /// <summary>
@@ -410,6 +468,213 @@ public partial class FloatingWindow : Window
         PositionWindowAtAnchor();
         if (_autoScroll.IsAutoScrollEnabled)
             ScrollToEndProgrammatically();
+    }
+
+    private void RenderAnalysisConversation()
+    {
+        _streamingFollowUpAnswers.Clear();
+        AnalysisTurnsPanel.Children.Clear();
+        ConversationNodeRail.Children.Clear();
+
+        var turns = _analysisConversation.Turns;
+        var canFollowUp = _activeMode == ContentType.Analysis &&
+            _modeStatus == ModeResultStatus.Completed &&
+            _analysisConversation.SemanticSnapshot is not null &&
+            !string.IsNullOrWhiteSpace(_rawText);
+        var hasTurns = canFollowUp && turns.Count > 0;
+        AnalysisRootLabel.Visibility = hasTurns ? Visibility.Visible : Visibility.Collapsed;
+        AnalysisTurnsPanel.Visibility = hasTurns ? Visibility.Visible : Visibility.Collapsed;
+        ConversationNodeRail.Visibility = hasTurns ? Visibility.Visible : Visibility.Collapsed;
+        ConversationRailColumn.Width = hasTurns ? new GridLength(34) : new GridLength(0);
+        AnalysisFollowUpInput.Visibility = canFollowUp ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!canFollowUp)
+        {
+            _copyText = _rawText;
+            _speechText = _rawText;
+            return;
+        }
+
+        AddConversationNode("解析", "初始解析", AnalysisRootLabel, isCurrent: turns.Count == 0, isWarning: false);
+        foreach (var turn in turns)
+            AddFollowUpTurn(turn, turn == turns[^1]);
+
+        var busy = turns.LastOrDefault()?.Status == AnalysisFollowUpTurnStatus.Loading;
+        var limitReached = turns.Count >= 10;
+        if (busy)
+            _ = StopTtsAsync();
+        FollowUpTextBox.IsEnabled = !busy && !limitReached;
+        FollowUpSendButton.IsEnabled = !busy && !limitReached;
+        FollowUpSendButton.Opacity = FollowUpSendButton.IsEnabled ? 1.0 : 0.45;
+        FollowUpInputHint.Text = limitReached
+            ? "已达到本次解析的 10 轮追问上限"
+            : "继续追问...";
+        FollowUpInputHint.Visibility = string.IsNullOrEmpty(FollowUpTextBox.Text)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        _suppressDraftEvent = true;
+        try
+        {
+            if (FollowUpTextBox.Text != _analysisConversation.Draft)
+                FollowUpTextBox.Text = _analysisConversation.Draft;
+        }
+        finally
+        {
+            _suppressDraftEvent = false;
+        }
+
+        _copyText = turns.Count == 0
+            ? _rawText
+            : AnalysisConversationFormatter.BuildCopyText(_rawText, turns);
+        _speechText = turns.LastOrDefault(turn => turn.Status == AnalysisFollowUpTurnStatus.Completed)?.AnswerRawText
+            ?? _rawText;
+        EnsureFooterFitsWindow();
+    }
+
+    private void AddFollowUpTurn(AnalysisFollowUpTurnState turn, bool isTail)
+    {
+        var container = new StackPanel();
+        var border = new Border
+        {
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3E, 0x3E, 0x52)),
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Margin = new Thickness(0, 10, 0, 0),
+            Padding = new Thickness(0, 10, 4, 0),
+            Child = container
+        };
+        AnalysisTurnsPanel.Children.Add(border);
+
+        var label = new TextBlock
+        {
+            Text = $"Q{turn.TurnNumber}",
+            Foreground = new SolidColorBrush(Color.FromRgb(0xB7, 0xC5, 0xFF)),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Focusable = true
+        };
+        AutomationProperties.SetName(label, $"追问 Q{turn.TurnNumber}");
+        container.Children.Add(label);
+        container.Children.Add(new TextBlock
+        {
+            Text = turn.Question,
+            Foreground = Brushes.White,
+            FontFamily = new FontFamily("Microsoft YaHei UI"),
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 6)
+        });
+
+        if (turn.Status == AnalysisFollowUpTurnStatus.Completed &&
+            MarkdownRenderer.TryRender(turn.AnswerRawText, out var rendered, int.MaxValue) &&
+            !rendered.UsedPlainTextFallback)
+        {
+            var markdown = new RichTextBox
+            {
+                Document = rendered.Document,
+                IsReadOnly = true,
+                IsDocumentEnabled = true,
+                Focusable = false,
+                BorderThickness = new Thickness(0),
+                Background = Brushes.Transparent,
+                Padding = new Thickness(0),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            };
+            markdown.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
+            markdown.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
+            container.Children.Add(markdown);
+        }
+        else
+        {
+            var answer = new TextBlock
+            {
+                Text = FollowUpStatusText(turn),
+                Foreground = turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled
+                    ? new SolidColorBrush(Color.FromRgb(0xD8, 0xB4, 0x7A))
+                    : new SolidColorBrush(Color.FromRgb(0xE4, 0xE4, 0xEA)),
+                FontFamily = new FontFamily("Microsoft YaHei UI"),
+                FontSize = 13,
+                TextWrapping = TextWrapping.Wrap
+            };
+            container.Children.Add(answer);
+            if (turn.Status == AnalysisFollowUpTurnStatus.Loading)
+                _streamingFollowUpAnswers[turn.TurnNumber] = answer;
+        }
+
+        if (isTail && turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled)
+        {
+            var retry = new Button
+            {
+                Content = "\uE72C",
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                ToolTip = "重试本轮",
+                Style = (Style)FindResource("IconToolbarButton"),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 6, 0, 0)
+            };
+            AutomationProperties.SetName(retry, $"重试 Q{turn.TurnNumber}");
+            retry.Click += (_, _) => AnalysisFollowUpRetryRequested?.Invoke();
+            container.Children.Add(retry);
+        }
+
+        AddConversationNode(
+            $"Q{turn.TurnNumber}",
+            AnalysisConversationFormatter.SummarizeQuestion(turn.Question),
+            label,
+            isCurrent: isTail,
+            isWarning: turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled);
+    }
+
+    private void AddConversationNode(
+        string text,
+        string toolTip,
+        FrameworkElement target,
+        bool isCurrent,
+        bool isWarning)
+    {
+        var button = new Button
+        {
+            Content = text,
+            ToolTip = toolTip,
+            Style = (Style)FindResource("ConversationNodeButton"),
+            Background = isCurrent
+                ? new SolidColorBrush(Color.FromRgb(0x44, 0x88, 0xFF))
+                : Brushes.Transparent,
+            BorderBrush = isWarning
+                ? new SolidColorBrush(Color.FromRgb(0xD8, 0xB4, 0x7A))
+                : new SolidColorBrush(Color.FromRgb(0x70, 0x70, 0x86)),
+            BorderThickness = new Thickness(1),
+            Tag = target
+        };
+        AutomationProperties.SetName(button, text == "解析" ? "定位到初始解析" : $"定位到{text}");
+        button.Click += ConversationNode_Click;
+        ConversationNodeRail.Children.Add(button);
+    }
+
+    private static string FollowUpStatusText(AnalysisFollowUpTurnState turn) => turn.Status switch
+    {
+        AnalysisFollowUpTurnStatus.Loading => string.IsNullOrEmpty(turn.AnswerRawText) ? "回答中..." : turn.AnswerRawText,
+        AnalysisFollowUpTurnStatus.Failed => "追问失败，请重试本轮。",
+        AnalysisFollowUpTurnStatus.Cancelled => "追问已取消。",
+        _ => turn.AnswerRawText
+    };
+
+    private void ConversationNode_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: FrameworkElement target })
+            return;
+        _isProgrammaticScroll = true;
+        try
+        {
+            target.BringIntoView(new Rect(new Size(Math.Max(1, target.ActualWidth), Math.Max(1, target.ActualHeight))));
+            target.Focus();
+        }
+        finally
+        {
+            _isProgrammaticScroll = false;
+        }
+        RaiseScrollStateChanged();
     }
 
     private void MarkdownCodeCopyButton_Click(object sender, RoutedEventArgs e)
@@ -465,6 +730,10 @@ public partial class FloatingWindow : Window
         IsHitTestVisible = false;
         Hide();
         _rawText = string.Empty;
+        _copyText = string.Empty;
+        _speechText = string.Empty;
+        _analysisConversation = AnalysisConversationState.Empty();
+        RenderAnalysisConversation();
         _isMarkdownExpanded = false;
         _lastPositioningTicks = 0;
         _lastPositionedHeight = 0;
@@ -495,7 +764,7 @@ public partial class FloatingWindow : Window
 
     private void CopyAllButton_Click(object sender, RoutedEventArgs e)
     {
-        var text = _rawText;
+        var text = string.IsNullOrWhiteSpace(_copyText) ? _rawText : _copyText;
         if (string.IsNullOrEmpty(text)) return;
         try
         {
@@ -527,10 +796,11 @@ public partial class FloatingWindow : Window
             return;
         _lastSpeakClickUtc = now;
 
-        if (!TtsTextSelector.CanSpeak(_modeStatus, _rawText, _ttsEnabled))
+        var sourceText = string.IsNullOrWhiteSpace(_speechText) ? _rawText : _speechText;
+        if (!TtsTextSelector.CanSpeak(_modeStatus, sourceText, _ttsEnabled))
             return;
 
-        var speechText = TtsTextSelector.NormalizeForSpeech(_rawText, _ttsMaxChars, out var truncated);
+        var speechText = TtsTextSelector.NormalizeForSpeech(sourceText, _ttsMaxChars, out var truncated);
         if (string.IsNullOrWhiteSpace(speechText))
             return;
 
@@ -538,7 +808,7 @@ public partial class FloatingWindow : Window
         {
             Logger.Warn("FloatingWindow", "tts.speak.truncated", new Dictionary<string, object?>
             {
-                ["text_len"] = _rawText.Length,
+                ["text_len"] = sourceText.Length,
                 ["max_chars"] = _ttsMaxChars
             });
             ShowTransientStatus("文本过长，已截断朗读", FloatingStatusKind.Warning);
@@ -595,7 +865,8 @@ public partial class FloatingWindow : Window
 
         var busy = _tts?.IsBusy(TtsPlaybackOwner.FloatingResult) == true || _isTtsBusy;
         _isTtsBusy = busy;
-        var canSpeak = TtsTextSelector.CanSpeak(_modeStatus, _rawText, _ttsEnabled);
+        var sourceText = string.IsNullOrWhiteSpace(_speechText) ? _rawText : _speechText;
+        var canSpeak = TtsTextSelector.CanSpeak(_modeStatus, sourceText, _ttsEnabled);
 
         if (busy)
         {
@@ -759,6 +1030,9 @@ public partial class FloatingWindow : Window
         RenderStatusBar();
     }
 
+    internal void ShowAnalysisFollowUpFeedback(string message) =>
+        ShowTransientStatus(message, FloatingStatusKind.Warning);
+
     private void ClearAllStatusMessages()
     {
         _statusMessageTimer?.Stop();
@@ -849,6 +1123,16 @@ public partial class FloatingWindow : Window
                 status = 34;
         }
 
+        var followUp = 0.0;
+        if (AnalysisFollowUpInput is { Visibility: Visibility.Visible })
+        {
+            followUp = AnalysisFollowUpInput.ActualHeight +
+                AnalysisFollowUpInput.Margin.Top +
+                AnalysisFollowUpInput.Margin.Bottom;
+            if (followUp < 1)
+                followUp = 39;
+        }
+
         var expand = 0.0;
         if (ExpandMarkdownButton is { Visibility: Visibility.Visible })
         {
@@ -857,7 +1141,7 @@ public partial class FloatingWindow : Window
                 expand = 26;
         }
 
-        var needed = borderVerticalChrome + title + bodyMinHeight + status + expand;
+        var needed = borderVerticalChrome + title + bodyMinHeight + followUp + status + expand;
         if (needed <= 0 || double.IsNaN(needed))
             return;
 
@@ -912,7 +1196,14 @@ public partial class FloatingWindow : Window
         PinButton.ToolTip = IsPinned ? "取消固定" : "固定窗口";
     }
 
-    private bool CanAutoHide() => !IsPinned && !_isLoading && !_isMouseInside && !_isSystemSizing && !_isTtsBusy;
+    private bool CanAutoHide() =>
+        !IsPinned &&
+        !_isLoading &&
+        !_isMouseInside &&
+        !_isSystemSizing &&
+        !_isTtsBusy &&
+        !FollowUpTextBox.IsKeyboardFocusWithin &&
+        _analysisConversation.Turns.LastOrDefault()?.Status != AnalysisFollowUpTurnStatus.Loading;
 
     private void ResetAutoHideTimer()
     {
@@ -923,6 +1214,17 @@ public partial class FloatingWindow : Window
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Enter &&
+            FollowUpTextBox.IsKeyboardFocusWithin &&
+            !_isImeComposing &&
+            e.ImeProcessedKey == Key.None &&
+            Keyboard.Modifiers == ModifierKeys.None)
+        {
+            SubmitFollowUp();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key != Key.Escape)
             return;
 
@@ -930,6 +1232,42 @@ public partial class FloatingWindow : Window
         HideRequested?.Invoke();
         Hide();
     }
+
+    private void FollowUpTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        FollowUpInputHint.Visibility = string.IsNullOrEmpty(FollowUpTextBox.Text)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        if (!_suppressDraftEvent && _sessionId != Guid.Empty)
+            AnalysisDraftChanged?.Invoke(_sessionId, FollowUpTextBox.Text);
+        ResetAutoHideTimer();
+    }
+
+    private void FollowUpSendButton_Click(object sender, RoutedEventArgs e) => SubmitFollowUp();
+
+    private void SubmitFollowUp()
+    {
+        if (!FollowUpTextBox.IsEnabled || !FollowUpSendButton.IsEnabled)
+            return;
+
+        try
+        {
+            var question = AnalysisConversationFormatter.NormalizeQuestion(FollowUpTextBox.Text);
+            AnalysisFollowUpRequested?.Invoke(question);
+        }
+        catch (ArgumentException ex)
+        {
+            var message = ex.Message.StartsWith("追问不能超过", StringComparison.Ordinal)
+                ? $"追问不能超过 {AnalysisConversationFormatter.MaxQuestionRunes} 个字符"
+                : "请输入追问内容";
+            ShowTransientStatus(message, FloatingStatusKind.Warning);
+        }
+        ResetAutoHideTimer();
+    }
+
+    private void OnFollowUpTextInputStart(object sender, TextCompositionEventArgs e) => _isImeComposing = true;
+    private void OnFollowUpTextInputUpdate(object sender, TextCompositionEventArgs e) => _isImeComposing = true;
+    private void OnFollowUpTextInputCompleted(object sender, TextCompositionEventArgs e) => _isImeComposing = false;
 
     private void PositionWindowAtAnchor()
     {

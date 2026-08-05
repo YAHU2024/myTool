@@ -28,7 +28,8 @@ namespace QuickTranslate.Services
             AnalysisSemanticSnapshot semanticSnapshot,
             IReadOnlyList<AnalysisFollowUpExchange> completedTurns,
             string question,
-            int turnNumber);
+            int turnNumber,
+            long requestId = 0);
 
         Task<string> ExecuteAnalysisFollowUpStreamingAsync(
             AnalysisFollowUpRequest request,

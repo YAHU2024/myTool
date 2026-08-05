@@ -161,6 +161,9 @@ public partial class App : Application
         _floatingWindow.RefreshRequested += OnRefreshRequested;
         _floatingWindow.HideRequested += OnHideRequested;
         _floatingWindow.ScrollStateChanged += OnScrollStateChanged;
+        _floatingWindow.AnalysisFollowUpRequested += OnAnalysisFollowUpRequested;
+        _floatingWindow.AnalysisFollowUpRetryRequested += OnAnalysisFollowUpRetryRequested;
+        _floatingWindow.AnalysisDraftChanged += OnAnalysisDraftChanged;
 
         _ttsService = new EdgeTtsService();
         _ttsPlayback = new TtsPlaybackCoordinator(_ttsService);
@@ -618,6 +621,33 @@ public partial class App : Application
             autoScrollEnabled);
     }
 
+    private void OnAnalysisDraftChanged(Guid sessionId, string draft) =>
+        _resultSessions.TrySetAnalysisDraft(sessionId, draft);
+
+    private async void OnAnalysisFollowUpRequested(string question)
+    {
+        try
+        {
+            await ExecuteAnalysisFollowUpAsync(_resultSessions.BeginFollowUp(question));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            _floatingWindow?.ShowAnalysisFollowUpFeedback(ex.Message);
+        }
+    }
+
+    private async void OnAnalysisFollowUpRetryRequested()
+    {
+        try
+        {
+            await ExecuteAnalysisFollowUpAsync(_resultSessions.RetryLatestFollowUp());
+        }
+        catch (InvalidOperationException ex)
+        {
+            _floatingWindow?.ShowAnalysisFollowUpFeedback(ex.Message);
+        }
+    }
+
     private Task StartSessionRequestAsync(
         string text,
         ContentType contentType,
@@ -650,7 +680,8 @@ public partial class App : Application
             _floatingWindow.SetSessionView(
                 transition.Session.SessionId,
                 transition.Session.ActiveMode,
-                state);
+                state,
+                transition.Session.AnalysisConversation);
             return;
         }
 
@@ -665,7 +696,8 @@ public partial class App : Application
         _floatingWindow.SetSessionView(
             transition.Session.SessionId,
             transition.Session.ActiveMode,
-            transition.Session.ModeStates[transition.Session.ActiveMode]);
+            transition.Session.ModeStates[transition.Session.ActiveMode],
+            transition.Session.AnalysisConversation);
         await ExecuteRequestAsync(
             transition.Session.SourceText,
             identity.Mode,
@@ -845,6 +877,87 @@ public partial class App : Application
         }
     }
 
+    private async Task ExecuteAnalysisFollowUpAsync(AnalysisFollowUpTransition transition)
+    {
+        if (_translationService == null || _floatingWindow == null)
+            return;
+
+        UpdateFloatingSessionView();
+        var identity = transition.RequestIdentity;
+        var presentationId = identity.PresentationId;
+        var requestScope = BeginTranslationRequest();
+
+        try
+        {
+            requestScope.Token.ThrowIfCancellationRequested();
+            var conversation = transition.Session.AnalysisConversation;
+            var semanticSnapshot = conversation.SemanticSnapshot
+                ?? throw new InvalidOperationException("当前解析结果不能追问");
+            var rootAnalysis = transition.Session.ModeStates[ContentType.Analysis].RawText;
+            var request = _translationService.CreateAnalysisFollowUpRequest(
+                transition.Session.SourceText,
+                rootAnalysis,
+                semanticSnapshot,
+                _resultSessions.GetCompletedFollowUpExchanges(transition.Session.SessionId),
+                transition.Turn.Question,
+                transition.Turn.TurnNumber,
+                identity.RequestId);
+
+            var result = await _translationService.ExecuteAnalysisFollowUpStreamingAsync(
+                request,
+                chunk => Dispatcher.BeginInvoke(() =>
+                {
+                    if (!IsCurrentRequest(requestScope) ||
+                        !_resultSessions.TryUpdateFollowUpStreaming(identity, chunk) ||
+                        _floatingWindow?.IsPresentationCurrent(presentationId) != true)
+                    {
+                        return;
+                    }
+
+                    var currentTurn = _resultSessions.CurrentSession?
+                        .AnalysisConversation.Turns.LastOrDefault();
+                    if (currentTurn is not null && currentTurn.LastRequestId == identity.RequestId)
+                        _floatingWindow.UpdateAnalysisFollowUpStreaming(presentationId, currentTurn);
+                }, DispatcherPriority.Render),
+                requestScope.Token);
+
+            requestScope.Token.ThrowIfCancellationRequested();
+            if (!IsCurrentRequest(requestScope) ||
+                !_resultSessions.TryCompleteFollowUp(identity, result) ||
+                !_floatingWindow.IsPresentationCurrent(presentationId))
+            {
+                return;
+            }
+
+            UpdateFloatingSessionView();
+        }
+        catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))
+        {
+            if (_resultSessions.TryCancelFollowUp(identity) &&
+                _floatingWindow.IsPresentationCurrent(presentationId))
+            {
+                UpdateFloatingSessionView();
+            }
+        }
+        catch (Exception ex)
+        {
+            if (IsCurrentRequest(requestScope) &&
+                _resultSessions.TryFailFollowUp(identity) &&
+                _floatingWindow.IsPresentationCurrent(presentationId))
+            {
+                UpdateFloatingSessionView();
+                _floatingWindow.ShowAnalysisFollowUpFeedback(
+                    ex is InvalidOperationException { Message: "当前解析内容过长，无法继续追问" }
+                        ? "当前解析内容过长，无法继续追问"
+                        : "追问失败，请重试本轮。");
+            }
+        }
+        finally
+        {
+            CompleteTranslationRequest(requestScope);
+        }
+    }
+
     private void UpdateFloatingSessionView()
     {
         if (_floatingWindow is null || _resultSessions.CurrentSession is not { } session)
@@ -853,7 +966,8 @@ public partial class App : Application
         _floatingWindow.SetSessionView(
             session.SessionId,
             session.ActiveMode,
-            session.ModeStates[session.ActiveMode]);
+            session.ModeStates[session.ActiveMode],
+            session.AnalysisConversation);
         _trayIcon?.SetRestoreAvailable(
             session.ModeStates.Values.Any(state => state.Status == ModeResultStatus.Completed));
     }
@@ -891,6 +1005,7 @@ public partial class App : Application
     {
         _resultSessions.CancelActiveRequest();
         _translationRequests.Cancel();
+        UpdateFloatingSessionView();
     }
 
     private Task<bool> ShowRequestLoadingAsync(
