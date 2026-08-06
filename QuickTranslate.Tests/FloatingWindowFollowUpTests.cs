@@ -57,6 +57,7 @@ public sealed class FloatingWindowFollowUpTests
             Assert.False(window.FollowUpSendButton.IsEnabled);
             Assert.Equal(1, window.AnalysisTurnViewCount);
             Assert.Equal(2, window.ConversationNodeCount);
+            Assert.True(window.ConversationRailColumn.Width.IsAuto);
 
             var failed = loading with { Status = AnalysisFollowUpTurnStatus.Failed };
             window.SetSessionView(

@@ -60,3 +60,9 @@ docs/VERIFICATION_PLAN.md
 
 ## Test output
 **/TestResults/
+
+## Release planning (internal)
+docs/RELEASE_AUTOMATION_PLAN.md
+
+## Phase planning (internal)
+docs/plan/PHASE_11_ANALYSIS_FOLLOW_UP_PLAN.md

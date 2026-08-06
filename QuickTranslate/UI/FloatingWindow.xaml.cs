@@ -485,7 +485,7 @@ public partial class FloatingWindow : Window
         AnalysisRootLabel.Visibility = hasTurns ? Visibility.Visible : Visibility.Collapsed;
         AnalysisTurnsPanel.Visibility = hasTurns ? Visibility.Visible : Visibility.Collapsed;
         ConversationNodeRail.Visibility = hasTurns ? Visibility.Visible : Visibility.Collapsed;
-        ConversationRailColumn.Width = hasTurns ? new GridLength(34) : new GridLength(0);
+        ConversationRailColumn.Width = hasTurns ? GridLength.Auto : new GridLength(0);
         AnalysisFollowUpInput.Visibility = canFollowUp ? Visibility.Visible : Visibility.Collapsed;
 
         if (!canFollowUp)
