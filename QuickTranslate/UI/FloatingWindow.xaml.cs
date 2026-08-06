@@ -82,6 +82,8 @@ public partial class FloatingWindow : Window
     private string _speechText = string.Empty;
     private readonly List<ConversationNodeView> _conversationNodes = [];
     private string? _currentConversationNodeKey;
+    private string? _clickedConversationNodeKey;
+    private bool _isConversationNodeNavigationPending;
 
     private static readonly Color ConversationNodeActiveColor = Color.FromRgb(0x44, 0x88, 0xFF);
     private static readonly Color ConversationNodeStreamingColor = Color.FromRgb(0x4D, 0xB6, 0xAC);
@@ -504,6 +506,7 @@ public partial class FloatingWindow : Window
         if (!canFollowUp)
         {
             _currentConversationNodeKey = null;
+            _clickedConversationNodeKey = null;
             _copyText = _rawText;
             _speechText = _rawText;
             return;
@@ -513,6 +516,11 @@ public partial class FloatingWindow : Window
             !turns.Any(turn => _currentConversationNodeKey == $"Q{turn.TurnNumber}"))
         {
             _currentConversationNodeKey = "解析";
+        }
+        if (_clickedConversationNodeKey != "解析" &&
+            !turns.Any(turn => _clickedConversationNodeKey == $"Q{turn.TurnNumber}"))
+        {
+            _clickedConversationNodeKey = null;
         }
 
         AddConversationNode(
@@ -695,20 +703,25 @@ public partial class FloatingWindow : Window
     {
         if (sender is not Button { Tag: ConversationNodeView node })
             return;
+        _clickedConversationNodeKey = node.Key;
         SetCurrentConversationNode(node.Key);
+        _autoScroll.PauseForUpwardNavigation();
+        UpdateAutoScrollAffordance();
+        _isConversationNodeNavigationPending = true;
         _isProgrammaticScroll = true;
         try
         {
-            node.Target.BringIntoView(new Rect(new Size(
-                Math.Max(1, node.Target.ActualWidth),
-                Math.Max(1, node.Target.ActualHeight))));
+            var targetTop = node.FocusTarget.TranslatePoint(new Point(0, 0), ConversationContentPanel).Y;
+            TranslationScroller.ScrollToVerticalOffset(Math.Max(0, targetTop - 4));
             node.FocusTarget.Focus();
         }
         finally
         {
             _isProgrammaticScroll = false;
         }
-        Dispatcher.BeginInvoke(UpdateCurrentConversationNodeFromViewport, DispatcherPriority.Loaded);
+        Dispatcher.BeginInvoke(
+            () => _isConversationNodeNavigationPending = false,
+            DispatcherPriority.Loaded);
         RaiseScrollStateChanged();
     }
 
@@ -716,14 +729,18 @@ public partial class FloatingWindow : Window
     {
         var node = _conversationNodes.FirstOrDefault(candidate => candidate.FocusTarget == sender);
         if (node is not null)
+        {
+            _clickedConversationNodeKey = node.Key;
             SetCurrentConversationNode(node.Key);
+        }
     }
 
     private void UpdateCurrentConversationNodeFromViewport()
     {
         if (_conversationNodes.Count == 0 ||
             TranslationScroller.ViewportHeight <= 0 ||
-            !TranslationScroller.IsVisible)
+            !TranslationScroller.IsVisible ||
+            _clickedConversationNodeKey is not null)
         {
             return;
         }
@@ -1049,6 +1066,7 @@ public partial class FloatingWindow : Window
 
     private void TranslationScroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        _clickedConversationNodeKey = null;
         RevealScrollBarTemporarily();
         if (e.Delta > 0)
         {
@@ -1060,6 +1078,9 @@ public partial class FloatingWindow : Window
 
     private void TranslationScroller_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key is Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End)
+            _clickedConversationNodeKey = null;
+
         if (e.Key is Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End)
             RevealScrollBarTemporarily();
 
@@ -1073,10 +1094,14 @@ public partial class FloatingWindow : Window
 
     private void TranslationScroller_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
+        if (_isProgrammaticScroll || _isConversationNodeNavigationPending)
+            return;
+
+        if (e.VerticalChange != 0)
+            _clickedConversationNodeKey = null;
         if (e.VerticalChange != 0 || e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0)
             UpdateCurrentConversationNodeFromViewport();
-
-        if (_isProgrammaticScroll || e.VerticalChange == 0)
+        if (e.VerticalChange == 0)
             return;
 
         RevealScrollBarTemporarily();

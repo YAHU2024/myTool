@@ -128,6 +128,45 @@ public sealed class FloatingWindowFollowUpTests
     }
 
     [SkippableFact]
+    public void ClickingNode_KeepsSelectionUntilUserScrolls()
+    {
+        RunOnSta(window =>
+        {
+            var root = string.Join("\n\n", Enumerable.Repeat("root analysis content", 100));
+            var turn = new AnalysisFollowUpTurnState(
+                1,
+                "why",
+                "short follow-up answer",
+                AnalysisFollowUpTurnStatus.Completed,
+                2);
+            window.SizeToContent = SizeToContent.Manual;
+            window.Height = 300;
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed(root),
+                Conversation([turn]));
+            window.Show();
+            window.UpdateLayout();
+            PumpDispatcher();
+            window.TranslationScroller.ScrollToHome();
+            PumpDispatcher();
+            Assert.Equal("解析", window.CurrentConversationNodeKey);
+
+            window.GetConversationNodeForTests("Q1")
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpDispatcher();
+
+            Assert.Equal("Q1", window.CurrentConversationNodeKey);
+            Assert.True(window.TranslationScroller.VerticalOffset > 0);
+
+            window.TranslationScroller.ScrollToHome();
+            PumpDispatcher();
+            Assert.Equal("解析", window.CurrentConversationNodeKey);
+        });
+    }
+
+    [SkippableFact]
     public void SendButton_EmitsOneNormalizedQuestion()
     {
         RunOnSta(window =>
