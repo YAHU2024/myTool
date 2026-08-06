@@ -174,9 +174,63 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Equal("Q1", window.CurrentConversationNodeKey);
             Assert.True(window.TranslationScroller.VerticalOffset > 0);
 
+            RaisePreviewKeyDown(window.TranslationScroller, Key.Home);
             window.TranslationScroller.ScrollToHome();
             PumpDispatcher();
             Assert.Equal("解析", window.CurrentConversationNodeKey);
+        });
+    }
+
+    [SkippableFact]
+    public void ClickingCompletedNode_DuringLaterStreaming_KeepsNavigationPinned()
+    {
+        RunOnSta(window =>
+        {
+            var root = string.Join("\n\n", Enumerable.Repeat("root analysis content", 50));
+            var completed = new AnalysisFollowUpTurnState(
+                1,
+                "first question",
+                string.Join("\n\n", Enumerable.Repeat("completed answer", 40)),
+                AnalysisFollowUpTurnStatus.Completed,
+                2);
+            var loading = new AnalysisFollowUpTurnState(
+                2,
+                "second question",
+                string.Join("\n", Enumerable.Repeat("streaming answer", 40)),
+                AnalysisFollowUpTurnStatus.Loading,
+                3);
+            var presentationId = window.BeginReplacement();
+            window.SizeToContent = SizeToContent.Manual;
+            window.Height = 300;
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed(root),
+                Conversation([completed, loading]));
+            window.Show();
+            window.UpdateLayout();
+            PumpDispatcher();
+
+            window.GetConversationNodeForTests("Q1")
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpDispatcher();
+            var selectedOffset = window.TranslationScroller.VerticalOffset;
+
+            Assert.Equal("Q1", window.CurrentConversationNodeKey);
+            Assert.False(window.IsAutoScrollEnabledForTests);
+
+            window.UpdateAnalysisFollowUpStreaming(
+                presentationId,
+                loading with
+                {
+                    AnswerRawText = string.Join("\n", Enumerable.Repeat("streaming answer growth", 100))
+                });
+            window.UpdateLayout();
+            PumpDispatcher();
+
+            Assert.Equal("Q1", window.CurrentConversationNodeKey);
+            Assert.False(window.IsAutoScrollEnabledForTests);
+            Assert.InRange(Math.Abs(window.TranslationScroller.VerticalOffset - selectedOffset), 0, 1);
         });
     }
 
@@ -230,6 +284,16 @@ public sealed class FloatingWindowFollowUpTests
 
     private static void PumpDispatcher() =>
         Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+
+    private static void RaisePreviewKeyDown(UIElement target, Key key)
+    {
+        var source = PresentationSource.FromVisual(target);
+        Assert.NotNull(source);
+        target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
+        {
+            RoutedEvent = Keyboard.PreviewKeyDownEvent
+        });
+    }
 
     private static ModeResultState Completed(string text) => new(
         ModeResultStatus.Completed,

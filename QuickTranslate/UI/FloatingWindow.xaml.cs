@@ -102,6 +102,7 @@ public partial class FloatingWindow : Window
     internal int AnalysisTurnViewCount => AnalysisTurnsPanel.Children.Count;
     internal int ConversationNodeCount => ConversationNodeRail.Children.Count;
     internal string? CurrentConversationNodeKey => _currentConversationNodeKey;
+    internal bool IsAutoScrollEnabledForTests => _autoScroll.IsAutoScrollEnabled;
 
     internal Button GetConversationNodeForTests(string key) =>
         _conversationNodes.Single(node => node.Key == key).Button;
@@ -1278,13 +1279,26 @@ public partial class FloatingWindow : Window
         }
     }
 
-    private void TranslationScroller_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    private void TranslationScroller_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (_isProgrammaticScroll || _isConversationNodeNavigationPending)
+        if (!IsInsideScrollBar(e.OriginalSource as DependencyObject))
             return;
 
-        if (e.VerticalChange != 0)
-            _clickedConversationNodeKey = null;
+        _clickedConversationNodeKey = null;
+        _autoScroll.PauseForUpwardNavigation();
+        UpdateAutoScrollAffordance();
+        RaiseScrollStateChanged();
+    }
+
+    private void TranslationScroller_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (_isProgrammaticScroll ||
+            _isConversationNodeNavigationPending ||
+            _clickedConversationNodeKey is not null)
+        {
+            return;
+        }
+
         if (e.VerticalChange != 0 || e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0)
             UpdateCurrentConversationNodeFromViewport();
         if (e.VerticalChange == 0)
@@ -1831,6 +1845,17 @@ public partial class FloatingWindow : Window
         for (var current = source; current is not null; current = GetParent(current))
         {
             if (current is Button)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsInsideScrollBar(DependencyObject? source)
+    {
+        for (var current = source; current is not null; current = GetParent(current))
+        {
+            if (current is System.Windows.Controls.Primitives.ScrollBar)
                 return true;
         }
 
