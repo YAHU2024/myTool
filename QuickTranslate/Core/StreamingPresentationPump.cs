@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 
 namespace QuickTranslate.Core;
@@ -5,12 +6,15 @@ namespace QuickTranslate.Core;
 internal sealed record StreamingPresentationFrame(
     string Delta,
     int ChunkCount,
-    long PublishedChunkCount);
+    long PublishedChunkCount,
+    long FirstPublishedTimestamp);
 
 internal sealed record StreamingPresentationStats(
     long PublishedChunkCount,
     int AppliedFrameCount,
-    long CoalescedChunkCount);
+    long CoalescedChunkCount,
+    double FirstFrameLatencyMs,
+    double MaxFrameLatencyMs);
 
 /// <summary>
 /// Coalesces transport deltas into bounded presentation frames. At most one
@@ -32,9 +36,12 @@ internal sealed class StreamingPresentationPump : IAsyncDisposable
     private readonly Task _runLoop;
 
     private int _pendingChunkCount;
+    private long _pendingFirstTimestamp;
     private long _publishedChunkCount;
     private int _appliedFrameCount;
     private long _coalescedChunkCount;
+    private double _firstFrameLatencyMs;
+    private double _maxFrameLatencyMs;
     private bool _wakeScheduled;
     private bool _completionRequested;
     private bool _disposed;
@@ -74,6 +81,8 @@ internal sealed class StreamingPresentationPump : IAsyncDisposable
             if (_disposed || _completionRequested)
                 return false;
 
+            if (_pendingChunkCount == 0)
+                _pendingFirstTimestamp = Stopwatch.GetTimestamp();
             _pendingDelta.Append(delta);
             _pendingChunkCount++;
             _publishedChunkCount++;
@@ -133,19 +142,25 @@ internal sealed class StreamingPresentationPump : IAsyncDisposable
                         frame = new StreamingPresentationFrame(
                             _pendingDelta.ToString(),
                             _pendingChunkCount,
-                            _publishedChunkCount);
+                            _publishedChunkCount,
+                            _pendingFirstTimestamp);
                         _pendingDelta.Clear();
                         _pendingChunkCount = 0;
+                        _pendingFirstTimestamp = 0;
                     }
                 }
 
                 if (frame is not null)
                 {
                     await _applyAsync(frame, cancellationToken).ConfigureAwait(false);
+                    var latencyMs = Stopwatch.GetElapsedTime(frame.FirstPublishedTimestamp).TotalMilliseconds;
                     lock (_sync)
                     {
                         _appliedFrameCount++;
                         _coalescedChunkCount += frame.ChunkCount - 1;
+                        if (_appliedFrameCount == 1)
+                            _firstFrameLatencyMs = latencyMs;
+                        _maxFrameLatencyMs = Math.Max(_maxFrameLatencyMs, latencyMs);
                     }
                 }
 
@@ -157,7 +172,9 @@ internal sealed class StreamingPresentationPump : IAsyncDisposable
                         stats = new StreamingPresentationStats(
                             _publishedChunkCount,
                             _appliedFrameCount,
-                            _coalescedChunkCount);
+                            _coalescedChunkCount,
+                            _firstFrameLatencyMs,
+                            _maxFrameLatencyMs);
                     }
                 }
 

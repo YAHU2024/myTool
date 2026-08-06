@@ -39,6 +39,8 @@ public sealed class StreamingPresentationPumpTests
         Assert.Equal(3, stats.PublishedChunkCount);
         Assert.Equal(1, stats.AppliedFrameCount);
         Assert.Equal(2, stats.CoalescedChunkCount);
+        Assert.True(stats.FirstFrameLatencyMs >= 0);
+        Assert.True(stats.MaxFrameLatencyMs >= stats.FirstFrameLatencyMs);
     }
 
     [Fact]
@@ -82,6 +84,8 @@ public sealed class StreamingPresentationPumpTests
         Assert.Equal(3, stats.PublishedChunkCount);
         Assert.Equal(2, stats.AppliedFrameCount);
         Assert.Equal(1, stats.CoalescedChunkCount);
+        Assert.True(stats.FirstFrameLatencyMs >= 0);
+        Assert.True(stats.MaxFrameLatencyMs >= stats.FirstFrameLatencyMs);
     }
 
     [Fact]
@@ -102,6 +106,8 @@ public sealed class StreamingPresentationPumpTests
         Assert.Equal(0, stats.PublishedChunkCount);
         Assert.Equal(0, stats.AppliedFrameCount);
         Assert.Equal(0, stats.CoalescedChunkCount);
+        Assert.Equal(0, stats.FirstFrameLatencyMs);
+        Assert.Equal(0, stats.MaxFrameLatencyMs);
         Assert.False(pump.Publish("late"));
     }
 }

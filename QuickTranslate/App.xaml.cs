@@ -814,7 +814,7 @@ public partial class App : Application
                 request,
                 delta => presentationPump.Publish(delta),
                 requestScope.Token);
-            await presentationPump.CompleteAsync();
+            var presentationStats = await presentationPump.CompleteAsync();
 
             requestScope.Token.ThrowIfCancellationRequested();
             if (!IsCurrentRequest(requestScope))
@@ -847,7 +847,12 @@ public partial class App : Application
                 operation = operationName,
                 content_type = request.ContentType.ToString(),
                 result_len = result.Length,
-                duration_ms = duration.TotalMilliseconds
+                duration_ms = duration.TotalMilliseconds,
+                stream_chunk_count = presentationStats.PublishedChunkCount,
+                ui_frame_count = presentationStats.AppliedFrameCount,
+                coalesced_chunk_count = presentationStats.CoalescedChunkCount,
+                first_frame_latency_ms = presentationStats.FirstFrameLatencyMs,
+                max_frame_latency_ms = presentationStats.MaxFrameLatencyMs
             });
         }
         catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))
@@ -932,7 +937,7 @@ public partial class App : Application
                 request,
                 delta => presentationPump.Publish(delta),
                 requestScope.Token);
-            await presentationPump.CompleteAsync();
+            var presentationStats = await presentationPump.CompleteAsync();
 
             requestScope.Token.ThrowIfCancellationRequested();
             if (!IsCurrentRequest(requestScope) ||
@@ -943,6 +948,16 @@ public partial class App : Application
             }
 
             UpdateFloatingSessionView();
+            Logger.Info("App", "analysis.follow_up.presented", new
+            {
+                turn = identity.TurnNumber,
+                request_id = identity.RequestId,
+                stream_chunk_count = presentationStats.PublishedChunkCount,
+                ui_frame_count = presentationStats.AppliedFrameCount,
+                coalesced_chunk_count = presentationStats.CoalescedChunkCount,
+                first_frame_latency_ms = presentationStats.FirstFrameLatencyMs,
+                max_frame_latency_ms = presentationStats.MaxFrameLatencyMs
+            });
         }
         catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))
         {

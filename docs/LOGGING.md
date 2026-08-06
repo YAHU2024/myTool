@@ -43,6 +43,7 @@
 2. 查看是否存在 `translation.started`。
 3. 检查后续是 `translation.completed`、`translation.failed`、`translation.cancelled` 还是 `translation.cache_hit`。
 4. `translation.completed` 表示服务响应完成；`translation.presented` 表示最新有效请求已写入当前界面和历史。
+5. 流式卡顿时比较 `max_chunk_gap_ms` 和 `max_frame_latency_ms`：前者高通常表示模型、服务商或网络缓冲，后者高表示本地 UI 呈现延迟。
 
 快速查词没有结果：
 
@@ -188,6 +189,13 @@ quicktranslate-2026-07-23-2.log
 | `result_len` | 结果字符数，不包含结果内容 |
 | `duration_ms` | 操作耗时，单位毫秒 |
 | `request_id` | 进程内请求身份，用于判断取消和过期请求 |
+| `stream_chunk_count` | 服务接收或呈现泵发布的有效流式 chunk 数量 |
+| `first_chunk_ms` | 从开始请求到收到首个有效 chunk 的耗时 |
+| `max_chunk_gap_ms` | 相邻有效 chunk 的最大到达间隔 |
+| `ui_frame_count` | 合并后真正应用到 UI 的帧数 |
+| `coalesced_chunk_count` | 被合并进已有 UI 帧的 chunk 数量 |
+| `first_frame_latency_ms` | 首批 chunk 从发布到 UI 应用完成的管线耗时 |
+| `max_frame_latency_ms` | 任一批 chunk 从发布到 UI 应用完成的最大管线耗时 |
 | `error_type` / `exception_type` | 异常类型名称，不包含异常消息 |
 | `query_scalars` | 查词输入的 Unicode 字符数量，不包含查询内容 |
 | `senses` / `examples` / `collocations` | 结构化查词结果的项目数量，不包含项目正文 |
@@ -390,12 +398,24 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 
 自动化测试不能替代以下 Windows 桌面验证：托盘入口、日志窗口关闭/重开、日志刷新、真实文件轮转、设置即时生效、文件占用以及混合 DPI 下的窗口显示。
 
+## Streaming timing events
+
+| Event | Level | Context keys (no text body) |
+|------|-------|-----------------------------|
+| translation.completed | Info | operation, content_type, target_language, text_len, result_len, duration_ms, stream_chunk_count, first_chunk_ms, max_chunk_gap_ms |
+| translation.presented | Info | operation, content_type, result_len, duration_ms, stream_chunk_count, ui_frame_count, coalesced_chunk_count, first_frame_latency_ms, max_frame_latency_ms |
+| analysis.follow_up.completed | Info | turn, answer_len, duration_ms, request_id, stream_chunk_count, first_chunk_ms, max_chunk_gap_ms |
+| analysis.follow_up.presented | Info | turn, request_id, stream_chunk_count, ui_frame_count, coalesced_chunk_count, first_frame_latency_ms, max_frame_latency_ms |
+
+这些字段只包含计数和毫秒值。它们不记录 chunk 正文、累计结果、问题、回答、Prompt、API Key、Authorization 头或供应商响应体。
+
 ## Analysis follow-up events (Phase 11)
 
 | Event | Level | Context keys (no text body) |
 |------|-------|-----------------------------|
 | analysis.follow_up.started | Info | turn, question_len, context_chars, request_id |
-| analysis.follow_up.completed | Info | turn, answer_len, duration_ms, request_id |
+| analysis.follow_up.completed | Info | turn, answer_len, duration_ms, request_id, stream_chunk_count, first_chunk_ms, max_chunk_gap_ms |
+| analysis.follow_up.presented | Info | turn, request_id, stream_chunk_count, ui_frame_count, coalesced_chunk_count, first_frame_latency_ms, max_frame_latency_ms |
 | analysis.follow_up.cancelled | Debug | turn, request_id |
 | analysis.follow_up.failed | Warn | turn, error_type, status_code, request_id |
 | analysis.follow_up.limit_reached | Info | turn_count, context_chars, limit_kind, request_id |

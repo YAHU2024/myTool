@@ -105,13 +105,14 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             text_len = request.Text.Length
         });
 
-        var result = await ExecuteChatStreamingAsync(
+        var execution = await ExecuteChatStreamingAsync(
             request.ApiBaseUrl,
             request.ApiKey,
             BuildRequestBody(request, stream: true),
             operation,
             onDelta,
             cancellationToken).ConfigureAwait(false);
+        var result = execution.Result;
         Logger.Info("TranslationService", "translation.completed", new
         {
             operation,
@@ -119,7 +120,10 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             target_language = request.TargetLanguage,
             text_len = request.Text.Length,
             result_len = result.Length,
-            duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds
+            duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+            stream_chunk_count = execution.ChunkCount,
+            first_chunk_ms = execution.FirstChunkMs,
+            max_chunk_gap_ms = execution.MaxChunkGapMs
         });
         return result;
     }
@@ -205,7 +209,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
         try
         {
-            var result = await ExecuteChatStreamingAsync(
+            var execution = await ExecuteChatStreamingAsync(
                 request.ApiBaseUrl,
                 request.ApiKey,
                 BuildRequestBody(
@@ -216,6 +220,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 "analysis follow-up",
                 onDelta,
                 cancellationToken).ConfigureAwait(false);
+            var result = execution.Result;
             if (string.IsNullOrWhiteSpace(result))
                 throw new FormatException("追问返回为空");
 
@@ -224,6 +229,9 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 turn = request.TurnNumber,
                 answer_len = result.Length,
                 duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+                stream_chunk_count = execution.ChunkCount,
+                first_chunk_ms = execution.FirstChunkMs,
+                max_chunk_gap_ms = execution.MaxChunkGapMs,
                 request_id = request.RequestId
             });
             return result;
@@ -386,7 +394,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         return body;
     }
 
-    private async Task<string> ExecuteChatStreamingAsync(
+    private async Task<ChatStreamingResult> ExecuteChatStreamingAsync(
         string apiBaseUrl,
         string apiKey,
         Dictionary<string, object> requestBody,
@@ -394,6 +402,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         Action<string> onDelta,
         CancellationToken cancellationToken)
     {
+        var streamStartedAt = Stopwatch.GetTimestamp();
         using var response = await SendAsync(
             apiBaseUrl,
             apiKey,
@@ -410,6 +419,10 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         }
 
         var fullResult = new StringBuilder();
+        var chunkCount = 0;
+        double? firstChunkMs = null;
+        var maxChunkGapMs = 0.0;
+        long? previousChunkAt = null;
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var reader = new StreamReader(stream);
         while (true)
@@ -439,6 +452,16 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 var chunk = contentElement.GetString();
                 if (string.IsNullOrEmpty(chunk))
                     continue;
+                var chunkAt = Stopwatch.GetTimestamp();
+                firstChunkMs ??= Stopwatch.GetElapsedTime(streamStartedAt, chunkAt).TotalMilliseconds;
+                if (previousChunkAt is { } previous)
+                {
+                    maxChunkGapMs = Math.Max(
+                        maxChunkGapMs,
+                        Stopwatch.GetElapsedTime(previous, chunkAt).TotalMilliseconds);
+                }
+                previousChunkAt = chunkAt;
+                chunkCount++;
                 fullResult.Append(chunk);
                 onDelta(chunk);
             }
@@ -448,7 +471,11 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             }
         }
 
-        return fullResult.ToString().Trim();
+        return new ChatStreamingResult(
+            fullResult.ToString().Trim(),
+            chunkCount,
+            firstChunkMs,
+            maxChunkGapMs);
     }
 
     private static PromptResult BuildSystemPromptCore(
@@ -584,6 +611,12 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
     }
 
     private sealed record PromptResult(string Prompt, bool FallbackUsed);
+
+    private sealed record ChatStreamingResult(
+        string Result,
+        int ChunkCount,
+        double? FirstChunkMs,
+        double MaxChunkGapMs);
 
     private sealed record PromptSettings(
         string ApiBaseUrl,
