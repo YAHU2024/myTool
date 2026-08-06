@@ -73,7 +73,10 @@ public partial class FloatingWindow : Window
     private Guid _sessionId;
     private ContentType _activeMode = ContentType.Translation;
     private AnalysisConversationState _analysisConversation = AnalysisConversationState.Empty();
-    private readonly Dictionary<int, TextBox> _streamingFollowUpAnswers = new();
+    private readonly Dictionary<int, StreamingFollowUpAnswerView> _streamingFollowUpAnswers = new();
+    private readonly HashSet<RichTextBox> _markdownSelectionHosts = [];
+    private bool _isMarkdownPointerDown;
+    private bool _hasPendingRootMarkdownRefresh;
     private bool _isImeComposing;
     private bool _suppressDraftEvent;
     private string _copyText = string.Empty;
@@ -111,6 +114,7 @@ public partial class FloatingWindow : Window
         SourceInitialized += FloatingWindow_SourceInitialized;
         MarkdownDocumentHost.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
         MarkdownDocumentHost.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
+        ConfigureMarkdownInteraction(MarkdownDocumentHost);
         TitleBar.PreviewMouseLeftButtonDown += TitleBar_PreviewMouseLeftButtonDown;
         TitleBar.PreviewMouseMove += TitleBar_PreviewMouseMove;
         TitleBar.PreviewMouseLeftButtonUp += TitleBar_PreviewMouseLeftButtonUp;
@@ -383,7 +387,10 @@ public partial class FloatingWindow : Window
             _copyText = translation;
             _speechText = translation;
         }
-        ShowPlainText(ensureFooter: false);
+        // Render the current accumulated snapshot during streaming as well. Markdig is
+        // tolerant of incomplete tail syntax, while ShowCompletedMarkdown performs the
+        // final full-document pass after the request has been committed.
+        ShowStreamingMarkdown();
         if (_isLoading && !string.IsNullOrEmpty(translation))
             HideLoadingIndicator();
         if (_autoScroll.OnContentOrViewportChanged())
@@ -409,9 +416,11 @@ public partial class FloatingWindow : Window
             return;
         }
 
-        answer.Text = string.IsNullOrEmpty(turn.AnswerRawText)
-            ? "回答中..."
-            : turn.AnswerRawText;
+        answer.PendingRawText = turn.AnswerRawText;
+        if (IsMarkdownInteractionActive)
+            return;
+
+        RenderStreamingFollowUpAnswer(answer);
         if (_autoScroll.OnContentOrViewportChanged())
             ScrollToEndProgrammatically();
 
@@ -420,6 +429,46 @@ public partial class FloatingWindow : Window
             _lastPositionedHeight = ActualHeight;
             PositionWindowAtAnchor();
             UpdateCurrentConversationNodeFromViewport();
+        }
+    }
+
+    private void RenderStreamingFollowUpAnswer(StreamingFollowUpAnswerView answer)
+    {
+        if (string.IsNullOrEmpty(answer.PendingRawText))
+        {
+            answer.TextBox.Text = "回答中...";
+            return;
+        }
+
+        if (MarkdownRenderer.TryRender(
+                     answer.PendingRawText,
+                     out var rendered,
+                     int.MaxValue,
+                     MarkdownRenderer.AnalysisConversationFontSize) &&
+                 !rendered.UsedPlainTextFallback)
+        {
+            var markdown = answer.Markdown;
+            if (markdown is null)
+            {
+                markdown = CreateSelectableMarkdown(rendered.Document, $"Q{answer.TurnNumber} 回答");
+                var index = answer.Container.Children.IndexOf(answer.TextBox);
+                if (index >= 0)
+                {
+                    // UIElementCollection does not reliably support replacing an item
+                    // through its IList indexer while it is attached to a live visual tree.
+                    answer.Container.Children.RemoveAt(index);
+                    answer.Container.Children.Insert(index, markdown);
+                }
+                answer.Markdown = markdown;
+            }
+            else
+            {
+                markdown.Document = rendered.Document;
+            }
+        }
+        else
+        {
+            answer.TextBox.Text = answer.PendingRawText;
         }
     }
 
@@ -446,6 +495,35 @@ public partial class FloatingWindow : Window
             EnsureFooterFitsWindow();
         TranslationTextBlock.Visibility = Visibility.Visible;
         TranslationTextBlock.Text = _rawText;
+    }
+
+    private void ShowStreamingMarkdown()
+    {
+        if (IsMarkdownInteractionActive)
+        {
+            _hasPendingRootMarkdownRefresh = true;
+            return;
+        }
+
+        _hasPendingRootMarkdownRefresh = false;
+        var fontSize = _activeMode == ContentType.Analysis
+            ? MarkdownRenderer.AnalysisConversationFontSize
+            : MarkdownRenderer.ConversationFontSize;
+        if (!MarkdownRenderer.TryRender(
+                _rawText,
+                out var result,
+                MarkdownRenderer.DefaultMaxDisplayCharacters,
+                fontSize) ||
+            result.UsedPlainTextFallback)
+        {
+            ShowPlainText(ensureFooter: false);
+            return;
+        }
+
+        MarkdownDocumentHost.Document = result.Document;
+        TranslationTextBlock.Visibility = Visibility.Collapsed;
+        MarkdownDocumentHost.Visibility = Visibility.Visible;
+        ExpandMarkdownButton.Visibility = result.IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ShowCompletedMarkdown()
@@ -596,26 +674,7 @@ public partial class FloatingWindow : Window
             MarkdownRenderer.TryRender(turn.AnswerRawText, out var rendered, int.MaxValue, MarkdownRenderer.AnalysisConversationFontSize) &&
             !rendered.UsedPlainTextFallback)
         {
-            var markdown = new RichTextBox
-            {
-                Document = rendered.Document,
-                IsReadOnly = true,
-                IsReadOnlyCaretVisible = false,
-                IsDocumentEnabled = true,
-                Focusable = true,
-                IsTabStop = false,
-                BorderThickness = new Thickness(0),
-                Background = Brushes.Transparent,
-                Padding = new Thickness(0),
-                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                SelectionBrush = new SolidColorBrush(ConversationNodeStreamingColor),
-                SelectionOpacity = 0.45,
-                Cursor = Cursors.IBeam
-            };
-            AutomationProperties.SetName(markdown, $"Q{turn.TurnNumber} 回答");
-            markdown.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
-            markdown.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
+            var markdown = CreateSelectableMarkdown(rendered.Document, $"Q{turn.TurnNumber} 回答");
             container.Children.Add(markdown);
         }
         else
@@ -629,7 +688,11 @@ public partial class FloatingWindow : Window
             AutomationProperties.SetName(answer, $"Q{turn.TurnNumber} 回答");
             container.Children.Add(answer);
             if (turn.Status == AnalysisFollowUpTurnStatus.Loading)
-                _streamingFollowUpAnswers[turn.TurnNumber] = answer;
+                _streamingFollowUpAnswers[turn.TurnNumber] = new StreamingFollowUpAnswerView(
+                    turn.TurnNumber,
+                    container,
+                    answer,
+                    turn.AnswerRawText);
         }
 
         if (isTail && turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled)
@@ -683,6 +746,96 @@ public partial class FloatingWindow : Window
             SelectionOpacity = 0.45,
             Cursor = Cursors.IBeam
         };
+
+    private RichTextBox CreateSelectableMarkdown(FlowDocument document, string automationName)
+    {
+        var markdown = new RichTextBox
+        {
+            Document = document,
+            IsReadOnly = true,
+            IsReadOnlyCaretVisible = false,
+            IsDocumentEnabled = true,
+            Focusable = true,
+            IsTabStop = false,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(0),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            SelectionBrush = new SolidColorBrush(ConversationNodeStreamingColor),
+            SelectionOpacity = 0.45,
+            Cursor = Cursors.IBeam
+        };
+        AutomationProperties.SetName(markdown, automationName);
+        markdown.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
+        markdown.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
+        ConfigureMarkdownInteraction(markdown);
+        return markdown;
+    }
+
+    private bool IsMarkdownInteractionActive =>
+        _isMarkdownPointerDown || _markdownSelectionHosts.Count > 0;
+
+    private void ConfigureMarkdownInteraction(RichTextBox markdown)
+    {
+        markdown.PreviewMouseLeftButtonDown += Markdown_PreviewMouseLeftButtonDown;
+        markdown.PreviewMouseLeftButtonUp += Markdown_PreviewMouseLeftButtonUp;
+        markdown.SelectionChanged += Markdown_SelectionChanged;
+        markdown.GotKeyboardFocus += Markdown_KeyboardFocusChanged;
+        markdown.LostKeyboardFocus += Markdown_KeyboardFocusChanged;
+        markdown.Unloaded += Markdown_Unloaded;
+    }
+
+    private void Markdown_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) =>
+        _isMarkdownPointerDown = true;
+
+    private void Markdown_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        _isMarkdownPointerDown = false;
+        SchedulePendingMarkdownRefresh();
+    }
+
+    private void Markdown_SelectionChanged(object sender, RoutedEventArgs e)
+    {
+        if (sender is RichTextBox markdown)
+            UpdateMarkdownSelectionState(markdown);
+    }
+
+    private void Markdown_KeyboardFocusChanged(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is RichTextBox markdown)
+            UpdateMarkdownSelectionState(markdown);
+    }
+
+    private void Markdown_Unloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is RichTextBox markdown)
+            _markdownSelectionHosts.Remove(markdown);
+        SchedulePendingMarkdownRefresh();
+    }
+
+    private void UpdateMarkdownSelectionState(RichTextBox markdown)
+    {
+        if (!markdown.Selection.IsEmpty && markdown.IsKeyboardFocusWithin)
+            _markdownSelectionHosts.Add(markdown);
+        else
+            _markdownSelectionHosts.Remove(markdown);
+        SchedulePendingMarkdownRefresh();
+    }
+
+    private void SchedulePendingMarkdownRefresh()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (IsMarkdownInteractionActive)
+                return;
+
+            if (_hasPendingRootMarkdownRefresh)
+                ShowStreamingMarkdown();
+            foreach (var answer in _streamingFollowUpAnswers.Values)
+                RenderStreamingFollowUpAnswer(answer);
+        }, DispatcherPriority.ContextIdle);
+    }
 
     private void ApplyConversationFontSize(ContentType mode)
     {
@@ -1375,6 +1528,19 @@ public partial class FloatingWindow : Window
         FrameworkElement Target,
         FrameworkElement FocusTarget,
         bool IsStreaming);
+
+    private sealed class StreamingFollowUpAnswerView(
+        int turnNumber,
+        StackPanel container,
+        TextBox textBox,
+        string pendingRawText)
+    {
+        public int TurnNumber { get; } = turnNumber;
+        public StackPanel Container { get; } = container;
+        public TextBox TextBox { get; } = textBox;
+        public RichTextBox? Markdown { get; set; }
+        public string PendingRawText { get; set; } = pendingRawText;
+    }
 
     private void SetActiveModeButton(ContentType activeMode)
     {
