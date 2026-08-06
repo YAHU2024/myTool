@@ -214,6 +214,59 @@ public sealed class MarkdownRendererTests
     }
 
     [Fact]
+    public void RenderDetailed_FinalUnclosedFenceDoesNotSwallowPlainTextAsCode()
+    {
+        const string markdown = "before\n\n```\n普通文本\n## 标题";
+
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed(markdown, isFinal: true);
+
+            Assert.Contains(result.Document.Blocks, block => block is Paragraph paragraph &&
+                new TextRange(paragraph.ContentStart, paragraph.ContentEnd).Text.Contains("普通文本"));
+            Assert.DoesNotContain(result.Document.Blocks, block => block is BlockUIContainer);
+            Assert.Equal(markdown, result.RawText);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void RenderDetailed_FinalNestedFenceCollisionKeepsFollowingProseOutOfCodeBlock()
+    {
+        const string markdown = "```markdown\n```python\nprint(\"Hello\")\n```\n```\n然后这些工具会自动高亮代码。\n## 后续标题";
+
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed(markdown, isFinal: true);
+            var documentText = new TextRange(result.Document.ContentStart, result.Document.ContentEnd).Text;
+
+            Assert.Single(result.CodeBlocks);
+            Assert.Single(result.Document.Blocks.OfType<BlockUIContainer>());
+            Assert.Contains("然后这些工具会自动高亮代码。", documentText);
+            Assert.Equal(markdown, result.RawText);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void RenderDetailed_NormalizesFenceInfoLanguageBeforeHighlighting()
+    {
+        const string markdown = "```python title=demo\ndef greet(name):\n    return name\n```";
+
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed(markdown, isFinal: true);
+            var code = Assert.Single(result.CodeBlocks);
+            Assert.Equal("python", code.Language);
+            var container = Assert.IsType<BlockUIContainer>(Assert.Single(result.Document.Blocks));
+            var panel = Assert.IsType<DockPanel>(Assert.IsType<Border>(container.Child).Child);
+            var codeText = Assert.IsType<TextBlock>(panel.Children[1]);
+            Assert.True(codeText.Inlines.OfType<Run>().Count() > 1);
+            return true;
+        });
+    }
+
+    [Fact]
     public void RenderDetailed_CollapsesOnlyAtCompleteTopLevelBlockBoundaries()
     {
         var firstBlock = new string('a', 40);

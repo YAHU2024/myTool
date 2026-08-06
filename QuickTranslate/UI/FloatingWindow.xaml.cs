@@ -532,7 +532,7 @@ public partial class FloatingWindow : Window
         var fontSize = _activeMode == ContentType.Analysis
             ? MarkdownRenderer.AnalysisConversationFontSize
             : MarkdownRenderer.ConversationFontSize;
-        if (!MarkdownRenderer.TryRender(_rawText, out var result, maxDisplayCharacters, fontSize) || result.UsedPlainTextFallback)
+        if (!MarkdownRenderer.TryRender(_rawText, out var result, maxDisplayCharacters, fontSize, isFinal: true) || result.UsedPlainTextFallback)
         {
             if (result.Error is not null)
             {
@@ -671,7 +671,12 @@ public partial class FloatingWindow : Window
         container.Children.Add(question);
 
         if (turn.Status == AnalysisFollowUpTurnStatus.Completed &&
-            MarkdownRenderer.TryRender(turn.AnswerRawText, out var rendered, int.MaxValue, MarkdownRenderer.AnalysisConversationFontSize) &&
+            MarkdownRenderer.TryRender(
+                turn.AnswerRawText,
+                out var rendered,
+                int.MaxValue,
+                MarkdownRenderer.AnalysisConversationFontSize,
+                isFinal: true) &&
             !rendered.UsedPlainTextFallback)
         {
             var markdown = CreateSelectableMarkdown(rendered.Document, $"Q{turn.TurnNumber} 回答");

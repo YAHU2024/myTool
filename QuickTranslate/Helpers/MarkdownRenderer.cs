@@ -50,7 +50,8 @@ internal static class MarkdownRenderer
     public static MarkdownRenderResult RenderDetailed(
         string rawText,
         int maxDisplayCharacters = DefaultMaxDisplayCharacters,
-        double fontSize = ConversationFontSize)
+        double fontSize = ConversationFontSize,
+        bool isFinal = false)
     {
         ArgumentNullException.ThrowIfNull(rawText);
         if (maxDisplayCharacters <= 0)
@@ -65,7 +66,7 @@ internal static class MarkdownRenderer
         var displayedMarkdown = displayedRawText.Length == rawText.Length
             ? markdown
             : Markdown.Parse(displayedRawText, Pipeline);
-        AppendBlocks(displayedMarkdown, document.Blocks, codeBlocks, fontSize);
+        AppendBlocks(displayedMarkdown, document.Blocks, codeBlocks, fontSize, isFinal);
         return new MarkdownRenderResult(
             document,
             rawText,
@@ -80,12 +81,13 @@ internal static class MarkdownRenderer
         string rawText,
         out MarkdownRenderResult result,
         int maxDisplayCharacters = DefaultMaxDisplayCharacters,
-        double fontSize = ConversationFontSize)
+        double fontSize = ConversationFontSize,
+        bool isFinal = false)
     {
         ArgumentNullException.ThrowIfNull(rawText);
         try
         {
-            result = RenderDetailed(rawText, maxDisplayCharacters, fontSize);
+            result = RenderDetailed(rawText, maxDisplayCharacters, fontSize, isFinal);
             return true;
         }
         catch (Exception exception)
@@ -143,7 +145,8 @@ internal static class MarkdownRenderer
         ContainerBlock source,
         BlockCollection target,
         List<MarkdownCodeBlock> codeBlocks,
-        double fontSize)
+        double fontSize,
+        bool isFinal)
     {
         foreach (var block in source)
         {
@@ -156,6 +159,12 @@ internal static class MarkdownRenderer
                     target.Add(CreateParagraph(paragraph));
                     break;
                 case FencedCodeBlock fenced:
+                    if (isFinal && fenced.ClosingFencedCharCount == 0)
+                    {
+                        target.Add(CreateUnclosedFenceFallback(fenced));
+                        break;
+                    }
+
                     target.Add(CreateCodeBlock(
                         fenced,
                         fenced.Info?.ToString(),
@@ -166,21 +175,21 @@ internal static class MarkdownRenderer
                     target.Add(CreateCodeBlock(code, null, codeBlocks, false));
                     break;
                 case ListBlock list:
-                    target.Add(CreateList(list, codeBlocks, fontSize));
+                    target.Add(CreateList(list, codeBlocks, fontSize, isFinal));
                     break;
                 case QuoteBlock quote:
-                    target.Add(CreateQuote(quote, codeBlocks, fontSize));
+                    target.Add(CreateQuote(quote, codeBlocks, fontSize, isFinal));
                     break;
                 case ThematicBreakBlock:
                     target.Add(CreateThematicBreak());
                     break;
                 case Markdig.Extensions.Tables.Table table:
-                    target.Add(CreateTable(table, codeBlocks, fontSize));
+                    target.Add(CreateTable(table, codeBlocks, fontSize, isFinal));
                     break;
                 case HtmlBlock:
                     break;
                 case ContainerBlock container:
-                    AppendBlocks(container, target, codeBlocks, fontSize);
+                    AppendBlocks(container, target, codeBlocks, fontSize, isFinal);
                     break;
                 case LeafBlock leaf when leaf.Inline is not null:
                     target.Add(CreateParagraph(leaf));
@@ -276,10 +285,19 @@ internal static class MarkdownRenderer
         return new BlockUIContainer(border) { Margin = new Thickness(0, 4, 0, 9) };
     }
 
+    private static Paragraph CreateUnclosedFenceFallback(FencedCodeBlock block)
+    {
+        return new Paragraph(new Run(block.Lines.ToString()))
+        {
+            Margin = new Thickness(0, 2, 0, 7)
+        };
+    }
+
     private static System.Windows.Documents.List CreateList(
         ListBlock source,
         List<MarkdownCodeBlock> codeBlocks,
-        double fontSize)
+        double fontSize,
+        bool isFinal)
     {
         var list = new System.Windows.Documents.List
         {
@@ -292,13 +310,13 @@ internal static class MarkdownRenderer
             if (child is not ListItemBlock sourceItem)
                 continue;
             var item = new ListItem { Margin = new Thickness(0, 1, 0, 2) };
-            AppendBlocks(sourceItem, item.Blocks, codeBlocks, fontSize);
+            AppendBlocks(sourceItem, item.Blocks, codeBlocks, fontSize, isFinal);
             list.ListItems.Add(item);
         }
         return list;
     }
 
-    private static Section CreateQuote(QuoteBlock quote, List<MarkdownCodeBlock> codeBlocks, double fontSize)
+    private static Section CreateQuote(QuoteBlock quote, List<MarkdownCodeBlock> codeBlocks, double fontSize, bool isFinal)
     {
         var section = new Section
         {
@@ -307,7 +325,7 @@ internal static class MarkdownRenderer
             Padding = new Thickness(12, 7, 10, 3),
             Margin = new Thickness(0, 4, 0, 8)
         };
-        AppendBlocks(quote, section.Blocks, codeBlocks, fontSize);
+        AppendBlocks(quote, section.Blocks, codeBlocks, fontSize, isFinal);
         return section;
     }
 
@@ -321,7 +339,8 @@ internal static class MarkdownRenderer
     private static System.Windows.Documents.Table CreateTable(
         Markdig.Extensions.Tables.Table source,
         List<MarkdownCodeBlock> codeBlocks,
-        double fontSize)
+        double fontSize,
+        bool isFinal)
     {
         var table = new System.Windows.Documents.Table
         {
@@ -353,7 +372,7 @@ internal static class MarkdownRenderer
                     BorderThickness = new Thickness(1),
                     Padding = new Thickness(7, 4, 7, 4)
                 };
-                AppendBlocks(sourceCell, cell.Blocks, codeBlocks, fontSize);
+                AppendBlocks(sourceCell, cell.Blocks, codeBlocks, fontSize, isFinal);
                 if (cell.Blocks.Count == 0)
                     cell.Blocks.Add(new Paragraph());
                 row.Cells.Add(cell);

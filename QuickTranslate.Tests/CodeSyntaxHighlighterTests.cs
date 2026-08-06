@@ -24,6 +24,26 @@ public sealed class CodeSyntaxHighlighterTests
     }
 
     [Theory]
+    [InlineData("python")]
+    [InlineData("py")]
+    [InlineData("python3")]
+    [InlineData("py3")]
+    [InlineData("python title=demo")]
+    public void TryHighlight_PythonResolvesCommonLabels(string language)
+    {
+        RunInSta(() =>
+        {
+            var target = new TextBlock();
+            const string code = "def greet(name):\n    return f\"Hello, {name}\"";
+
+            Assert.True(CodeSyntaxHighlighter.TryHighlight(target, code, language));
+            Assert.Equal(code, new TextRange(target.ContentStart, target.ContentEnd).Text.TrimEnd('\r', '\n'));
+            Assert.True(target.Inlines.OfType<Run>().Count() > 1);
+            return true;
+        });
+    }
+
+    [Theory]
     [InlineData("js")]
     [InlineData("json")]
     [InlineData("py")]

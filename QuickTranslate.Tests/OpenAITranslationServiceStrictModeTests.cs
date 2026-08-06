@@ -85,7 +85,8 @@ public sealed class OpenAITranslationServiceStrictModeTests
 
         Assert.Equal(TranslationRequestKind.Analysis, request.Kind);
         Assert.Equal(ContentType.Analysis, request.ContentType);
-        Assert.Equal("ANALYSIS English", request.SystemPrompt);
+        Assert.StartsWith("ANALYSIS English", request.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("close every fenced code block", request.SystemPrompt);
         Assert.DoesNotContain("TRANSLATION", request.SystemPrompt);
     }
 

@@ -25,9 +25,18 @@ internal static class CodeSyntaxHighlighter
             ["cs"] = "c#",
             ["csharp"] = "c#",
             ["js"] = "javascript",
+            ["jscript"] = "javascript",
             ["ts"] = "typescript",
             ["py"] = "python",
-            ["ps1"] = "powershell"
+            ["py3"] = "python",
+            ["python3"] = "python",
+            ["ps1"] = "powershell",
+            ["pwsh"] = "powershell",
+            ["c++"] = "cpp",
+            ["cplusplus"] = "cpp",
+            ["md"] = "markdown",
+            ["html5"] = "html",
+            ["xhtml"] = "html"
         };
 
     private static readonly StyleDictionary DarkStyles = StyleDictionary.DefaultDark;
@@ -68,13 +77,33 @@ internal static class CodeSyntaxHighlighter
         if (string.IsNullOrWhiteSpace(language))
             return null;
 
-        var id = language.Trim();
+        var id = NormalizeLanguageInfo(language);
+        if (id is null)
+            return null;
         if (LanguageAliases.TryGetValue(id, out var alias))
             id = alias;
 
         return Languages.All.FirstOrDefault(candidate =>
             string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase) ||
             candidate.HasAlias(id));
+    }
+
+    private static string? NormalizeLanguageInfo(string? language)
+    {
+        if (string.IsNullOrWhiteSpace(language))
+            return null;
+
+        var token = language.Trim();
+        if (token.StartsWith("{.", StringComparison.Ordinal) && token.EndsWith('}'))
+            token = token[2..^1];
+        else if (token.StartsWith("language-", StringComparison.OrdinalIgnoreCase))
+            token = token[9..];
+
+        var separator = token.IndexOfAny([' ', '\t', '\r', '\n', ',']);
+        if (separator >= 0)
+            token = token[..separator];
+
+        return string.IsNullOrWhiteSpace(token) ? null : token;
     }
 
     private static void AppendRuns(
