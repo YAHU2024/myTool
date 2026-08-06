@@ -14,6 +14,7 @@ public sealed class OpenAIWordLookupService :
     IDisposable
 {
     internal const int MaxResponseBytes = 64 * 1024;
+    private static readonly string[] StructuredOutputModelPrefixes = ["gpt-4o", "gpt-4.1", "gpt-5"];
     private const int MaxHeadwordScalars = 128;
     private const int MaxRegionScalars = 16;
     private const int MaxPhoneticScalars = 128;
@@ -66,7 +67,7 @@ public sealed class OpenAIWordLookupService :
         var content = await CompleteAsync(
             settings,
             prompt,
-            query,
+            PromptInputContract.Wrap(query),
             "openai-compatible",
             cancellationToken).ConfigureAwait(false);
         var result = ParseResult(content, settings.ModelName);
@@ -132,7 +133,7 @@ public sealed class OpenAIWordLookupService :
         var content = await CompleteAsync(
             settings,
             prompt,
-            payload,
+            PromptInputContract.Wrap(payload),
             "openai-compatible-enrichment",
             cancellationToken).ConfigureAwait(false);
         var result = ApplyEnrichment(content, localResult, settings.ModelName);
@@ -170,6 +171,8 @@ public sealed class OpenAIWordLookupService :
             ["temperature"] = 0.1,
             ["stream"] = false
         };
+        if (SupportsStructuredOutput(settings.ApiBaseUrl, settings.ModelName))
+            body["response_format"] = BuildResponseFormat(providerId, userContent);
         if (baseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase))
             body["thinking"] = new { type = "disabled" };
         else if (baseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
@@ -230,6 +233,141 @@ public sealed class OpenAIWordLookupService :
             {"sense_0":"...","example_0":"..."}
             Preserve every input key exactly. Do not add keys, rewrite English text, or return prose or markdown.
             """;
+    }
+
+    internal static bool SupportsStructuredOutput(string apiBaseUrl, string modelName)
+    {
+        if (!Uri.TryCreate(apiBaseUrl, UriKind.Absolute, out var uri) ||
+            !string.Equals(uri.Host, "api.openai.com", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return StructuredOutputModelPrefixes.Any(prefix =>
+            modelName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static object BuildResponseFormat(string providerId, string userContent)
+    {
+        var schema = providerId.EndsWith("-enrichment", StringComparison.Ordinal)
+            ? BuildEnrichmentSchema(userContent)
+            : BuildLookupSchema();
+        var name = providerId.EndsWith("-enrichment", StringComparison.Ordinal)
+            ? "word_lookup_enrichment"
+            : "word_lookup";
+        return new
+        {
+            type = "json_schema",
+            json_schema = new
+            {
+                name,
+                strict = true,
+                schema
+            }
+        };
+    }
+
+    private static object BuildLookupSchema() => new
+    {
+        type = "object",
+        properties = new
+        {
+            status = new { type = "string", @enum = new[] { "found", "not_found" } },
+            headword = new { type = "string" },
+            pronunciations = new
+            {
+                type = "array",
+                items = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        region = new { type = "string" },
+                        phonetic = new { type = "string" }
+                    },
+                    required = new[] { "region", "phonetic" },
+                    additionalProperties = false
+                }
+            },
+            senses = new
+            {
+                type = "array",
+                items = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        part_of_speech = new { type = "string" },
+                        definition = new { type = "string" },
+                        english_definition = new { type = "string" }
+                    },
+                    required = new[] { "part_of_speech", "definition", "english_definition" },
+                    additionalProperties = false
+                }
+            },
+            examples = new
+            {
+                type = "array",
+                items = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        sentence = new { type = "string" },
+                        translation = new { type = "string" }
+                    },
+                    required = new[] { "sentence", "translation" },
+                    additionalProperties = false
+                }
+            },
+            collocations = new { type = "array", items = new { type = "string" } }
+        },
+        required = new[] { "status" },
+        additionalProperties = false,
+        anyOf = new object[]
+        {
+            new { required = new[] { "headword", "pronunciations", "senses", "examples", "collocations" } },
+            new { properties = new { status = new { @const = "not_found" } } }
+        }
+    };
+
+    private static object BuildEnrichmentSchema(string userContent)
+    {
+        var properties = new Dictionary<string, object>(StringComparer.Ordinal);
+        foreach (var key in ExtractEnrichmentKeys(userContent))
+            properties[key] = new { type = "string" };
+
+        return new
+        {
+            type = "object",
+            properties,
+            required = properties.Keys.ToArray(),
+            additionalProperties = false
+        };
+    }
+
+    private static IEnumerable<string> ExtractEnrichmentKeys(string userContent)
+    {
+        var start = userContent.IndexOf('{');
+        var end = userContent.LastIndexOf('}');
+        if (start < 0 || end <= start)
+            return Array.Empty<string>();
+
+        try
+        {
+            using var document = JsonDocument.Parse(userContent[start..(end + 1)]);
+            return document.RootElement.EnumerateObject()
+                .SelectMany(property => property.Value.EnumerateArray())
+                .Select(item => item.GetProperty("key").GetString())
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .Cast<string>()
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<string>();
+        }
     }
 
     internal static WordLookupResult ApplyEnrichment(

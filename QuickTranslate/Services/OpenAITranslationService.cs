@@ -14,6 +14,8 @@ namespace QuickTranslate.Services;
 /// </summary>
 public sealed class OpenAITranslationService : ITranslationService, IDisposable
 {
+    internal const int MaxInitialRequestRunes = 20000;
+    internal const int MaxAnalysisRequestRunes = 30000;
     internal const int MaxFollowUpQuestionRunes = AnalysisConversationFormatter.MaxQuestionRunes;
     internal const int MaxFollowUpContextCharacters = 60000;
 
@@ -50,6 +52,11 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         ContentType contentType,
         TranslationRequestKind kind = TranslationRequestKind.Translation)
     {
+        ArgumentNullException.ThrowIfNull(text);
+        var maxRunes = kind == TranslationRequestKind.Analysis || contentType == ContentType.Analysis
+            ? MaxAnalysisRequestRunes
+            : MaxInitialRequestRunes;
+        EnsureInputLength(text, maxRunes, kind == TranslationRequestKind.Analysis ? "解析" : "请求");
         var settings = PromptSettings.From(Volatile.Read(ref _settings));
         string prompt;
         var fallbackUsed = false;
@@ -154,19 +161,19 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         var messages = new List<ChatCompletionMessage>(4 + completedTurns.Count * 2)
         {
             new("system", semanticSnapshot.SystemPrompt),
-            new("user", sourceText),
+            new("user", PromptInputContract.Wrap(sourceText)),
             new("assistant", rootAnalysis)
         };
         foreach (var turn in completedTurns)
         {
             if (string.IsNullOrWhiteSpace(turn.Question) || string.IsNullOrWhiteSpace(turn.Answer))
                 throw new ArgumentException("已完成追问必须包含问题和回答", nameof(completedTurns));
-            messages.Add(new ChatCompletionMessage("user", turn.Question));
+            messages.Add(new ChatCompletionMessage("user", PromptInputContract.Wrap(turn.Question)));
             messages.Add(new ChatCompletionMessage("assistant", turn.Answer));
         }
-        messages.Add(new ChatCompletionMessage("user", normalizedQuestion));
+        messages.Add(new ChatCompletionMessage("user", PromptInputContract.Wrap(normalizedQuestion)));
 
-        var contextCharacters = messages.Sum(message => message.Content.Length);
+        var contextCharacters = messages.Sum(message => message.Content.EnumerateRunes().Count());
         if (contextCharacters > MaxFollowUpContextCharacters)
         {
             Logger.Info("TranslationService", "analysis.follow_up.limit_reached", new
@@ -366,7 +373,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             request.ModelName,
             [
                 new ChatCompletionMessage("system", request.SystemPrompt),
-                new ChatCompletionMessage("user", request.Text)
+                new ChatCompletionMessage("user", PromptInputContract.Wrap(request.Text))
             ],
             request.ApiBaseUrl,
             stream);
@@ -495,26 +502,32 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             prompt = $"Explain this code, script, SQL, configuration, or terminal command in {targetLang}. " +
                      "For commands, cover each command, option, pipe, redirect, and important side effect. " +
                      "Do not translate or reproduce the full source; quote only tiny snippets when necessary. " +
-                     "Output a concise explanation with no preamble, labels, or markdown headers.";
+                     "Output a concise explanation with no preamble, labels, or markdown headers. " +
+                     PromptInputContract.SystemInstruction;
         }
         else if (contentType == ContentType.Term)
         {
             prompt = $"Explain this term in {targetLang} in 1-2 concise sentences: what it is and its main use. " +
-                     "Output only the explanation; no preamble or markdown headers.";
+                     "Output only the explanation; no preamble or markdown headers. " +
+                     PromptInputContract.SystemInstruction;
         }
         else if (!string.IsNullOrWhiteSpace(settings.CustomTranslationPrompt))
         {
-            prompt = settings.CustomTranslationPrompt.Replace("{targetLang}", effectiveTarget);
+            prompt = settings.CustomTranslationPrompt.Replace("{targetLang}", effectiveTarget) + " " +
+                     PromptInputContract.SystemInstruction +
+                     " Output only the requested result in the target language, with no unrelated preamble or explanation.";
         }
         else if (settings.AutoDetectLanguage)
         {
             prompt = $"Translate the input into {effectiveTarget}. " +
-                     "Always translate; never return the original unchanged. Output only the translation.";
+                     "Always translate; never return the original unchanged. Output only the translation. " +
+                     PromptInputContract.SystemInstruction;
         }
         else
         {
             prompt = $"Translate the input into {targetLang}. If it is already in {targetLang}, translate it into {settings.FallbackLanguage}. " +
-                     "Always translate; never return the original unchanged. Output only the translation.";
+                     "Always translate; never return the original unchanged. Output only the translation. " +
+                     PromptInputContract.SystemInstruction;
         }
         return new PromptResult(prompt, sourceMatchesTarget);
     }
@@ -593,6 +606,13 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         // as plaintext over the network. HTTP is only permitted for
         // loopback addresses used during local development.
         ApiEndpointValidator.ValidateAndNormalize(request.ApiBaseUrl);
+    }
+
+    private static void EnsureInputLength(string text, int maxRunes, string operation)
+    {
+        var runeCount = text.EnumerateRunes().Count();
+        if (runeCount > maxRunes)
+            throw new InvalidOperationException($"{operation}内容过长，最多支持 {maxRunes} 个字符");
     }
 
     private static void ValidateFollowUpRequest(AnalysisFollowUpRequest request)

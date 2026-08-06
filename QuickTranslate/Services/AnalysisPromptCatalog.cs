@@ -44,10 +44,15 @@ public static class AnalysisPromptCatalog
             var custom = profiles.FirstOrDefault(profile =>
                 string.Equals(profile.Id, selectedId, StringComparison.Ordinal));
             if (custom != null && !string.IsNullOrWhiteSpace(custom.Prompt))
-                return custom.Prompt.Replace("{targetLang}", targetLang, StringComparison.Ordinal) + MarkdownOutputContract;
+                return Compose(custom.Prompt.Replace("{targetLang}", targetLang, StringComparison.Ordinal));
         }
 
         var builtIn = GetBuiltInOrGeneral(selectedId);
-        return builtIn.PromptTemplate.Replace("{targetLang}", targetLang, StringComparison.Ordinal) + MarkdownOutputContract;
+        return Compose(builtIn.PromptTemplate.Replace("{targetLang}", targetLang, StringComparison.Ordinal));
     }
+
+    private static string Compose(string taskPrompt) =>
+        taskPrompt.Trim() + " " +
+        PromptInputContract.SystemInstruction +
+        MarkdownOutputContract;
 }

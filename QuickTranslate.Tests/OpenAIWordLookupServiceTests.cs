@@ -99,7 +99,32 @@ public sealed class OpenAIWordLookupServiceTests
         Assert.Equal("Bearer secret", handler.Authorization);
         Assert.Equal("https://example.test/v1/chat/completions", handler.RequestUri);
         Assert.Equal("model-a", handler.Model);
-        Assert.Equal("run", handler.UserContent);
+        Assert.Contains("<quicktranslate-input>\nrun\n</quicktranslate-input>", handler.UserContent);
+    }
+
+    [Theory]
+    [InlineData("https://api.openai.com/v1", "gpt-4o", true)]
+    [InlineData("https://example.test/v1", "gpt-4o", false)]
+    [InlineData("https://api.openai.com/v1", "custom-model", false)]
+    public void StructuredOutputSupport_UsesExplicitProviderAndModelAllowlist(
+        string endpoint,
+        string model,
+        bool expected)
+    {
+        Assert.Equal(expected, OpenAIWordLookupService.SupportsStructuredOutput(endpoint, model));
+    }
+
+    [Fact]
+    public async Task LookupAsync_AddsStructuredOutputOnlyForAllowlistedModel()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(FoundEnvelope("run")));
+        using var service = new OpenAIWordLookupService(
+            new WordLookupProviderSettings("https://api.openai.com/v1", "secret", "gpt-4o", "简体中文"),
+            handler);
+
+        await service.LookupAsync(new WordLookupRequest("run", ""), CancellationToken.None);
+
+        Assert.Equal("json_schema", handler.ResponseFormatType);
     }
 
     [Fact]
@@ -189,7 +214,9 @@ public sealed class OpenAIWordLookupServiceTests
         Assert.Contains("AI 补全", result.Source.DisplayName);
         Assert.Contains("They run daily.", handler.UserContent);
         Assert.DoesNotContain("快速移动", handler.UserContent);
-        using var payload = JsonDocument.Parse(handler.UserContent!);
+        var payloadStart = handler.UserContent!.IndexOf('{');
+        var payloadEnd = handler.UserContent.LastIndexOf('}');
+        using var payload = JsonDocument.Parse(handler.UserContent[payloadStart..(payloadEnd + 1)]);
         Assert.False(payload.RootElement.TryGetProperty("headword", out _));
         var senses = payload.RootElement.GetProperty("senses");
         var examples = payload.RootElement.GetProperty("examples");
@@ -275,6 +302,7 @@ public sealed class OpenAIWordLookupServiceTests
         public string? Authorization { get; private set; }
         public string? Model { get; private set; }
         public string? UserContent { get; private set; }
+        public string? ResponseFormatType { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -287,6 +315,9 @@ public sealed class OpenAIWordLookupServiceTests
             using var json = JsonDocument.Parse(body);
             Model = json.RootElement.GetProperty("model").GetString();
             UserContent = json.RootElement.GetProperty("messages")[1].GetProperty("content").GetString();
+            ResponseFormatType = json.RootElement.TryGetProperty("response_format", out var responseFormat)
+                ? responseFormat.GetProperty("type").GetString()
+                : null;
             return await _response(new RecordedRequest(cancellationToken));
         }
     }

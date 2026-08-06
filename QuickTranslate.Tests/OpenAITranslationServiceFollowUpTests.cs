@@ -30,11 +30,11 @@ public sealed class OpenAITranslationServiceFollowUpTests
         Assert.Collection(
             request.Messages,
             message => AssertMessage(message, "system", "root prompt"),
-            message => AssertMessage(message, "user", "source"),
+             message => Assert.Contains("<quicktranslate-input>\nsource\n</quicktranslate-input>", message.Content),
             message => AssertMessage(message, "assistant", "root answer"),
-            message => AssertMessage(message, "user", "q1"),
+             message => Assert.Contains("<quicktranslate-input>\nq1\n</quicktranslate-input>", message.Content),
             message => AssertMessage(message, "assistant", "a1"),
-            message => AssertMessage(message, "user", "q2"));
+             message => Assert.Contains("<quicktranslate-input>\nq2\n</quicktranslate-input>", message.Content));
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public sealed class OpenAITranslationServiceFollowUpTests
             question,
             1));
 
-        Assert.Contains("1000", exception.Message);
+        Assert.Contains("2000", exception.Message);
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public sealed class OpenAITranslationServiceFollowUpTests
         Assert.Equal("Bearer secret", handler.Authorization);
         Assert.Equal("model-a", handler.Model);
         Assert.Equal(4, handler.Messages.Count);
-        AssertMessage(handler.Messages[^1], "user", "question");
+        Assert.Contains("<quicktranslate-input>\nquestion\n</quicktranslate-input>", handler.Messages[^1].Content);
     }
 
     [Fact]

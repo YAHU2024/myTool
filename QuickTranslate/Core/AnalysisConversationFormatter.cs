@@ -5,7 +5,7 @@ namespace QuickTranslate.Core;
 
 internal static class AnalysisConversationFormatter
 {
-    public const int MaxQuestionRunes = 1000;
+    public const int MaxQuestionRunes = 2000;
     public const int SummaryRunes = 20;
 
     public static string NormalizeQuestion(string? question)
