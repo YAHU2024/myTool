@@ -358,7 +358,7 @@ public static class UpdateService
             if (isLate) return;
 
             // 正常路径：先回传结果再启动下载
-            tcs.TrySetResult(new UpdateCheckResult(
+            tcs?.TrySetResult(new UpdateCheckResult(
                 UpdateCheckOutcome.UpdateAvailable, args.CurrentVersion?.ToString()));
 
             if (autoShow)
