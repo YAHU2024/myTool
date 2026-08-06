@@ -42,15 +42,8 @@ AGENTS.md
 .claude
 .workbuddy
 
-## Private docs
-/docs/design/
-PLAN.md
-docs/THOUGHTS.md
-BUGFIX_PLAN.md
-docs/design
-docs/QUICK_LOOKUP_PLAN.md
-docs/WORD_DICTIONARY_MINIMAL_VALIDATION.md
-docs/VERIFICATION_PLAN.md
+## Local developer documentation (plans, validation notes, design drafts)
+/docs/internal/
 
 ## Build output
 .build-output/
@@ -60,9 +53,3 @@ docs/VERIFICATION_PLAN.md
 
 ## Test output
 **/TestResults/
-
-## Release planning (internal)
-docs/RELEASE_AUTOMATION_PLAN.md
-
-## Phase planning (internal)
-docs/plan/PHASE_11_ANALYSIS_FOLLOW_UP_PLAN.md

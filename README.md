@@ -110,8 +110,9 @@ SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支
 | 核心翻译 | SSE 流式逐字输出 · 拖拽/双击/三击划词 · 红点引导交互 · 悬浮窗即时展示 · 14 种语言支持 · 语言自动检测 |
 | 智能识别 | 自动区分 Translation / Code / Term，路由专用 Prompt · 置信度诊断 · 浏览器/终端场景感知 |
 | 多模式会话 | 同文本支持翻译 · 命令解析 · 术语解释 · 深度解析四种模式切换 · 已完成结果瞬时恢复 |
+| 解析追问 | 深度解析结果内连续追问 · 最多 10 轮上下文 · 流式回答 · 历史节点定位 · 失败尾轮重试 |
 | 快速查词 | 本地词典(ECDICT/OEWN)优先 · 未命中自动回退大模型查词 · 缺失中文一键 AI 补全 · 词性统一中文显示 · 结构化释义/音标/例句/搭配 · 最近 5 项 · 朗读与复制 · 居中弹出/切换隐显 |
-| Markdown | 安全解析渲染 · 围栏代码语法高亮与独立复制 · 表格/列表/引用 · 仅允许 http/https 链接 |
+| Markdown | 流式增量渲染 · 围栏闭合后语法高亮与独立复制 · 表格/列表/引用 · 仅允许 http/https 链接 |
 | 语音朗读 | Edge TTS 在线合成 · 选中文本朗读 · 翻译结果一键朗读 · 自动语种匹配 |
 | 翻译历史 | SQLite 本地持久化 · 按时间/语言搜索筛选 · 分页浏览 · 双击复制 · Anki 格式导出 |
 | 系统集成 | 两套独立全局快捷键（划词翻译 / 快速查词）· 查词快捷键带开关默认关闭 · 托盘单击快速查词 · 右键恢复最近翻译 · 开机自启 · 浏览器内触发 · 单实例保护 |
@@ -252,6 +253,7 @@ QuickTranslate/
 │   ├── Logger.cs                      # 异步日志器（JSON Lines/轮转/清理）
 │   ├── LogEvent.cs                    # 结构化日志事件模型
 │   ├── MarkdownRenderer.cs            # 安全 Markdown 渲染
+│   ├── CodeSyntaxHighlighter.cs       # 围栏代码块本地语法高亮
 │   ├── Win32Api.cs                    # Win32 P/Invoke 声明
 │   ├── DpiHelper.cs                   # DPI 缩放坐标转换
 │   ├── ApiEndpointValidator.cs        # API 端点格式验证
@@ -291,7 +293,9 @@ myTool/
 ├── docs/                              # 项目文档
 │   ├── images/                        # 文档配图
 │   ├── LOGGING.md                     # 日志功能文档
-│   └── RELEASE.md                     # 发布流程文档
+│   ├── RELEASE.md                     # 发布流程文档
+│   ├── RELEASE_NOTES_NEXT.md          # 下一版本发布说明草稿
+│   └── THIRD_PARTY_NOTICES.md         # 第三方依赖声明
 ├── .gitignore                         # Git 忽略规则
 ├── CONTRIBUTING.md                    # 贡献指南
 ├── LICENSE
@@ -316,7 +320,7 @@ myTool/
 
 应用启动时会静默检查 GitHub Release 上的最新版本。发现新版本后通过托盘气泡通知用户，点击即可触发更新对话框。下载和安装由 AutoUpdater.NET 接管，安装程序通过 SHA256 校验完整性。
 
-更新流程详情见 [docs/RELEASE.md](docs/RELEASE.md)。
+更新流程详情见 [docs/RELEASE.md](docs/RELEASE.md)；下一版本的用户可见变更在 [发布说明草稿](docs/RELEASE_NOTES_NEXT.md) 中维护。
 
 ---
 
@@ -331,13 +335,13 @@ myTool/
 | 五 | 单实例保护 + 信号防护 + 日志系统 + 剪贴板零污染 | done |
 | 六 | 智能内容识别 + 分类回归测试 + 浏览器检测 + 多模型管理 | done |
 | 七 | 请求生命周期重构 + 语义缓存 + latest-request-wins | done |
-| 八 | 多模式会话 + Markdown 渲染 + 流式视角控制 + 窗口拖拽缩放 | done |
+| 八 | 多模式会话 + 实时 Markdown 渲染 + 代码高亮 + 流式视角控制 + 窗口拖拽缩放 | done |
 | 九 | 结构化日志 + 日志查看器 + 级别筛选 + P50/P95/P99 指标 | done |
 | 十 | 四类 Prompt 行为契约 + 内置/自定义解析方案管理 + 日志隐私 | done |
 | 十一 | TTS 语音朗读 + Edge TTS 合成 + 自动语种匹配 | done |
 | 十二 | 自动更新 + GitHub Release 分发 + Inno Setup 双版本安装包 | done |
 | 十三 | 快速查词面板 + 独立全局快捷键 + 托盘单击集成 + 本地词典(ECDICT/OEWN) + AI中文补全 + 词性归一化 | done |
-| 十四 | 解析追问功能 | 规划中 |
+| 十四 | 解析追问 + 多轮上下文 + 流式回答 + 历史节点定位 | done |
 | 十五 | 性能优化 | 规划中 |
 | 十六 | UI 统一与国际化 | 规划中 |
 
