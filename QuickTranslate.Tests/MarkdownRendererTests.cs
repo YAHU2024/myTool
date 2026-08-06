@@ -41,6 +41,31 @@ public sealed class MarkdownRendererTests
     }
 
     [Fact]
+    public void RenderDetailed_UsesTheStreamingConversationFontForBodyText()
+    {
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed("简体中文正文");
+            Assert.Equal(MarkdownRenderer.ConversationFontFamilyName, result.Document.FontFamily.Source);
+            Assert.Equal(MarkdownRenderer.ConversationFontSize, result.Document.FontSize);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void RenderDetailed_AllowsFollowUpBodyScale()
+    {
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed("# 标题\n\n正文", fontSize: MarkdownRenderer.AnalysisConversationFontSize);
+            Assert.Equal(15, result.Document.FontSize);
+            var heading = Assert.IsType<Paragraph>(result.Document.Blocks.First());
+            Assert.Equal(20.25, heading.FontSize);
+            return true;
+        });
+    }
+
+    [Fact]
     public void RenderDetailed_RendersPipeTable()
     {
         const string markdown = "| Name | Value |\n| --- | --- |\n| alpha | 1 |";

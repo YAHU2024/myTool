@@ -253,6 +253,7 @@ public partial class FloatingWindow : Window
 
         _sessionId = sessionId;
         _activeMode = mode;
+        ApplyConversationFontSize(mode);
         _modeStatus = state.Status;
         SetActiveModeButton(mode);
         _rawText = state.RawText;
@@ -330,6 +331,7 @@ public partial class FloatingWindow : Window
             _modeStatus = ModeResultStatus.Completed;
         else
             _modeStatus = ModeResultStatus.Loading;
+        ApplyConversationFontSize(contentType);
         ShowPlainText();
         _autoScroll.BeginRequest();
         UpdateAutoScrollAffordance();
@@ -449,7 +451,10 @@ public partial class FloatingWindow : Window
     private void ShowCompletedMarkdown()
     {
         var maxDisplayCharacters = _isMarkdownExpanded ? int.MaxValue : MarkdownRenderer.DefaultMaxDisplayCharacters;
-        if (!MarkdownRenderer.TryRender(_rawText, out var result, maxDisplayCharacters) || result.UsedPlainTextFallback)
+        var fontSize = _activeMode == ContentType.Analysis
+            ? MarkdownRenderer.AnalysisConversationFontSize
+            : MarkdownRenderer.ConversationFontSize;
+        if (!MarkdownRenderer.TryRender(_rawText, out var result, maxDisplayCharacters, fontSize) || result.UsedPlainTextFallback)
         {
             if (result.Error is not null)
             {
@@ -588,7 +593,7 @@ public partial class FloatingWindow : Window
         container.Children.Add(question);
 
         if (turn.Status == AnalysisFollowUpTurnStatus.Completed &&
-            MarkdownRenderer.TryRender(turn.AnswerRawText, out var rendered, int.MaxValue) &&
+            MarkdownRenderer.TryRender(turn.AnswerRawText, out var rendered, int.MaxValue, MarkdownRenderer.AnalysisConversationFontSize) &&
             !rendered.UsedPlainTextFallback)
         {
             var markdown = new RichTextBox
@@ -678,6 +683,13 @@ public partial class FloatingWindow : Window
             SelectionOpacity = 0.45,
             Cursor = Cursors.IBeam
         };
+
+    private void ApplyConversationFontSize(ContentType mode)
+    {
+        TranslationTextBlock.FontSize = mode == ContentType.Analysis
+            ? MarkdownRenderer.AnalysisConversationFontSize
+            : MarkdownRenderer.ConversationFontSize;
+    }
 
     private void AddConversationNode(
         string key,
