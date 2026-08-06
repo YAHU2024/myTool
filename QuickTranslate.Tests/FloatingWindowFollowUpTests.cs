@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using QuickTranslate.Core;
 using QuickTranslate.Models;
@@ -58,6 +59,18 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Equal(1, window.AnalysisTurnViewCount);
             Assert.Equal(2, window.ConversationNodeCount);
             Assert.True(window.ConversationRailColumn.Width.IsAuto);
+            var streamingNode = window.GetConversationNodeForTests("Q1");
+            var streamingBrush = Assert.IsType<SolidColorBrush>(streamingNode.Background);
+            Assert.True(streamingBrush.HasAnimatedProperties);
+            Assert.Equal(
+                Color.FromRgb(0x25, 0x62, 0x5D),
+                streamingBrush.GetAnimationBaseValue(SolidColorBrush.ColorProperty));
+
+            var rootNode = window.GetConversationNodeForTests("解析");
+            rootNode.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal("解析", window.CurrentConversationNodeKey);
+            Assert.Equal(Color.FromRgb(0x44, 0x88, 0xFF), Assert.IsType<SolidColorBrush>(rootNode.Background).Color);
+            Assert.True(Assert.IsType<SolidColorBrush>(streamingNode.Background).HasAnimatedProperties);
 
             var failed = loading with { Status = AnalysisFollowUpTurnStatus.Failed };
             window.SetSessionView(
@@ -71,6 +84,46 @@ public sealed class FloatingWindowFollowUpTests
             var turnPanel = Assert.IsType<StackPanel>(turnBorder.Child);
             var retry = Assert.Single(turnPanel.Children.OfType<Button>());
             Assert.Equal("重试 Q1", AutomationProperties.GetName(retry));
+
+            var failedNode = window.GetConversationNodeForTests("Q1");
+            failedNode.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal("Q1", window.CurrentConversationNodeKey);
+            Assert.Equal(Color.FromRgb(0x44, 0x88, 0xFF), Assert.IsType<SolidColorBrush>(failedNode.Background).Color);
+            Assert.Equal(Brushes.Transparent, window.GetConversationNodeForTests("解析").Background);
+        });
+    }
+
+    [SkippableFact]
+    public void Scrolling_SelectsTheSectionWithTheLargestVisibleArea()
+    {
+        RunOnSta(window =>
+        {
+            var root = string.Join("\n\n", Enumerable.Repeat("root analysis content", 80));
+            var answer = string.Join("\n\n", Enumerable.Repeat("follow-up answer content", 80));
+            var turn = new AnalysisFollowUpTurnState(
+                1,
+                "why",
+                answer,
+                AnalysisFollowUpTurnStatus.Completed,
+                2);
+            window.SizeToContent = SizeToContent.Manual;
+            window.Height = 300;
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed(root),
+                Conversation([turn]));
+            window.Show();
+            window.UpdateLayout();
+            PumpDispatcher();
+
+            window.TranslationScroller.ScrollToHome();
+            PumpDispatcher();
+            Assert.Equal("解析", window.CurrentConversationNodeKey);
+
+            window.TranslationScroller.ScrollToEnd();
+            PumpDispatcher();
+            Assert.Equal("Q1", window.CurrentConversationNodeKey);
         });
     }
 
@@ -121,6 +174,9 @@ public sealed class FloatingWindowFollowUpTests
         Assert.True(thread.Join(TimeSpan.FromSeconds(5)));
         Assert.Null(failure);
     }
+
+    private static void PumpDispatcher() =>
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
 
     private static ModeResultState Completed(string text) => new(
         ModeResultStatus.Completed,

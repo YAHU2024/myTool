@@ -80,6 +80,12 @@ public partial class FloatingWindow : Window
     private bool _suppressDraftEvent;
     private string _copyText = string.Empty;
     private string _speechText = string.Empty;
+    private readonly List<ConversationNodeView> _conversationNodes = [];
+    private string? _currentConversationNodeKey;
+
+    private static readonly Color ConversationNodeActiveColor = Color.FromRgb(0x44, 0x88, 0xFF);
+    private static readonly Color ConversationNodeStreamingColor = Color.FromRgb(0x4D, 0xB6, 0xAC);
+    private static readonly Color ConversationNodeStreamingDimColor = Color.FromRgb(0x25, 0x62, 0x5D);
 
     public event Action<ContentType>? ModeRequested;
     public event Action? RefreshRequested;
@@ -92,6 +98,10 @@ public partial class FloatingWindow : Window
     internal bool IsTtsBusy => _isTtsBusy;
     internal int AnalysisTurnViewCount => AnalysisTurnsPanel.Children.Count;
     internal int ConversationNodeCount => ConversationNodeRail.Children.Count;
+    internal string? CurrentConversationNodeKey => _currentConversationNodeKey;
+
+    internal Button GetConversationNodeForTests(string key) =>
+        _conversationNodes.Single(node => node.Key == key).Button;
 
     public bool IsPinned { get; private set; }
 
@@ -416,6 +426,7 @@ public partial class FloatingWindow : Window
             _lastPositioningTicks = now;
             UpdateLayout();
             PositionWindowAtAnchor();
+            UpdateCurrentConversationNodeFromViewport();
         }
     }
 
@@ -472,9 +483,11 @@ public partial class FloatingWindow : Window
 
     private void RenderAnalysisConversation()
     {
+        StopConversationNodeAnimations();
         _streamingFollowUpAnswers.Clear();
         AnalysisTurnsPanel.Children.Clear();
         ConversationNodeRail.Children.Clear();
+        _conversationNodes.Clear();
 
         var turns = _analysisConversation.Turns;
         var canFollowUp = _activeMode == ContentType.Analysis &&
@@ -490,12 +503,25 @@ public partial class FloatingWindow : Window
 
         if (!canFollowUp)
         {
+            _currentConversationNodeKey = null;
             _copyText = _rawText;
             _speechText = _rawText;
             return;
         }
 
-        AddConversationNode("解析", "初始解析", AnalysisRootLabel, isCurrent: turns.Count == 0, isWarning: false);
+        if (_currentConversationNodeKey != "解析" &&
+            !turns.Any(turn => _currentConversationNodeKey == $"Q{turn.TurnNumber}"))
+        {
+            _currentConversationNodeKey = "解析";
+        }
+
+        AddConversationNode(
+            "解析",
+            "初始解析",
+            RootResultHost,
+            AnalysisRootLabel,
+            isStreaming: false,
+            isWarning: false);
         foreach (var turn in turns)
             AddFollowUpTurn(turn, turn == turns[^1]);
 
@@ -530,6 +556,7 @@ public partial class FloatingWindow : Window
         _speechText = turns.LastOrDefault(turn => turn.Status == AnalysisFollowUpTurnStatus.Completed)?.AnswerRawText
             ?? _rawText;
         EnsureFooterFitsWindow();
+        Dispatcher.BeginInvoke(UpdateCurrentConversationNodeFromViewport, DispatcherPriority.Loaded);
     }
 
     private void AddFollowUpTurn(AnalysisFollowUpTurnState turn, bool isTail)
@@ -621,35 +648,39 @@ public partial class FloatingWindow : Window
         AddConversationNode(
             $"Q{turn.TurnNumber}",
             AnalysisConversationFormatter.SummarizeQuestion(turn.Question),
+            border,
             label,
-            isCurrent: isTail,
+            isStreaming: turn.Status == AnalysisFollowUpTurnStatus.Loading,
             isWarning: turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled);
     }
 
     private void AddConversationNode(
-        string text,
+        string key,
         string toolTip,
         FrameworkElement target,
-        bool isCurrent,
+        FrameworkElement focusTarget,
+        bool isStreaming,
         bool isWarning)
     {
         var button = new Button
         {
-            Content = text,
+            Content = key,
             ToolTip = toolTip,
             Style = (Style)FindResource("ConversationNodeButton"),
-            Background = isCurrent
-                ? new SolidColorBrush(Color.FromRgb(0x44, 0x88, 0xFF))
-                : Brushes.Transparent,
+            Background = Brushes.Transparent,
             BorderBrush = isWarning
                 ? new SolidColorBrush(Color.FromRgb(0xD8, 0xB4, 0x7A))
                 : new SolidColorBrush(Color.FromRgb(0x70, 0x70, 0x86)),
             BorderThickness = new Thickness(1),
-            Tag = target
         };
-        AutomationProperties.SetName(button, text == "解析" ? "定位到初始解析" : $"定位到{text}");
+        AutomationProperties.SetName(button, key == "解析" ? "定位到初始解析" : $"定位到{key}");
         button.Click += ConversationNode_Click;
         ConversationNodeRail.Children.Add(button);
+        var node = new ConversationNodeView(key, button, target, focusTarget, isStreaming);
+        button.Tag = node;
+        focusTarget.GotKeyboardFocus += ConversationContent_GotKeyboardFocus;
+        _conversationNodes.Add(node);
+        ApplyConversationNodeVisual(node);
     }
 
     private static string FollowUpStatusText(AnalysisFollowUpTurnState turn) => turn.Status switch
@@ -662,19 +693,118 @@ public partial class FloatingWindow : Window
 
     private void ConversationNode_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: FrameworkElement target })
+        if (sender is not Button { Tag: ConversationNodeView node })
             return;
+        SetCurrentConversationNode(node.Key);
         _isProgrammaticScroll = true;
         try
         {
-            target.BringIntoView(new Rect(new Size(Math.Max(1, target.ActualWidth), Math.Max(1, target.ActualHeight))));
-            target.Focus();
+            node.Target.BringIntoView(new Rect(new Size(
+                Math.Max(1, node.Target.ActualWidth),
+                Math.Max(1, node.Target.ActualHeight))));
+            node.FocusTarget.Focus();
         }
         finally
         {
             _isProgrammaticScroll = false;
         }
+        Dispatcher.BeginInvoke(UpdateCurrentConversationNodeFromViewport, DispatcherPriority.Loaded);
         RaiseScrollStateChanged();
+    }
+
+    private void ConversationContent_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        var node = _conversationNodes.FirstOrDefault(candidate => candidate.FocusTarget == sender);
+        if (node is not null)
+            SetCurrentConversationNode(node.Key);
+    }
+
+    private void UpdateCurrentConversationNodeFromViewport()
+    {
+        if (_conversationNodes.Count == 0 ||
+            TranslationScroller.ViewportHeight <= 0 ||
+            !TranslationScroller.IsVisible)
+        {
+            return;
+        }
+
+        ConversationNodeView? current = null;
+        var largestVisibleHeight = 0.0;
+        foreach (var node in _conversationNodes)
+        {
+            if (!node.Target.IsVisible || node.Target.ActualHeight <= 0)
+                continue;
+
+            try
+            {
+                var top = node.Target.TranslatePoint(new Point(0, 0), TranslationScroller).Y;
+                var bottom = top + node.Target.ActualHeight;
+                var visibleHeight = Math.Max(
+                    0,
+                    Math.Min(bottom, TranslationScroller.ViewportHeight) - Math.Max(top, 0));
+                if (visibleHeight > largestVisibleHeight)
+                {
+                    largestVisibleHeight = visibleHeight;
+                    current = node;
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // The visual tree may be rebuilding during a mode/session replacement.
+            }
+        }
+
+        if (current is not null)
+            SetCurrentConversationNode(current.Key);
+    }
+
+    private void SetCurrentConversationNode(string key)
+    {
+        if (_currentConversationNodeKey == key)
+            return;
+        _currentConversationNodeKey = key;
+        foreach (var node in _conversationNodes)
+            ApplyConversationNodeVisual(node);
+    }
+
+    private void ApplyConversationNodeVisual(ConversationNodeView node)
+    {
+        if (node.IsStreaming)
+        {
+            if (node.Button.Background is not SolidColorBrush brush ||
+                brush.IsFrozen ||
+                brush.Color != ConversationNodeStreamingDimColor)
+            {
+                brush = new SolidColorBrush(ConversationNodeStreamingDimColor);
+                node.Button.Background = brush;
+            }
+
+            var animation = new ColorAnimation
+            {
+                From = ConversationNodeStreamingDimColor,
+                To = ConversationNodeStreamingColor,
+                Duration = TimeSpan.FromMilliseconds(900),
+                AutoReverse = true,
+                RepeatBehavior = RepeatBehavior.Forever
+            };
+            brush.BeginAnimation(SolidColorBrush.ColorProperty, animation);
+            return;
+        }
+
+        if (node.Button.Background is SolidColorBrush { IsFrozen: false } animatedBrush)
+            animatedBrush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+        node.Button.Background = node.Key == _currentConversationNodeKey
+            ? new SolidColorBrush(ConversationNodeActiveColor)
+            : Brushes.Transparent;
+    }
+
+    private void StopConversationNodeAnimations()
+    {
+        foreach (var node in _conversationNodes)
+        {
+            if (node.Button.Background is SolidColorBrush { IsFrozen: false } brush)
+                brush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+        }
     }
 
     private void MarkdownCodeCopyButton_Click(object sender, RoutedEventArgs e)
@@ -943,6 +1073,9 @@ public partial class FloatingWindow : Window
 
     private void TranslationScroller_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
+        if (e.VerticalChange != 0 || e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0)
+            UpdateCurrentConversationNodeFromViewport();
+
         if (_isProgrammaticScroll || e.VerticalChange == 0)
             return;
 
@@ -963,6 +1096,7 @@ public partial class FloatingWindow : Window
         _isProgrammaticScroll = true;
         try { TranslationScroller.ScrollToVerticalOffset(Math.Max(0, offset)); }
         finally { _isProgrammaticScroll = false; }
+        UpdateCurrentConversationNodeFromViewport();
     }
 
     private void ScrollToEndProgrammatically()
@@ -970,6 +1104,7 @@ public partial class FloatingWindow : Window
         _isProgrammaticScroll = true;
         try { TranslationScroller.ScrollToEnd(); }
         finally { _isProgrammaticScroll = false; }
+        UpdateCurrentConversationNodeFromViewport();
     }
 
     private void RaiseScrollStateChanged()
@@ -1180,6 +1315,13 @@ public partial class FloatingWindow : Window
         public string? ActionText { get; }
         public Action? Action { get; }
     }
+
+    private sealed record ConversationNodeView(
+        string Key,
+        Button Button,
+        FrameworkElement Target,
+        FrameworkElement FocusTarget,
+        bool IsStreaming);
 
     private void SetActiveModeButton(ContentType activeMode)
     {
