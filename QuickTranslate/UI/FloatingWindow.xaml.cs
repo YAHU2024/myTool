@@ -75,7 +75,7 @@ public partial class FloatingWindow : Window
     private Guid _sessionId;
     private ContentType _activeMode = ContentType.Translation;
     private AnalysisConversationState _analysisConversation = AnalysisConversationState.Empty();
-    private readonly Dictionary<int, TextBlock> _streamingFollowUpAnswers = new();
+    private readonly Dictionary<int, TextBox> _streamingFollowUpAnswers = new();
     private bool _isImeComposing;
     private bool _suppressDraftEvent;
     private string _copyText = string.Empty;
@@ -590,15 +590,13 @@ public partial class FloatingWindow : Window
         };
         AutomationProperties.SetName(label, $"追问 Q{turn.TurnNumber}");
         container.Children.Add(label);
-        container.Children.Add(new TextBlock
-        {
-            Text = turn.Question,
-            Foreground = Brushes.White,
-            FontFamily = new FontFamily("Microsoft YaHei UI"),
-            FontSize = 13,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 4, 0, 6)
-        });
+        var question = CreateSelectableTextBox(
+            turn.Question,
+            Brushes.White,
+            13,
+            new Thickness(0, 4, 0, 6));
+        AutomationProperties.SetName(question, $"Q{turn.TurnNumber} 问题");
+        container.Children.Add(question);
 
         if (turn.Status == AnalysisFollowUpTurnStatus.Completed &&
             MarkdownRenderer.TryRender(turn.AnswerRawText, out var rendered, int.MaxValue) &&
@@ -608,30 +606,33 @@ public partial class FloatingWindow : Window
             {
                 Document = rendered.Document,
                 IsReadOnly = true,
+                IsReadOnlyCaretVisible = false,
                 IsDocumentEnabled = true,
-                Focusable = false,
+                Focusable = true,
+                IsTabStop = false,
                 BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent,
                 Padding = new Thickness(0),
                 VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                SelectionBrush = new SolidColorBrush(ConversationNodeStreamingColor),
+                SelectionOpacity = 0.45,
+                Cursor = Cursors.IBeam
             };
+            AutomationProperties.SetName(markdown, $"Q{turn.TurnNumber} 回答");
             markdown.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
             markdown.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
             container.Children.Add(markdown);
         }
         else
         {
-            var answer = new TextBlock
-            {
-                Text = FollowUpStatusText(turn),
-                Foreground = turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled
+            var answer = CreateSelectableTextBox(
+                FollowUpStatusText(turn),
+                turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled
                     ? new SolidColorBrush(Color.FromRgb(0xD8, 0xB4, 0x7A))
                     : new SolidColorBrush(Color.FromRgb(0xE4, 0xE4, 0xEA)),
-                FontFamily = new FontFamily("Microsoft YaHei UI"),
-                FontSize = 13,
-                TextWrapping = TextWrapping.Wrap
-            };
+                13);
+            AutomationProperties.SetName(answer, $"Q{turn.TurnNumber} 回答");
             container.Children.Add(answer);
             if (turn.Status == AnalysisFollowUpTurnStatus.Loading)
                 _streamingFollowUpAnswers[turn.TurnNumber] = answer;
@@ -661,6 +662,33 @@ public partial class FloatingWindow : Window
             isStreaming: turn.Status == AnalysisFollowUpTurnStatus.Loading,
             isWarning: turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled);
     }
+
+    private static TextBox CreateSelectableTextBox(
+        string text,
+        Brush foreground,
+        double fontSize,
+        Thickness? margin = null) => new()
+        {
+            Text = text,
+            Foreground = foreground,
+            FontFamily = new FontFamily("Microsoft YaHei UI"),
+            FontSize = fontSize,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = margin ?? new Thickness(0),
+            IsReadOnly = true,
+            IsReadOnlyCaretVisible = false,
+            Focusable = true,
+            IsTabStop = false,
+            AcceptsReturn = true,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(0),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            SelectionBrush = new SolidColorBrush(ConversationNodeStreamingColor),
+            SelectionOpacity = 0.45,
+            Cursor = Cursors.IBeam
+        };
 
     private void AddConversationNode(
         string key,

@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using QuickTranslate.Core;
@@ -33,6 +34,14 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Equal("发送追问", AutomationProperties.GetName(window.FollowUpSendButton));
             Assert.True(window.FollowUpSendButton.IsEnabled);
             Assert.Equal(0, window.AnalysisTurnViewCount);
+            Assert.True(window.TranslationTextBlock.IsReadOnly);
+            Assert.True(window.TranslationTextBlock.Focusable);
+            Assert.False(window.TranslationTextBlock.IsTabStop);
+            Assert.True(window.MarkdownDocumentHost.IsReadOnly);
+            Assert.True(window.MarkdownDocumentHost.Focusable);
+            Assert.False(window.MarkdownDocumentHost.IsTabStop);
+            window.MarkdownDocumentHost.SelectAll();
+            Assert.True(ApplicationCommands.Copy.CanExecute(null, window.MarkdownDocumentHost));
         });
     }
 
@@ -59,6 +68,11 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Equal(1, window.AnalysisTurnViewCount);
             Assert.Equal(2, window.ConversationNodeCount);
             Assert.True(window.ConversationRailColumn.Width.IsAuto);
+            Assert.Collection(
+                Assert.IsType<StackPanel>(Assert.IsType<Border>(window.AnalysisTurnsPanel.Children[0]).Child)
+                    .Children.OfType<TextBox>(),
+                question => AssertSelectable(question),
+                answer => AssertSelectable(answer));
             var streamingNode = window.GetConversationNodeForTests("Q1");
             var streamingBrush = Assert.IsType<SolidColorBrush>(streamingNode.Background);
             Assert.True(streamingBrush.HasAnimatedProperties);
@@ -230,4 +244,13 @@ public sealed class FloatingWindowFollowUpTests
         new AnalysisSemanticSnapshot("system", "简体中文"),
         string.Empty,
         turns);
+
+    private static void AssertSelectable(TextBox textBox)
+    {
+        Assert.True(textBox.IsReadOnly);
+        Assert.True(textBox.Focusable);
+        Assert.False(textBox.IsTabStop);
+        textBox.SelectAll();
+        Assert.True(ApplicationCommands.Copy.CanExecute(null, textBox));
+    }
 }
