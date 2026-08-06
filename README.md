@@ -15,7 +15,7 @@
 [![Downloads](https://img.shields.io/github/downloads/YAHU2024/myTool/total?style=flat-square)](https://github.com/YAHU2024/myTool/releases)
 [![Stars](https://img.shields.io/github/stars/YAHU2024/myTool?style=flat-square&label=stars)](https://github.com/YAHU2024/myTool/stargazers)
 [![Build](https://img.shields.io/github/actions/workflow/status/YAHU2024/myTool/build.yml?branch=main&style=flat-square&label=build)](https://github.com/YAHU2024/myTool/actions/workflows/build.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL--2.0-22C55E?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-8B5CF6?style=flat-square)]()
 [![English](https://img.shields.io/badge/English-README-512BD4?style=flat-square)](README.en.md)
 
@@ -349,4 +349,8 @@ myTool/
 
 ## 许可证
 
-本项目基于 [MIT 许可证](LICENSE) 开源，详情请参阅 [LICENSE](LICENSE) 文件。
+本项目自 2026-08-06 起发布的新版本采用 [Mozilla Public License 2.0 (MPL-2.0)](LICENSE)。
+MPL-2.0 允许个人和企业使用、修改、商业分发和集成；对外分发包含修改的 MPL 文件时，必须同时提供这些文件的源代码。
+新增的独立文件可以使用其他许可证。项目名称、Logo 和图标不随许可证授权。
+
+在此日期之前已经发布的版本继续按照其随附的原 MIT 许可证授权，本次变更不追溯影响历史版本。

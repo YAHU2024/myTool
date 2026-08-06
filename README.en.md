@@ -15,7 +15,7 @@ A lightweight .NET 8 WPF desktop translator that connects to OpenAI-compatible A
 [![Downloads](https://img.shields.io/github/downloads/YAHU2024/myTool/total?style=flat-square)](https://github.com/YAHU2024/myTool/releases)
 [![Stars](https://img.shields.io/github/stars/YAHU2024/myTool?style=flat-square&label=stars)](https://github.com/YAHU2024/myTool/stargazers)
 [![Build](https://img.shields.io/github/actions/workflow/status/YAHU2024/myTool/build.yml?branch=main&style=flat-square&label=build)](https://github.com/YAHU2024/myTool/actions/workflows/build.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL--2.0-22C55E?style=flat-square)](LICENSE)
 [![中文](https://img.shields.io/badge/中文-文档-512BD4?style=flat-square)](README.md)
 
 <br>
@@ -311,6 +311,14 @@ See [docs/RELEASE.md](docs/RELEASE.md) for the release process and the [next-rel
 
 <div align="center">
 
-MIT License — free to use, modify, and distribute.
+New versions released on or after 2026-08-06 are licensed under the
+[Mozilla Public License 2.0 (MPL-2.0)](LICENSE).
+MPL-2.0 permits personal, commercial, and redistribution use. When distributing
+MPL-covered files with modifications, the modified source for those files must
+also be made available. New independent files may use other licenses. The
+project name, logo, and icons are not licensed as trademarks.
+
+Versions released before this date remain available under the original MIT
+License included with those releases; this change is not retroactive.
 
 </div>
