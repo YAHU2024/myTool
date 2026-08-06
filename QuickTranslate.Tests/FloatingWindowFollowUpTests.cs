@@ -53,7 +53,7 @@ public sealed class FloatingWindowFollowUpTests
             var sessionId = Guid.NewGuid();
             var loading = new AnalysisFollowUpTurnState(
                 1,
-                "why",
+                "why\nand how",
                 "partial",
                 AnalysisFollowUpTurnStatus.Loading,
                 2);
@@ -68,11 +68,22 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Equal(1, window.AnalysisTurnViewCount);
             Assert.Equal(2, window.ConversationNodeCount);
             Assert.True(window.ConversationRailColumn.Width.IsAuto);
+            var turnPanel = Assert.IsType<StackPanel>(
+                Assert.IsType<Border>(window.AnalysisTurnsPanel.Children[0]).Child);
+            var questionHeader = Assert.IsType<Grid>(turnPanel.Children[0]);
             Assert.Collection(
-                Assert.IsType<StackPanel>(Assert.IsType<Border>(window.AnalysisTurnsPanel.Children[0]).Child)
-                    .Children.OfType<TextBox>(),
-                question => AssertSelectable(question),
-                answer => AssertSelectable(answer));
+                questionHeader.ColumnDefinitions,
+                labelColumn => Assert.True(labelColumn.Width.IsAuto),
+                questionColumn => Assert.Equal(GridUnitType.Star, questionColumn.Width.GridUnitType));
+            var questionLabel = Assert.Single(questionHeader.Children.OfType<TextBlock>());
+            var question = Assert.Single(questionHeader.Children.OfType<TextBox>());
+            var answer = Assert.Single(turnPanel.Children.OfType<TextBox>());
+            Assert.Equal("Q1", questionLabel.Text);
+            Assert.Equal("why\nand how", question.Text);
+            Assert.Equal(1, Grid.GetColumn(question));
+            Assert.Equal(TextWrapping.Wrap, question.TextWrapping);
+            AssertSelectable(question);
+            AssertSelectable(answer);
             var streamingNode = window.GetConversationNodeForTests("Q1");
             var streamingBrush = Assert.IsType<SolidColorBrush>(streamingNode.Background);
             Assert.True(streamingBrush.HasAnimatedProperties);
@@ -95,8 +106,8 @@ public sealed class FloatingWindowFollowUpTests
 
             Assert.True(window.FollowUpTextBox.IsEnabled);
             var turnBorder = Assert.IsType<Border>(window.AnalysisTurnsPanel.Children[0]);
-            var turnPanel = Assert.IsType<StackPanel>(turnBorder.Child);
-            var retry = Assert.Single(turnPanel.Children.OfType<Button>());
+            var failedTurnPanel = Assert.IsType<StackPanel>(turnBorder.Child);
+            var retry = Assert.Single(failedTurnPanel.Children.OfType<Button>());
             Assert.Equal("重试 Q1", AutomationProperties.GetName(retry));
 
             var failedNode = window.GetConversationNodeForTests("Q1");

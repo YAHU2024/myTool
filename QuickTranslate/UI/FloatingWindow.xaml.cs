@@ -653,23 +653,34 @@ public partial class FloatingWindow : Window
         };
         AnalysisTurnsPanel.Children.Add(border);
 
+        var questionHeader = new Grid
+        {
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        questionHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        questionHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        container.Children.Add(questionHeader);
+
         var label = new TextBlock
         {
             Text = $"Q{turn.TurnNumber}",
             Foreground = new SolidColorBrush(Color.FromRgb(0xB7, 0xC5, 0xFF)),
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 1, 8, 0),
+            VerticalAlignment = VerticalAlignment.Top,
             Focusable = true
         };
         AutomationProperties.SetName(label, $"追问 Q{turn.TurnNumber}");
-        container.Children.Add(label);
+        questionHeader.Children.Add(label);
         var question = CreateSelectableTextBox(
             turn.Question,
             Brushes.White,
-            13,
-            new Thickness(0, 4, 0, 6));
+            13);
+        question.FontWeight = FontWeights.SemiBold;
+        Grid.SetColumn(question, 1);
         AutomationProperties.SetName(question, $"Q{turn.TurnNumber} 问题");
-        container.Children.Add(question);
+        questionHeader.Children.Add(question);
 
         if (turn.Status == AnalysisFollowUpTurnStatus.Completed &&
             MarkdownRenderer.TryRender(
