@@ -156,10 +156,14 @@ internal static class MarkdownRenderer
                     target.Add(CreateParagraph(paragraph));
                     break;
                 case FencedCodeBlock fenced:
-                    target.Add(CreateCodeBlock(fenced, fenced.Info?.ToString(), codeBlocks));
+                    target.Add(CreateCodeBlock(
+                        fenced,
+                        fenced.Info?.ToString(),
+                        codeBlocks,
+                        fenced.ClosingFencedCharCount > 0));
                     break;
                 case CodeBlock code:
-                    target.Add(CreateCodeBlock(code, null, codeBlocks));
+                    target.Add(CreateCodeBlock(code, null, codeBlocks, false));
                     break;
                 case ListBlock list:
                     target.Add(CreateList(list, codeBlocks, fontSize));
@@ -211,7 +215,8 @@ internal static class MarkdownRenderer
     private static BlockUIContainer CreateCodeBlock(
         CodeBlock block,
         string? language,
-        List<MarkdownCodeBlock> codeBlocks)
+        List<MarkdownCodeBlock> codeBlocks,
+        bool allowHighlighting)
     {
         var code = block.Lines.ToString();
         var metadata = new MarkdownCodeBlock(
@@ -248,13 +253,14 @@ internal static class MarkdownRenderer
         DockPanel.SetDock(header, Dock.Top);
         var text = new TextBlock
         {
-            Text = code,
             FontFamily = new FontFamily("Consolas"),
             FontSize = 13,
             Foreground = TextBrush,
             TextWrapping = TextWrapping.Wrap,
             Padding = new Thickness(10)
         };
+        if (!allowHighlighting || !CodeSyntaxHighlighter.TryHighlight(text, code, metadata.Language))
+            text.Text = code;
         var content = new DockPanel();
         content.Children.Add(header);
         content.Children.Add(text);

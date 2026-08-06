@@ -160,6 +160,59 @@ public sealed class MarkdownRendererTests
         Assert.Null(result.Error);
     }
 
+    [Theory]
+    [InlineData("# streaming head")]
+    [InlineData("paragraph with **unfinished emphasis")]
+    [InlineData("- first\n- second in progress")]
+    [InlineData("[link text](https://example.com/incomplete")]
+    public void TryRender_AcceptsIncompleteStreamingPrefixes(string markdown)
+    {
+        MarkdownRenderResult? result = null;
+        var succeeded = RunInSta(() => MarkdownRenderer.TryRender(markdown, out result));
+
+        Assert.True(succeeded);
+        Assert.False(result!.UsedPlainTextFallback);
+        Assert.Equal(markdown, result.RawText);
+        Assert.NotEmpty(result.Document.Blocks);
+    }
+
+    [Fact]
+    public void RenderDetailed_UnclosedStreamingFenceRemainsCopyable()
+    {
+        const string markdown = "```csharp\nConsole.WriteLine(\"streaming\");";
+
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed(markdown);
+            var code = Assert.Single(result.CodeBlocks);
+            Assert.Equal("csharp", code.Language);
+            Assert.Contains("Console.WriteLine", code.Code);
+            var container = Assert.IsType<BlockUIContainer>(Assert.Single(result.Document.Blocks));
+            var border = Assert.IsType<Border>(container.Child);
+            var panel = Assert.IsType<DockPanel>(border.Child);
+            var codeText = Assert.IsType<TextBlock>(panel.Children[1]);
+            Assert.Equal(code.Code, codeText.Text);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void RenderDetailed_ClosedFenceAppliesSyntaxHighlighting()
+    {
+        const string markdown = "```csharp\nusing System;\nreturn true;\n```";
+
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed(markdown);
+            var container = Assert.IsType<BlockUIContainer>(Assert.Single(result.Document.Blocks));
+            var border = Assert.IsType<Border>(container.Child);
+            var panel = Assert.IsType<DockPanel>(border.Child);
+            var codeText = Assert.IsType<TextBlock>(panel.Children[1]);
+            Assert.True(codeText.Inlines.OfType<Run>().Count() > 1);
+            return true;
+        });
+    }
+
     [Fact]
     public void RenderDetailed_CollapsesOnlyAtCompleteTopLevelBlockBoundaries()
     {
