@@ -112,6 +112,25 @@ public class TranslationLifecycleTests
         var result = await service.ExecuteStreamingAsync(request, chunks.Add);
 
         Assert.Equal("你好", result);
+        Assert.Equal(new[] { "你", "好" }, chunks);
+    }
+
+    [Fact]
+    public async Task TranslateStreamingAsync_KeepsAccumulatedCallbackCompatibility()
+    {
+        const string sse =
+            "data: {\"choices\":[{\"delta\":{\"content\":\"你\"}}]}\n\n" +
+            "data: {\"choices\":[{\"delta\":{\"content\":\"好\"}}]}\n\n" +
+            "data: [DONE]\n\n";
+        var handler = new ResponseHandler(new MemoryStream(Encoding.UTF8.GetBytes(sse)));
+        using var service = new OpenAITranslationService(
+            new AppSettings { ApiKey = "key" },
+            handler);
+        var chunks = new List<string>();
+
+        var result = await service.TranslateStreamingAsync("hello", "简体中文", chunks.Add);
+
+        Assert.Equal("你好", result);
         Assert.Equal(new[] { "你", "你好" }, chunks);
     }
 

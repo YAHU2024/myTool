@@ -19,7 +19,7 @@ namespace QuickTranslate.Services
 
         Task<string> ExecuteStreamingAsync(
             TranslationRequest request,
-            Action<string> onChunk,
+            Action<string> onDelta,
             CancellationToken cancellationToken = default);
 
         AnalysisFollowUpRequest CreateAnalysisFollowUpRequest(
@@ -33,7 +33,7 @@ namespace QuickTranslate.Services
 
         Task<string> ExecuteAnalysisFollowUpStreamingAsync(
             AnalysisFollowUpRequest request,
-            Action<string> onChunk,
+            Action<string> onDelta,
             CancellationToken cancellationToken = default);
 
         /// <summary>

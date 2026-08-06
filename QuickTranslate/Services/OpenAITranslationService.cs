@@ -89,7 +89,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
     public async Task<string> ExecuteStreamingAsync(
         TranslationRequest request,
-        Action<string> onChunk,
+        Action<string> onDelta,
         CancellationToken cancellationToken = default)
     {
         ValidateRequest(request);
@@ -110,7 +110,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             request.ApiKey,
             BuildRequestBody(request, stream: true),
             operation,
-            onChunk,
+            onDelta,
             cancellationToken).ConfigureAwait(false);
         Logger.Info("TranslationService", "translation.completed", new
         {
@@ -189,7 +189,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
     public async Task<string> ExecuteAnalysisFollowUpStreamingAsync(
         AnalysisFollowUpRequest request,
-        Action<string> onChunk,
+        Action<string> onDelta,
         CancellationToken cancellationToken = default)
     {
         ValidateFollowUpRequest(request);
@@ -214,7 +214,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                     request.ApiBaseUrl,
                     stream: true),
                 "analysis follow-up",
-                onChunk,
+                onDelta,
                 cancellationToken).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(result))
                 throw new FormatException("追问返回为空");
@@ -252,7 +252,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         }
     }
 
-    public Task<string> TranslateStreamingAsync(
+    public async Task<string> TranslateStreamingAsync(
         string text,
         string targetLang,
         Action<string> onChunk,
@@ -263,7 +263,15 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         var request = CreateRequest(text, targetLang, contentType);
         if (request.FallbackUsed)
             onFallbackUsed?.Invoke();
-        return ExecuteStreamingAsync(request, onChunk, cancellationToken);
+        var accumulated = new StringBuilder();
+        return await ExecuteStreamingAsync(
+            request,
+            delta =>
+            {
+                accumulated.Append(delta);
+                onChunk(accumulated.ToString());
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<string> TranslateAsync(
@@ -293,7 +301,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         return ExtractTranslation(responseBody);
     }
 
-    public Task<string> AnalyzeStreamingAsync(
+    public async Task<string> AnalyzeStreamingAsync(
         string text,
         string targetLang,
         Action<string> onChunk,
@@ -304,7 +312,15 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             targetLang,
             ContentType.Analysis,
             TranslationRequestKind.Analysis);
-        return ExecuteStreamingAsync(request, onChunk, cancellationToken);
+        var accumulated = new StringBuilder();
+        return await ExecuteStreamingAsync(
+            request,
+            delta =>
+            {
+                accumulated.Append(delta);
+                onChunk(accumulated.ToString());
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 
     internal string BuildSystemPrompt(
@@ -375,7 +391,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         string apiKey,
         Dictionary<string, object> requestBody,
         string operation,
-        Action<string> onChunk,
+        Action<string> onDelta,
         CancellationToken cancellationToken)
     {
         using var response = await SendAsync(
@@ -424,7 +440,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 if (string.IsNullOrEmpty(chunk))
                     continue;
                 fullResult.Append(chunk);
-                onChunk(fullResult.ToString());
+                onDelta(chunk);
             }
             catch (JsonException)
             {

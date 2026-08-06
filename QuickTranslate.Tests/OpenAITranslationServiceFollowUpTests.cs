@@ -71,7 +71,7 @@ public sealed class OpenAITranslationServiceFollowUpTests
     }
 
     [Fact]
-    public async Task ExecuteStreaming_SendsStructuredMessagesAndReportsAccumulatedChunks()
+    public async Task ExecuteStreaming_SendsStructuredMessagesAndReportsDeltas()
     {
         var handler = new RecordingHandler(_ => SseResponse("first", " second"));
         using var service = CreateService(handler);
@@ -90,7 +90,7 @@ public sealed class OpenAITranslationServiceFollowUpTests
             CancellationToken.None);
 
         Assert.Equal("first second", result);
-        Assert.Equal(["first", "first second"], chunks);
+        Assert.Equal(["first", " second"], chunks);
         Assert.Equal("https://example.test/v1/chat/completions", handler.RequestUri);
         Assert.Equal("Bearer secret", handler.Authorization);
         Assert.Equal("model-a", handler.Model);

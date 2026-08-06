@@ -68,8 +68,6 @@ public partial class FloatingWindow : Window
     private Action? _statusAction;
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
-    private long _lastPositioningTicks;
-    private const long MinPositioningIntervalTicks = 30 * TimeSpan.TicksPerMillisecond;
     private double _lastPositionedHeight;
     private bool _placeAbove;
     private Guid _sessionId;
@@ -389,13 +387,6 @@ public partial class FloatingWindow : Window
         if (_autoScroll.OnContentOrViewportChanged())
             ScrollToEndProgrammatically();
 
-        // Throttle expensive work to ~30 fps so the dispatcher
-        // has time to render between streaming chunks.
-        var now = DateTime.UtcNow.Ticks;
-        if (now - _lastPositioningTicks < MinPositioningIntervalTicks)
-            return;
-        _lastPositioningTicks = now;
-
         if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5)
         {
             _lastPositionedHeight = ActualHeight;
@@ -422,11 +413,9 @@ public partial class FloatingWindow : Window
         if (_autoScroll.OnContentOrViewportChanged())
             ScrollToEndProgrammatically();
 
-        var now = DateTime.UtcNow.Ticks;
-        if (now - _lastPositioningTicks >= MinPositioningIntervalTicks)
+        if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5)
         {
-            _lastPositioningTicks = now;
-            UpdateLayout();
+            _lastPositionedHeight = ActualHeight;
             PositionWindowAtAnchor();
             UpdateCurrentConversationNodeFromViewport();
         }
@@ -910,7 +899,6 @@ public partial class FloatingWindow : Window
         _analysisConversation = AnalysisConversationState.Empty();
         RenderAnalysisConversation();
         _isMarkdownExpanded = false;
-        _lastPositioningTicks = 0;
         _lastPositionedHeight = 0;
         ShowPlainText();
         SetActiveModeButton(ContentType.Translation);

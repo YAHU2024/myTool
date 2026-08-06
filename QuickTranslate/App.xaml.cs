@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
@@ -796,18 +797,24 @@ public partial class App : Application
                 return;
             }
 
-            var result = await _translationService.ExecuteStreamingAsync(
-                request,
-                chunk => Dispatcher.BeginInvoke(() =>
+            var presentedText = new StringBuilder();
+            await using var presentationPump = new StreamingPresentationPump(
+                (frame, cancellationToken) => Dispatcher.InvokeAsync(() =>
                 {
+                    presentedText.Append(frame.Delta);
+                    var snapshot = presentedText.ToString();
                     if (IsCurrentRequest(requestScope) &&
-                        _resultSessions.TryUpdateStreaming(sessionIdentity, chunk) &&
+                        _resultSessions.TryUpdateStreaming(sessionIdentity, snapshot) &&
                         _floatingWindow?.IsPresentationCurrent(presentationId) == true)
                     {
-                        _floatingWindow.UpdateTranslation(presentationId, chunk);
+                        _floatingWindow.UpdateTranslation(presentationId, snapshot);
                     }
-                }, DispatcherPriority.Render),
+                }, DispatcherPriority.Background, cancellationToken).Task);
+            var result = await _translationService.ExecuteStreamingAsync(
+                request,
+                delta => presentationPump.Publish(delta),
                 requestScope.Token);
+            await presentationPump.CompleteAsync();
 
             requestScope.Token.ThrowIfCancellationRequested();
             if (!IsCurrentRequest(requestScope))
@@ -903,12 +910,14 @@ public partial class App : Application
                 transition.Turn.TurnNumber,
                 identity.RequestId);
 
-            var result = await _translationService.ExecuteAnalysisFollowUpStreamingAsync(
-                request,
-                chunk => Dispatcher.BeginInvoke(() =>
+            var presentedText = new StringBuilder();
+            await using var presentationPump = new StreamingPresentationPump(
+                (frame, cancellationToken) => Dispatcher.InvokeAsync(() =>
                 {
+                    presentedText.Append(frame.Delta);
+                    var snapshot = presentedText.ToString();
                     if (!IsCurrentRequest(requestScope) ||
-                        !_resultSessions.TryUpdateFollowUpStreaming(identity, chunk) ||
+                        !_resultSessions.TryUpdateFollowUpStreaming(identity, snapshot) ||
                         _floatingWindow?.IsPresentationCurrent(presentationId) != true)
                     {
                         return;
@@ -918,8 +927,12 @@ public partial class App : Application
                         .AnalysisConversation.Turns.LastOrDefault();
                     if (currentTurn is not null && currentTurn.LastRequestId == identity.RequestId)
                         _floatingWindow.UpdateAnalysisFollowUpStreaming(presentationId, currentTurn);
-                }, DispatcherPriority.Render),
+                }, DispatcherPriority.Background, cancellationToken).Task);
+            var result = await _translationService.ExecuteAnalysisFollowUpStreamingAsync(
+                request,
+                delta => presentationPump.Publish(delta),
                 requestScope.Token);
+            await presentationPump.CompleteAsync();
 
             requestScope.Token.ThrowIfCancellationRequested();
             if (!IsCurrentRequest(requestScope) ||
