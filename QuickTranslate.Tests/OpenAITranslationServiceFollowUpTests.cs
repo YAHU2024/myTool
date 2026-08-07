@@ -119,6 +119,26 @@ public sealed class OpenAITranslationServiceFollowUpTests
     }
 
     [Fact]
+    public async Task ExecuteStreaming_EnablesThinkingWhenConfigured()
+    {
+        var handler = new RecordingHandler(_ => SseResponse("ok"));
+        var settings = Settings("https://api.deepseek.com/v1", "secret", "deepseek-chat");
+        settings.EnableThinking = true;
+        using var service = new OpenAITranslationService(settings, handler);
+        var request = service.CreateAnalysisFollowUpRequest(
+            "source",
+            "root",
+            new AnalysisSemanticSnapshot("prompt", "简体中文"),
+            [],
+            "question",
+            1);
+
+        await service.ExecuteAnalysisFollowUpStreamingAsync(request, _ => { }, CancellationToken.None);
+
+        Assert.Equal("enabled", handler.ThinkingType);
+    }
+
+    [Fact]
     public async Task ExecuteStreaming_RejectsEmptyResult()
     {
         using var service = CreateService(new RecordingHandler(_ => SseResponse()));

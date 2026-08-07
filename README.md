@@ -2,9 +2,9 @@
 
 # QuickTranslate
 
-**智能划词翻译工具 · 流式输出 · 多模式深度解析**
+**不止翻译，选中文本即开启 AI 理解**
 
-基于 .NET 8 WPF 的轻量级桌面翻译工具，接入 OpenAI 兼容接口，支持 SSE 流式实时翻译、TTS 语音朗读、智能内容识别、自动更新分发。
+QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中文本，即可获得 AI 翻译、本地词典与云端模型协同查词、代码与术语解析，并围绕解析结果继续追问。无需反复复制、切换窗口，让一次划词从“看懂字面”延伸到“真正理解”。
 
 <br>
 
@@ -21,19 +21,44 @@
 
 <br>
 
+[下载安装](#下载安装) · [从源码运行](#快速开始) · [查看演示](#功能展示) · [提交 Issue](https://github.com/YAHU2024/myTool/issues)
+
 </div>
 
 ---
 
+## 三种 AI 体验，一个开放入口
+
+| 核心体验 | QuickTranslate 能做什么 |
+|:---------|:----------------------|
+| **AI 智能翻译** | 根据选中文本的类型自动选择翻译、代码或术语 Prompt，并以流式方式呈现模型结果 |
+| **AI 查词** | ECDICT + OEWN 本地词典优先，云端模型补全缺失中文；本地未命中时由 AI 生成结构化释义，并可补充音标、例句与搭配 |
+| **AI 轻对话** | 对深度解析结果继续追问，最多保留 10 轮上下文；从一个疑问出发，把陌生概念逐层弄懂 |
+| **开放模型接入** | 使用你自己的 OpenAI 兼容接口，自由切换 Base URL 和 Model，不被单一服务商绑定 |
+
+本地命中的查词默认不联网；设置和历史保存在本机，隐私日志不记录选中文本、Prompt 正文或 API Key。
+
+> 觉得它对你有用？欢迎给项目点一个 [**Star**](https://github.com/YAHU2024/myTool)，让更多需要桌面翻译的人找到它。
+
 ## 功能展示
 
-### 划词即译 · 红点引导
+### AI 划词翻译 · 红点引导
 
 <p align="center">
   <img src="docs/images/红点翻译功能展示.gif" alt="划词翻译演示" width="85%">
 </p>
 
-选中文本自动弹出红点引导，**流式逐字输出**翻译结果，悬浮窗即时展示，支持拖拽/双击/三击触发。
+选中文本自动弹出红点引导，根据内容进入翻译、代码或术语模式，**流式输出 AI 结果**；支持拖拽、双击和三击触发。
+
+---
+
+### 解析追问 · 围绕结果继续理解
+
+<p align="center">
+  <img src="docs/images/解析追问功能展示.gif" alt="解析追问功能演示" width="85%">
+</p>
+
+完成深度解析后，可在同一悬浮窗继续提问；最多保留 10 轮上下文，回答流式呈现，并可通过历史节点回看、定位或重试最后一轮。
 
 ---
 
@@ -47,13 +72,13 @@
 
 ---
 
-### 快速查词 · 本地词典与 AI 中文补全 · 大模型查词兜底
+### AI 查词 · 本地词典打底，云端模型补全
 
 <p align="center">
   <img src="docs/images/快速查词窗口.png" alt="快速查词窗口" width="85%">
 </p>
 
-单击托盘或 `Alt+W` 呼出紧凑查词面板，**本地词典（ECDICT + OEWN）优先**，词性统一中文显示，缺失中文时一键 AI 补全，未命中或未安装本地词典时自动回退大模型查词，支持音标、例句、搭配与朗读。
+单击托盘或 `Alt+W` 呼出紧凑查词面板。**本地词典（ECDICT + OEWN）优先**，缺失中文时一键 AI 补全；本地未命中时自动交给云端模型，生成结构化释义，并按结果提供音标、例句和搭配。
 
 ---
 
@@ -80,10 +105,12 @@ SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支
 ## 目录
 
 - [QuickTranslate](#quicktranslate)
+  - [三种 AI 体验，一个开放入口](#三种-ai-体验一个开放入口)
   - [功能展示](#功能展示)
-    - [划词即译 · 红点引导](#划词即译--红点引导)
+    - [AI 划词翻译 · 红点引导](#ai-划词翻译--红点引导)
+    - [解析追问 · 围绕结果继续理解](#解析追问--围绕结果继续理解)
     - [设置窗口 · 多模型与快捷键管理](#设置窗口--多模型与快捷键管理)
-    - [快速查词 · 本地词典与 AI 中文补全 · 大模型查词兜底](#快速查词--本地词典与-ai-中文补全--大模型查词兜底)
+    - [AI 查词 · 本地词典打底，云端模型补全](#ai-查词--本地词典打底云端模型补全)
     - [翻译历史 · 本地检索与 Anki 导出](#翻译历史--本地检索与-anki-导出)
     - [日志查看器 · JSON Lines 与延迟指标](#日志查看器--json-lines-与延迟指标)
   - [目录](#目录)
@@ -99,6 +126,7 @@ SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支
     - [双版本安装包](#双版本安装包)
     - [自动更新](#自动更新)
   - [开发路线](#开发路线)
+  - [开源鸣谢](#开源鸣谢)
   - [许可证](#许可证)
 
 ---
@@ -117,6 +145,7 @@ SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支
 | 翻译历史 | SQLite 本地持久化 · 按时间/语言搜索筛选 · 分页浏览 · 双击复制 · Anki 格式导出 |
 | 系统集成 | 两套独立全局快捷键（划词翻译 / 快速查词）· 查词快捷键带开关默认关闭 · 托盘单击快速查词 · 右键恢复最近翻译 · 开机自启 · 浏览器内触发 · 单实例保护 |
 | 深度解析 | 4 种内置预设（通用/语言学习/文学赏析/商务） · 自定义方案新建/复制/编辑/删除 · 多轮方案管理 |
+| 模型接入 | 自定义 OpenAI 兼容 Base URL 与 Model · 已保存配置按域名分组 · 思考模式开关默认关闭 · 智谱/DeepSeek/SiliconFlow 显式启停思考 |
 | 性能优化 | LRU+TTL 语义缓存 · latest-request-wins 请求冲突防护 · 请求快照隔离 · 设置修改不影响运行中请求 |
 | 自动更新 | GitHub Release 分发 · 启动时静默检查 · 系统代理兼容 · Inno Setup 双版本安装包 · SHA256 校验 |
 | 隐私安全 | 零污染剪贴板获取 · 日志脱敏（不记录原文/API Key/Prompt 正文） · 本地配置不上传 |
@@ -171,7 +200,7 @@ dotnet run
 | API Key | 你的密钥 | `sk-xxxxxxxxxxxxxxxx` |
 | Model | 模型名称 | `Qwen/Qwen3-8B` |
 
-模型下拉框按域名分组展示已保存配置，选中自动填充 URL 和 Key。
+模型下拉框按域名分组展示已保存配置，选中自动填充 URL 和 Key。思考模式默认关闭；开启后，智谱与 DeepSeek 使用 `thinking.type`，SiliconFlow 使用 `enable_thinking`。其他 Provider 不会自动附加未经适配的思考参数。
 
 快速查词与翻译使用同一组 Base URL、API Key 和 Model 配置。本地词典命中时不需要 API Key 或网络；本地未命中，或用户主动点击“AI 补全中文”时，相关查词内容才会发送到所配置的 Provider。AI 生成或翻译的内容用于辅助理解，不代表权威词典数据；音标等不确定字段可能省略。
 
@@ -184,6 +213,7 @@ dotnet run
 |:-------|:---------|:------|
 | 硅基流动（推荐） | `https://api.siliconflow.cn/v1` | `Qwen/Qwen3-8B` |
 | 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` | `glm-4.7-flash` |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
 
 </details>
@@ -344,6 +374,14 @@ myTool/
 | 十四 | 解析追问 + 多轮上下文 + 流式回答 + 历史节点定位 | done |
 | 十五 | 性能优化 | 规划中 |
 | 十六 | UI 统一与国际化 | 规划中 |
+
+---
+
+## 开源鸣谢
+
+QuickTranslate 使用了 [AutoUpdater.NET](https://github.com/ravibpatel/AutoUpdater.NET)、[Markdig](https://github.com/xoofx/markdig)、[ColorCode](https://github.com/CommunityToolkit/ColorCode-Universal)、[Entity Framework Core](https://github.com/dotnet/efcore) 和 [SQLitePCLRaw](https://github.com/ericsink/SQLitePCL.raw) 等开源组件，并基于 [ECDICT](https://github.com/skywind3000/ECDICT) 与 [Open English WordNet](https://en-word.net/) 构建本地词典。感谢这些项目及其维护者。
+
+完整来源、版本、版权归属与许可证条款见 [第三方组件声明](docs/THIRD_PARTY_NOTICES.md)。
 
 ---
 

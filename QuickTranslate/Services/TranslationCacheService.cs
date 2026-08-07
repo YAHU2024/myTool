@@ -155,7 +155,8 @@ public sealed class TranslationCacheService
             ContentType = request.ContentType,
             ApiBaseUrl = request.ApiBaseUrl.TrimEnd('/'),
             request.ModelName,
-            request.SystemPrompt
+            request.SystemPrompt,
+            request.EnableThinking
         };
 
         var json = JsonSerializer.Serialize(semanticRequest);
