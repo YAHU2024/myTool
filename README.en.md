@@ -2,9 +2,9 @@
 
 # QuickTranslate
 
-**Smart select-to-translate tool · Streaming output · Multi-mode deep analysis**
+**More than translation. Select text and start understanding with AI.**
 
-A lightweight .NET 8 WPF desktop translator that connects to OpenAI-compatible APIs, featuring SSE streaming translation, Edge TTS read-aloud, smart content detection, and automatic update delivery.
+QuickTranslate is a Windows AI tool that works inside your reading flow. Select text for AI translation, local-dictionary lookup enhanced by a cloud model, code and term analysis, and follow-up questions grounded in the result. No repeated copy-paste or window switching: move from reading the words to understanding the idea in one interaction.
 
 <br>
 
@@ -20,9 +20,24 @@ A lightweight .NET 8 WPF desktop translator that connects to OpenAI-compatible A
 
 <br>
 
+[Download](#download--install) · [Run from source](#quick-start-from-source) · [See the demos](#screenshots) · [Open an issue](https://github.com/YAHU2024/myTool/issues)
+
 </div>
 
 ---
+
+## Three AI Experiences, One Open Entry Point
+
+| Core experience | What QuickTranslate does |
+|:----------------|:-------------------------|
+| **Smart AI translation** | Detects whether the selected text is translation, code, or a term, routes it to a purpose-built prompt, and streams the model result |
+| **AI-assisted lookup** | Starts with ECDICT + OEWN locally, uses AI to complete missing Chinese definitions, and can add phonetics, structured definitions, examples, and collocations on a local miss |
+| **Focused AI follow-ups** | Ask questions about a deep-analysis result with up to 10 turns of context, turning one unclear point into a progressively clearer explanation |
+| **Open model access** | Bring any OpenAI-compatible Base URL and Model instead of depending on one provider |
+
+Local dictionary hits stay offline by default. Settings and history remain on your device, and privacy-safe logs omit selected text, prompt bodies, and API keys.
+
+> Finding it useful? Give the project a [**Star**](https://github.com/YAHU2024/myTool) so others can discover it.
 
 ## Features
 
@@ -38,6 +53,7 @@ A lightweight .NET 8 WPF desktop translator that connects to OpenAI-compatible A
 | Translation History | SQLite local persistence · search & filter by time / language · paginated browsing · double-click to copy · Anki-format export |
 | System Integration | Two independent global hotkey sets (select-to-translate / quick lookup) · lookup hotkey has on/off toggle disabled by default · single-click tray lookup · restore latest translation from the context menu · launch on startup · in-browser trigger · single-instance guard |
 | Deep Analysis | 4 built-in presets (general / language-learning / literary / business) · custom profile create / duplicate / edit / delete · multi-turn profile management |
+| Model Access | Custom OpenAI-compatible Base URL and Model · saved configurations grouped by domain · thinking mode disabled by default · explicit thinking control for Zhipu / DeepSeek / SiliconFlow |
 | Performance | LRU + TTL semantic cache · latest-request-wins conflict protection · request snapshot isolation · live setting changes don't affect in-flight requests |
 | Auto Update | GitHub Release delivery · silent check on startup · system-proxy compatible · Inno Setup dual installer · SHA256 verification |
 | Privacy & Security | Zero-pollution clipboard access · desensitized logs (no original text / API key / prompt body) · local config never uploaded |
@@ -47,13 +63,23 @@ A lightweight .NET 8 WPF desktop translator that connects to OpenAI-compatible A
 
 ## Screenshots
 
-### Select-to-Translate · Red-dot Guidance
+### AI Select-to-Translate · Red-dot Guidance
 
 <p align="center">
   <img src="docs/images/红点翻译功能展示.gif" alt="Select-to-translate demo" width="85%">
 </p>
 
-Red-dot guidance on text selection, **streaming token-by-token output**, floating window instant preview — triggered by drag / double-click / triple-click.
+Select text to open red-dot guidance and route it to translation, code, or term mode with a **streaming AI result**. Trigger it by drag, double-click, or triple-click.
+
+---
+
+### Analysis Follow-ups · Keep Exploring the Result
+
+<p align="center">
+  <img src="docs/images/解析追问功能展示.gif" alt="Analysis follow-up demo" width="85%">
+</p>
+
+After deep analysis, keep asking in the same floating window with up to 10 contextual turns. Answers stream in place, while history nodes let you revisit, locate, or retry the latest turn.
 
 ---
 
@@ -67,13 +93,13 @@ Multi-model switching, customizable global hotkeys, analysis profile management 
 
 ---
 
-### Quick Lookup · Local Dictionary & AI Completion · AI Fallback
+### AI Lookup · Local Dictionary Foundation, Cloud Model Completion
 
 <p align="center">
   <img src="docs/images/快速查词窗口.png" alt="Quick Lookup window" width="85%">
 </p>
 
-Single-click tray or `Alt+W` opens a compact lookup panel with **local dictionary priority** (ECDICT + OEWN), unified Chinese POS labels, one-click AI completion for missing Chinese definitions, automatic fallback to AI lookup when the local dictionary misses or is not installed, phonetics, examples, collocations, and text-to-speech.
+Single-click the tray or press `Alt+W` to open a compact lookup panel. **ECDICT + OEWN stay first**, while AI can complete missing Chinese definitions; a local miss falls back to the cloud model for structured definitions and optional phonetics, examples, and collocations.
 
 ---
 
@@ -142,7 +168,7 @@ Right-click the tray icon and open the settings window:
 | API Key | Your key | `sk-xxxxxxxxxxxxxxxx` |
 | Model | Model name | `Qwen/Qwen3-8B` |
 
-The model dropdown groups saved configurations by domain and auto-fills URL and Key on selection.
+The model dropdown groups saved configurations by domain and auto-fills URL and Key on selection. Thinking mode is disabled by default. When enabled, Zhipu and DeepSeek use `thinking.type`, while SiliconFlow uses `enable_thinking`; unrecognized providers do not receive an assumed thinking parameter.
 
 Quick Lookup shares the translation Base URL, API Key, and Model settings. Local dictionary hits do not require an API key or network; only local misses send the query to the configured provider. AI-generated definitions are learning aids rather than authoritative dictionary data, and uncertain optional fields such as phonetics may be omitted.
 
@@ -155,6 +181,7 @@ Quick Lookup shares the translation Base URL, API Key, and Model settings. Local
 |:-------|:---------|:------|
 | SiliconFlow (free recommended) | `https://api.siliconflow.cn/v1` | `Qwen/Qwen3-8B` |
 | Zhipu GLM | `https://open.bigmodel.cn/api/paas/v4` | `glm-4.7-flash` |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
 
 </details>
@@ -304,6 +331,14 @@ See [docs/RELEASE.md](docs/RELEASE.md) for the release process and the [next-rel
 | 14 | Contextual analysis follow-ups + streaming answers + history-node navigation | done |
 | 15 | Performance optimization | planned |
 | 16 | UI unification & internationalization | planned |
+
+---
+
+## Open Source Acknowledgements
+
+QuickTranslate uses open-source components including [AutoUpdater.NET](https://github.com/ravibpatel/AutoUpdater.NET), [Markdig](https://github.com/xoofx/markdig), [ColorCode](https://github.com/CommunityToolkit/ColorCode-Universal), [Entity Framework Core](https://github.com/dotnet/efcore), and [SQLitePCLRaw](https://github.com/ericsink/SQLitePCL.raw). Its local dictionary is built from [ECDICT](https://github.com/skywind3000/ECDICT) and [Open English WordNet](https://en-word.net/). We thank their maintainers and contributors.
+
+See [Third-Party Notices](docs/THIRD_PARTY_NOTICES.md) for complete sources, versions, attributions, and license terms.
 
 ---
 

@@ -83,7 +83,19 @@ dotnet publish QuickTranslate\QuickTranslate.csproj `
   -r win-x64 `
   --self-contained true `
   -o publish\source\v1.8.0-full
+
+# 完整版重新分发 .NET Runtime，必须携带当前发布 SDK 的许可证与第三方声明
+$dotnetRoot = Split-Path -Parent (Get-Command dotnet).Source
+Copy-Item (Join-Path $dotnetRoot "LICENSE.txt") `
+  publish\source\v1.8.0-full\DOTNET-LICENSE.txt
+Copy-Item (Join-Path $dotnetRoot "ThirdPartyNotices.txt") `
+  publish\source\v1.8.0-full\DOTNET-THIRD-PARTY-NOTICES.txt
 ```
+
+两个发布目录都必须包含项目级 `THIRD_PARTY_NOTICES.md`；完整版还必须包含
+`DOTNET-LICENSE.txt` 与 `DOTNET-THIRD-PARTY-NOTICES.txt`。升级 NuGet 依赖或
+.NET SDK 后，应重新执行 `dotnet list QuickTranslate\QuickTranslate.csproj package --include-transitive`
+并核对声明文件，不得直接沿用旧版本清单。
 
 ### 2.4 创建发布目录 + 打包 zip
 
