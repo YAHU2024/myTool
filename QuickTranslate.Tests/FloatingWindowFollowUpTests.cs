@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -58,6 +59,45 @@ public sealed class FloatingWindowFollowUpTests
             Assert.False(window.MarkdownDocumentHost.IsTabStop);
             window.MarkdownDocumentHost.SelectAll();
             Assert.True(ApplicationCommands.Copy.CanExecute(null, window.MarkdownDocumentHost));
+        });
+    }
+
+    [SkippableFact]
+    public void RootStreamingMarkdown_UsesSeparateStableAndActiveHosts()
+    {
+        RunOnSta(window =>
+        {
+            var presentationId = window.BeginReplacement();
+
+            window.UpdateTranslation(presentationId, "# Heading\n\nactive tail");
+
+            Assert.Equal(Visibility.Collapsed, window.TranslationTextBlock.Visibility);
+            Assert.Equal(Visibility.Collapsed, window.MarkdownDocumentHost.Visibility);
+            Assert.Equal(Visibility.Visible, window.StreamingMarkdownHost.Visibility);
+            Assert.Equal(Visibility.Visible, window.StreamingStableMarkdownHost.Visibility);
+            Assert.Equal(Visibility.Visible, window.StreamingActiveMarkdownHost.Visibility);
+            Assert.False(window.StreamingStableMarkdownHost.IsUndoEnabled);
+            Assert.False(window.StreamingActiveMarkdownHost.IsUndoEnabled);
+            Assert.Equal(
+                "Heading\r\n",
+                new TextRange(
+                    window.StreamingStableMarkdownHost.Document.ContentStart,
+                    window.StreamingStableMarkdownHost.Document.ContentEnd).Text);
+            Assert.Equal(
+                "active tail\r\n",
+                new TextRange(
+                    window.StreamingActiveMarkdownHost.Document.ContentStart,
+                    window.StreamingActiveMarkdownHost.Document.ContentEnd).Text);
+
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Translation,
+                Completed("# Heading\n\ncompleted"));
+
+            Assert.Equal(Visibility.Collapsed, window.StreamingMarkdownHost.Visibility);
+            Assert.Empty(window.StreamingStableMarkdownHost.Document.Blocks);
+            Assert.Empty(window.StreamingActiveMarkdownHost.Document.Blocks);
+            Assert.Equal(Visibility.Visible, window.MarkdownDocumentHost.Visibility);
         });
     }
 

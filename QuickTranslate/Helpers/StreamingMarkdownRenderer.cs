@@ -22,6 +22,7 @@ internal sealed class StreamingMarkdownRenderer
 {
     private readonly double _fontSize;
     private readonly int _maxDisplayCharacters;
+    private readonly FlowDocument? _activeDocument;
     private readonly List<Block> _activeBlocks = [];
     private readonly StringBuilder _pendingSource = new();
     private string _rawText = string.Empty;
@@ -32,7 +33,10 @@ internal sealed class StreamingMarkdownRenderer
     private double _maxRenderDurationMs;
     private long _allocatedBytes;
 
-    public StreamingMarkdownRenderer(double fontSize, int maxDisplayCharacters)
+    public StreamingMarkdownRenderer(
+        double fontSize,
+        int maxDisplayCharacters,
+        bool separateActiveDocument = false)
     {
         if (fontSize <= 0)
             throw new ArgumentOutOfRangeException(nameof(fontSize));
@@ -42,9 +46,17 @@ internal sealed class StreamingMarkdownRenderer
         _fontSize = fontSize;
         _maxDisplayCharacters = maxDisplayCharacters;
         Document = MarkdownRenderer.CreateDocument(fontSize);
+        if (separateActiveDocument)
+            _activeDocument = MarkdownRenderer.CreateDocument(fontSize);
     }
 
     public FlowDocument Document { get; }
+
+    public FlowDocument? ActiveDocument => _activeDocument;
+
+    public bool HasStableBlocks => Document.Blocks.Count > (_activeDocument is null ? _activeBlocks.Count : 0);
+
+    public bool HasActiveBlocks => _activeBlocks.Count > 0;
 
     public bool IsCollapsed { get; private set; }
 
@@ -130,9 +142,10 @@ internal sealed class StreamingMarkdownRenderer
         RemoveActiveBlocks();
         foreach (var block in stableBlocks)
             Document.Blocks.Add(block);
+        var activeTarget = _activeDocument?.Blocks ?? Document.Blocks;
         foreach (var block in activeBlocks)
         {
-            Document.Blocks.Add(block);
+            activeTarget.Add(block);
             _activeBlocks.Add(block);
         }
         _activePlainRun = activePlainRun;
@@ -226,6 +239,7 @@ internal sealed class StreamingMarkdownRenderer
     private void ResetDocumentState()
     {
         Document.Blocks.Clear();
+        _activeDocument?.Blocks.Clear();
         _activeBlocks.Clear();
         _pendingSource.Clear();
         _displayedRawText = string.Empty;
@@ -240,8 +254,9 @@ internal sealed class StreamingMarkdownRenderer
 
     private void RemoveActiveBlocks()
     {
+        var activeTarget = _activeDocument?.Blocks ?? Document.Blocks;
         foreach (var block in _activeBlocks)
-            Document.Blocks.Remove(block);
+            activeTarget.Remove(block);
         _activeBlocks.Clear();
         _activePlainRun = null;
     }

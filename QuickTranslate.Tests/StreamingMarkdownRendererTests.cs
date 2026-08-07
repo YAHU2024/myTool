@@ -72,6 +72,90 @@ public sealed class StreamingMarkdownRendererTests
     }
 
     [Fact]
+    public void Update_SeparateActiveDocumentKeepsStableLayoutIsolated()
+    {
+        RunInSta(() =>
+        {
+            var renderer = new StreamingMarkdownRenderer(
+                16,
+                int.MaxValue,
+                separateActiveDocument: true);
+            var activeDocument = Assert.IsType<FlowDocument>(renderer.ActiveDocument);
+
+            Assert.True(renderer.Update("# Heading\n\nplain"));
+            var stableHeading = renderer.Document.Blocks.FirstBlock;
+            var activeParagraph = activeDocument.Blocks.FirstBlock;
+
+            Assert.True(renderer.Update("# Heading\n\nplain text grows"));
+
+            Assert.Same(stableHeading, renderer.Document.Blocks.FirstBlock);
+            Assert.Same(activeParagraph, activeDocument.Blocks.FirstBlock);
+            Assert.Equal("Heading\r\n", DocumentText(renderer.Document));
+            Assert.Equal("plain text grows\r\n", DocumentText(activeDocument));
+            Assert.True(renderer.HasStableBlocks);
+            Assert.True(renderer.HasActiveBlocks);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void Update_SeparateActiveDocumentMovesCompletedTailIntoStableDocument()
+    {
+        RunInSta(() =>
+        {
+            var renderer = new StreamingMarkdownRenderer(
+                16,
+                int.MaxValue,
+                separateActiveDocument: true);
+            var activeDocument = Assert.IsType<FlowDocument>(renderer.ActiveDocument);
+
+            Assert.True(renderer.Update("first"));
+            Assert.False(renderer.HasStableBlocks);
+            Assert.True(renderer.HasActiveBlocks);
+
+            Assert.True(renderer.Update("first\n\nnext"));
+
+            Assert.Equal("first\r\n", DocumentText(renderer.Document));
+            Assert.Equal("next\r\n", DocumentText(activeDocument));
+            Assert.True(renderer.HasStableBlocks);
+            Assert.True(renderer.HasActiveBlocks);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void Update_AttachedSeparateActiveHostWithCodeBlock_DoesNotCreateUndoSerialization()
+    {
+        RunInSta(() =>
+        {
+            var renderer = new StreamingMarkdownRenderer(
+                16,
+                int.MaxValue,
+                separateActiveDocument: true);
+            var stableHost = new RichTextBox
+            {
+                Document = renderer.Document,
+                IsReadOnly = true,
+                IsUndoEnabled = false
+            };
+            var activeHost = new RichTextBox
+            {
+                Document = Assert.IsType<FlowDocument>(renderer.ActiveDocument),
+                IsReadOnly = true,
+                IsUndoEnabled = false
+            };
+
+            Assert.True(renderer.Update("before\n\n```csharp\nvar value = 1;\n"));
+            Assert.True(renderer.Update("before\n\n```csharp\nvar value = 1;\nConsole.WriteLine(value);\n"));
+
+            Assert.False(stableHost.IsUndoEnabled);
+            Assert.False(activeHost.IsUndoEnabled);
+            Assert.Single(activeHost.Document.Blocks.OfType<BlockUIContainer>());
+            return true;
+        });
+    }
+
+    [Fact]
     public void Update_MarkdownSyntaxLeavesPlainTailFastPath()
     {
         RunInSta(() =>

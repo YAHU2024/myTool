@@ -127,9 +127,9 @@ public partial class FloatingWindow : Window
     {
         InitializeComponent();
         SourceInitialized += FloatingWindow_SourceInitialized;
-        MarkdownDocumentHost.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
-        MarkdownDocumentHost.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
-        ConfigureMarkdownInteraction(MarkdownDocumentHost);
+        ConfigureRootMarkdownHost(MarkdownDocumentHost);
+        ConfigureRootMarkdownHost(StreamingStableMarkdownHost);
+        ConfigureRootMarkdownHost(StreamingActiveMarkdownHost);
         TitleBar.PreviewMouseLeftButtonDown += TitleBar_PreviewMouseLeftButtonDown;
         TitleBar.PreviewMouseMove += TitleBar_PreviewMouseMove;
         TitleBar.PreviewMouseLeftButtonUp += TitleBar_PreviewMouseLeftButtonUp;
@@ -543,6 +543,7 @@ public partial class FloatingWindow : Window
     private void ShowPlainText(bool ensureFooter = true)
     {
         MarkdownDocumentHost.Visibility = Visibility.Collapsed;
+        ReleaseStreamingMarkdownHosts();
         ExpandMarkdownButton.Visibility = Visibility.Collapsed;
         if (ensureFooter)
             EnsureFooterFitsWindow();
@@ -564,17 +565,27 @@ public partial class FloatingWindow : Window
             : MarkdownRenderer.ConversationFontSize;
         _streamingMarkdown ??= new StreamingMarkdownRenderer(
             fontSize,
-            MarkdownRenderer.DefaultMaxDisplayCharacters);
+            MarkdownRenderer.DefaultMaxDisplayCharacters,
+            separateActiveDocument: true);
         if (!_streamingMarkdown.Update(_rawText))
         {
             ShowPlainText(ensureFooter: false);
             return;
         }
 
-        if (!ReferenceEquals(MarkdownDocumentHost.Document, _streamingMarkdown.Document))
-            MarkdownDocumentHost.Document = _streamingMarkdown.Document;
+        if (!ReferenceEquals(StreamingStableMarkdownHost.Document, _streamingMarkdown.Document))
+            StreamingStableMarkdownHost.Document = _streamingMarkdown.Document;
+        if (!ReferenceEquals(StreamingActiveMarkdownHost.Document, _streamingMarkdown.ActiveDocument))
+            StreamingActiveMarkdownHost.Document = _streamingMarkdown.ActiveDocument!;
         TranslationTextBlock.Visibility = Visibility.Collapsed;
-        MarkdownDocumentHost.Visibility = Visibility.Visible;
+        MarkdownDocumentHost.Visibility = Visibility.Collapsed;
+        StreamingStableMarkdownHost.Visibility = _streamingMarkdown.HasStableBlocks
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        StreamingActiveMarkdownHost.Visibility = _streamingMarkdown.HasActiveBlocks
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        StreamingMarkdownHost.Visibility = Visibility.Visible;
         ExpandMarkdownButton.Visibility = _streamingMarkdown.IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -600,6 +611,7 @@ public partial class FloatingWindow : Window
         MarkdownDocumentHost.Document = result.Document;
         _streamingMarkdown = null;
         TranslationTextBlock.Visibility = Visibility.Collapsed;
+        ReleaseStreamingMarkdownHosts();
         MarkdownDocumentHost.Visibility = Visibility.Visible;
         ExpandMarkdownButton.Visibility = result.IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
         EnsureFooterFitsWindow();
@@ -855,6 +867,28 @@ public partial class FloatingWindow : Window
         markdown.GotKeyboardFocus += Markdown_KeyboardFocusChanged;
         markdown.LostKeyboardFocus += Markdown_KeyboardFocusChanged;
         markdown.Unloaded += Markdown_Unloaded;
+    }
+
+    private void ConfigureRootMarkdownHost(RichTextBox markdown)
+    {
+        markdown.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
+        markdown.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
+        ConfigureMarkdownInteraction(markdown);
+    }
+
+    private void ReleaseStreamingMarkdownHosts()
+    {
+        StreamingMarkdownHost.Visibility = Visibility.Collapsed;
+        StreamingStableMarkdownHost.Visibility = Visibility.Collapsed;
+        StreamingActiveMarkdownHost.Visibility = Visibility.Collapsed;
+
+        var fontSize = _activeMode == ContentType.Analysis
+            ? MarkdownRenderer.AnalysisConversationFontSize
+            : MarkdownRenderer.ConversationFontSize;
+        if (StreamingStableMarkdownHost.Document.Blocks.Count > 0)
+            StreamingStableMarkdownHost.Document = MarkdownRenderer.CreateDocument(fontSize);
+        if (StreamingActiveMarkdownHost.Document.Blocks.Count > 0)
+            StreamingActiveMarkdownHost.Document = MarkdownRenderer.CreateDocument(fontSize);
     }
 
     private void Markdown_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) =>

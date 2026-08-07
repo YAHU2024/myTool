@@ -137,6 +137,10 @@
                         <Grid x:Name="RootResultHost">
                             <TextBox x:Name="TranslationTextBlock" Foreground="#F0F0F0" FontSize="16" FontFamily="Microsoft YaHei UI" TextWrapping="Wrap" Padding="0,0,6,0" Text="" IsReadOnly="True" IsReadOnlyCaretVisible="False" Focusable="True" IsTabStop="False" AcceptsReturn="True" BorderThickness="0" Background="Transparent" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" SelectionBrush="#4DB6AC" SelectionOpacity="0.45" Cursor="IBeam"/>
                             <RichTextBox x:Name="MarkdownDocumentHost" Visibility="Collapsed" IsReadOnly="True" IsUndoEnabled="False" IsReadOnlyCaretVisible="False" IsDocumentEnabled="True" Focusable="True" IsTabStop="False" BorderThickness="0" Background="Transparent" Padding="0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" SelectionBrush="#4DB6AC" SelectionOpacity="0.45" Cursor="IBeam"/>
+                            <StackPanel x:Name="StreamingMarkdownHost" Visibility="Collapsed">
+                                <RichTextBox x:Name="StreamingStableMarkdownHost" Visibility="Collapsed" IsReadOnly="True" IsUndoEnabled="False" IsReadOnlyCaretVisible="False" IsDocumentEnabled="True" Focusable="True" IsTabStop="False" BorderThickness="0" Background="Transparent" Padding="0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" SelectionBrush="#4DB6AC" SelectionOpacity="0.45" Cursor="IBeam"/>
+                                <RichTextBox x:Name="StreamingActiveMarkdownHost" Visibility="Collapsed" IsReadOnly="True" IsUndoEnabled="False" IsReadOnlyCaretVisible="False" IsDocumentEnabled="True" Focusable="True" IsTabStop="False" BorderThickness="0" Background="Transparent" Padding="0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" SelectionBrush="#4DB6AC" SelectionOpacity="0.45" Cursor="IBeam"/>
+                            </StackPanel>
                         </Grid>
                         <StackPanel x:Name="AnalysisTurnsPanel" Visibility="Collapsed"/>
                     </StackPanel>
