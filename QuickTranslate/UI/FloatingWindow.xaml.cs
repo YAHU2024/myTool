@@ -73,6 +73,7 @@ public partial class FloatingWindow : Window
     private double _lastPositionedHeight;
     private long _lastStreamingScrollTimestamp;
     private long _lastStreamingPositionTimestamp;
+    private DispatcherOperation? _pendingStreamingScroll;
     private bool _placeAbove;
     private Guid _sessionId;
     private ContentType _activeMode = ContentType.Translation;
@@ -417,7 +418,7 @@ public partial class FloatingWindow : Window
                 nowTimestamp,
                 StreamingScrollInterval))
         {
-            ScrollToEndProgrammatically();
+            ScheduleStreamingScrollToEnd();
         }
 
         if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5 &&
@@ -456,7 +457,7 @@ public partial class FloatingWindow : Window
                 nowTimestamp,
                 StreamingScrollInterval))
         {
-            ScrollToEndProgrammatically();
+            ScheduleStreamingScrollToEnd();
         }
 
         if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5 &&
@@ -534,6 +535,7 @@ public partial class FloatingWindow : Window
 
     private void ResetStreamingUiThrottle()
     {
+        CancelPendingStreamingScroll();
         _lastStreamingScrollTimestamp = 0;
         _lastStreamingPositionTimestamp = 0;
     }
@@ -578,6 +580,7 @@ public partial class FloatingWindow : Window
 
     private void ShowCompletedMarkdown()
     {
+        CancelPendingStreamingScroll();
         var maxDisplayCharacters = _isMarkdownExpanded ? int.MaxValue : MarkdownRenderer.DefaultMaxDisplayCharacters;
         var fontSize = _activeMode == ContentType.Analysis
             ? MarkdownRenderer.AnalysisConversationFontSize
@@ -1394,6 +1397,26 @@ public partial class FloatingWindow : Window
         try { TranslationScroller.ScrollToEnd(); }
         finally { _isProgrammaticScroll = false; }
         UpdateCurrentConversationNodeFromViewport();
+    }
+
+    private void ScheduleStreamingScrollToEnd()
+    {
+        if (_pendingStreamingScroll is { Status: DispatcherOperationStatus.Pending })
+            return;
+
+        _pendingStreamingScroll = Dispatcher.BeginInvoke(() =>
+        {
+            _pendingStreamingScroll = null;
+            if (_autoScroll.IsAutoScrollEnabled && TranslationScroller.ScrollableHeight > 0.5)
+                ScrollToEndProgrammatically();
+        }, DispatcherPriority.Background);
+    }
+
+    private void CancelPendingStreamingScroll()
+    {
+        if (_pendingStreamingScroll is { Status: DispatcherOperationStatus.Pending } pending)
+            pending.Abort();
+        _pendingStreamingScroll = null;
     }
 
     private void RaiseScrollStateChanged()
