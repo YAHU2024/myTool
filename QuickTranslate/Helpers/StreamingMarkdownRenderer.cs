@@ -26,6 +26,7 @@ internal sealed class StreamingMarkdownRenderer
     private readonly StringBuilder _pendingSource = new();
     private string _rawText = string.Empty;
     private string _displayedRawText = string.Empty;
+    private Run? _activePlainRun;
     private int _renderFrameCount;
     private double _totalRenderDurationMs;
     private double _maxRenderDurationMs;
@@ -100,8 +101,28 @@ internal sealed class StreamingMarkdownRenderer
         var stableSource = candidateTail[..commitLength];
         var activeSource = candidateTail[commitLength..];
 
-        if (!TryRenderFragment(stableSource, isFinal: true, out var stableBlocks) ||
-            !TryRenderFragment(activeSource, isFinal: false, out var activeBlocks))
+        if (stableSource.Length == 0 &&
+            _activePlainRun is not null &&
+            IsSimplePlainTextTail(activeSource))
+        {
+            _activePlainRun.Text = activeSource;
+            CommitSourceState(activeSource, displayedRawText, stableCharacterCount: 0);
+            return true;
+        }
+
+        if (!TryRenderFragment(stableSource, isFinal: true, out var stableBlocks))
+        {
+            return false;
+        }
+
+        IReadOnlyList<Block> activeBlocks;
+        Run? activePlainRun = null;
+        if (IsSimplePlainTextTail(activeSource))
+        {
+            activePlainRun = new Run(activeSource);
+            activeBlocks = [new Paragraph(activePlainRun) { Margin = new System.Windows.Thickness(0, 2, 0, 7) }];
+        }
+        else if (!TryRenderFragment(activeSource, isFinal: false, out activeBlocks))
         {
             return false;
         }
@@ -114,12 +135,58 @@ internal sealed class StreamingMarkdownRenderer
             Document.Blocks.Add(block);
             _activeBlocks.Add(block);
         }
+        _activePlainRun = activePlainRun;
 
-        CommittedCharacterCount += stableSource.Length;
+        CommitSourceState(activeSource, displayedRawText, stableSource.Length);
+        return true;
+    }
+
+    private void CommitSourceState(
+        string activeSource,
+        string displayedRawText,
+        int stableCharacterCount)
+    {
+        CommittedCharacterCount += stableCharacterCount;
         _pendingSource.Clear();
         _pendingSource.Append(activeSource);
         _displayedRawText = displayedRawText;
+    }
+
+    internal static bool IsSimplePlainTextTail(string source)
+    {
+        if (source.Length == 0)
+            return false;
+        if (source.StartsWith("- ", StringComparison.Ordinal) ||
+            source.StartsWith("+ ", StringComparison.Ordinal) ||
+            source.StartsWith("---", StringComparison.Ordinal) ||
+            source.Contains("://", StringComparison.Ordinal) ||
+            source.Contains('@') ||
+            source.Contains("++", StringComparison.Ordinal) ||
+            source.Contains("==", StringComparison.Ordinal) ||
+            source.Contains('^') ||
+            StartsWithOrderedListMarker(source))
+        {
+            return false;
+        }
+
+        foreach (var character in source)
+        {
+            if (character is '\r' or '\n' or '`' or '*' or '_' or '[' or ']' or '#' or '>' or '|' or '~' or '<' or '\\' or '&')
+                return false;
+        }
+
         return true;
+    }
+
+    private static bool StartsWithOrderedListMarker(string source)
+    {
+        var index = 0;
+        while (index < source.Length && char.IsDigit(source[index]))
+            index++;
+        return index > 0 &&
+            index + 1 < source.Length &&
+            source[index] is '.' or ')' &&
+            source[index + 1] == ' ';
     }
 
     private string GetDisplayedRawText(string rawText)
@@ -162,6 +229,7 @@ internal sealed class StreamingMarkdownRenderer
         _activeBlocks.Clear();
         _pendingSource.Clear();
         _displayedRawText = string.Empty;
+        _activePlainRun = null;
         CommittedCharacterCount = 0;
         ParsedCharacterCount = 0;
         _renderFrameCount = 0;
@@ -175,6 +243,7 @@ internal sealed class StreamingMarkdownRenderer
         foreach (var block in _activeBlocks)
             Document.Blocks.Remove(block);
         _activeBlocks.Clear();
+        _activePlainRun = null;
     }
 
     internal static int FindStablePrefixLength(string source)

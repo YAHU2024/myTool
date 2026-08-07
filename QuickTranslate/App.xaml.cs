@@ -798,23 +798,40 @@ public partial class App : Application
             }
 
             var presentedText = new StringBuilder();
+            var dispatcherMetrics = new StreamingDispatcherMetrics();
             await using var presentationPump = new StreamingPresentationPump(
-                (frame, cancellationToken) => Dispatcher.InvokeAsync(() =>
+                (frame, cancellationToken) =>
                 {
-                    presentedText.Append(frame.Delta);
-                    var snapshot = presentedText.ToString();
-                    if (IsCurrentRequest(requestScope) &&
-                        _resultSessions.TryUpdateStreaming(sessionIdentity, snapshot) &&
-                        _floatingWindow?.IsPresentationCurrent(presentationId) == true)
+                    var queuedAt = Stopwatch.GetTimestamp();
+                    return Dispatcher.InvokeAsync(() =>
                     {
-                        _floatingWindow.UpdateTranslation(presentationId, snapshot);
-                    }
-                }, DispatcherPriority.Background, cancellationToken).Task);
+                        var executionStarted = Stopwatch.GetTimestamp();
+                        var queueDelay = Stopwatch.GetElapsedTime(queuedAt, executionStarted);
+                        try
+                        {
+                            presentedText.Append(frame.Delta);
+                            var snapshot = presentedText.ToString();
+                            if (IsCurrentRequest(requestScope) &&
+                                _resultSessions.TryUpdateStreaming(sessionIdentity, snapshot) &&
+                                _floatingWindow?.IsPresentationCurrent(presentationId) == true)
+                            {
+                                _floatingWindow.UpdateTranslation(presentationId, snapshot);
+                            }
+                        }
+                        finally
+                        {
+                            dispatcherMetrics.Record(
+                                queueDelay,
+                                Stopwatch.GetElapsedTime(executionStarted));
+                        }
+                    }, DispatcherPriority.Background, cancellationToken).Task;
+                });
             var result = await _translationService.ExecuteStreamingAsync(
                 request,
                 delta => presentationPump.Publish(delta),
                 requestScope.Token);
             var presentationStats = await presentationPump.CompleteAsync();
+            var dispatcherStats = dispatcherMetrics.GetStats();
             var markdownStats = _floatingWindow.GetStreamingMarkdownStats();
 
             requestScope.Token.ThrowIfCancellationRequested();
@@ -857,6 +874,10 @@ public partial class App : Application
                 average_ui_apply_ms = presentationStats.AverageApplyDurationMs,
                 max_ui_apply_ms = presentationStats.MaxApplyDurationMs,
                 final_frame_interval_ms = presentationStats.FinalFrameIntervalMs,
+                average_dispatcher_queue_ms = dispatcherStats.AverageQueueDelayMs,
+                max_dispatcher_queue_ms = dispatcherStats.MaxQueueDelayMs,
+                average_ui_execution_ms = dispatcherStats.AverageExecutionDurationMs,
+                max_ui_execution_ms = dispatcherStats.MaxExecutionDurationMs,
                 markdown_frame_count = markdownStats.FrameCount,
                 average_markdown_render_ms = markdownStats.AverageRenderDurationMs,
                 max_markdown_render_ms = markdownStats.MaxRenderDurationMs,
@@ -925,28 +946,45 @@ public partial class App : Application
                 identity.RequestId);
 
             var presentedText = new StringBuilder();
+            var dispatcherMetrics = new StreamingDispatcherMetrics();
             await using var presentationPump = new StreamingPresentationPump(
-                (frame, cancellationToken) => Dispatcher.InvokeAsync(() =>
+                (frame, cancellationToken) =>
                 {
-                    presentedText.Append(frame.Delta);
-                    var snapshot = presentedText.ToString();
-                    if (!IsCurrentRequest(requestScope) ||
-                        !_resultSessions.TryUpdateFollowUpStreaming(identity, snapshot) ||
-                        _floatingWindow?.IsPresentationCurrent(presentationId) != true)
+                    var queuedAt = Stopwatch.GetTimestamp();
+                    return Dispatcher.InvokeAsync(() =>
                     {
-                        return;
-                    }
+                        var executionStarted = Stopwatch.GetTimestamp();
+                        var queueDelay = Stopwatch.GetElapsedTime(queuedAt, executionStarted);
+                        try
+                        {
+                            presentedText.Append(frame.Delta);
+                            var snapshot = presentedText.ToString();
+                            if (!IsCurrentRequest(requestScope) ||
+                                !_resultSessions.TryUpdateFollowUpStreaming(identity, snapshot) ||
+                                _floatingWindow?.IsPresentationCurrent(presentationId) != true)
+                            {
+                                return;
+                            }
 
-                    var currentTurn = _resultSessions.CurrentSession?
-                        .AnalysisConversation.Turns.LastOrDefault();
-                    if (currentTurn is not null && currentTurn.LastRequestId == identity.RequestId)
-                        _floatingWindow.UpdateAnalysisFollowUpStreaming(presentationId, currentTurn);
-                }, DispatcherPriority.Background, cancellationToken).Task);
+                            var currentTurn = _resultSessions.CurrentSession?
+                                .AnalysisConversation.Turns.LastOrDefault();
+                            if (currentTurn is not null && currentTurn.LastRequestId == identity.RequestId)
+                                _floatingWindow.UpdateAnalysisFollowUpStreaming(presentationId, currentTurn);
+                        }
+                        finally
+                        {
+                            dispatcherMetrics.Record(
+                                queueDelay,
+                                Stopwatch.GetElapsedTime(executionStarted));
+                        }
+                    }, DispatcherPriority.Background, cancellationToken).Task;
+                });
             var result = await _translationService.ExecuteAnalysisFollowUpStreamingAsync(
                 request,
                 delta => presentationPump.Publish(delta),
                 requestScope.Token);
             var presentationStats = await presentationPump.CompleteAsync();
+            var dispatcherStats = dispatcherMetrics.GetStats();
             var markdownStats = _floatingWindow.GetAnalysisFollowUpStreamingStats(identity.TurnNumber);
 
             requestScope.Token.ThrowIfCancellationRequested();
@@ -970,6 +1008,10 @@ public partial class App : Application
                 average_ui_apply_ms = presentationStats.AverageApplyDurationMs,
                 max_ui_apply_ms = presentationStats.MaxApplyDurationMs,
                 final_frame_interval_ms = presentationStats.FinalFrameIntervalMs,
+                average_dispatcher_queue_ms = dispatcherStats.AverageQueueDelayMs,
+                max_dispatcher_queue_ms = dispatcherStats.MaxQueueDelayMs,
+                average_ui_execution_ms = dispatcherStats.AverageExecutionDurationMs,
+                max_ui_execution_ms = dispatcherStats.MaxExecutionDurationMs,
                 markdown_frame_count = markdownStats.FrameCount,
                 average_markdown_render_ms = markdownStats.AverageRenderDurationMs,
                 max_markdown_render_ms = markdownStats.MaxRenderDurationMs,

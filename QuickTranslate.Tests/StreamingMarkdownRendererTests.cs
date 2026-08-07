@@ -1,3 +1,4 @@
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using QuickTranslate.Helpers;
@@ -37,15 +38,70 @@ public sealed class StreamingMarkdownRendererTests
             var renderer = new StreamingMarkdownRenderer(16, int.MaxValue);
             Assert.True(renderer.Update("# Heading\n\nfirst"));
             var heading = renderer.Document.Blocks.FirstBlock;
+            var activeParagraph = renderer.Document.Blocks.LastBlock;
 
             Assert.True(renderer.Update("# Heading\n\nfirst paragraph grows"));
 
             Assert.Same(heading, renderer.Document.Blocks.FirstBlock);
+            Assert.Same(activeParagraph, renderer.Document.Blocks.LastBlock);
             Assert.Equal("Heading\r\nfirst paragraph grows\r\n", DocumentText(renderer.Document));
             Assert.Equal("first paragraph grows".Length, renderer.ActiveCharacterCount);
             Assert.Equal("# Heading\n\n".Length, renderer.CommittedCharacterCount);
             return true;
         });
+    }
+
+    [Fact]
+    public void Update_PlainTailReusesWpfObjectsWithoutMarkdigReparse()
+    {
+        RunInSta(() =>
+        {
+            var renderer = new StreamingMarkdownRenderer(16, int.MaxValue);
+            Assert.True(renderer.Update("plain"));
+            var paragraph = Assert.IsType<Paragraph>(renderer.Document.Blocks.FirstBlock);
+            var run = Assert.IsType<Run>(paragraph.Inlines.FirstInline);
+
+            Assert.True(renderer.Update("plain text grows"));
+
+            Assert.Same(paragraph, renderer.Document.Blocks.FirstBlock);
+            Assert.Same(run, paragraph.Inlines.FirstInline);
+            Assert.Equal("plain text grows", run.Text);
+            Assert.Equal(0, renderer.ParsedCharacterCount);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void Update_MarkdownSyntaxLeavesPlainTailFastPath()
+    {
+        RunInSta(() =>
+        {
+            var renderer = new StreamingMarkdownRenderer(16, int.MaxValue);
+            Assert.True(renderer.Update("plain"));
+            var plainParagraph = renderer.Document.Blocks.FirstBlock;
+
+            Assert.True(renderer.Update("plain **bold**"));
+
+            Assert.NotSame(plainParagraph, renderer.Document.Blocks.FirstBlock);
+            Assert.True(renderer.ParsedCharacterCount > 0);
+            Assert.Contains(
+                Assert.IsType<Paragraph>(renderer.Document.Blocks.FirstBlock).Inlines,
+                inline => inline is Span span && span.FontWeight == FontWeights.Bold);
+            return true;
+        });
+    }
+
+    [Theory]
+    [InlineData("ordinary text", true)]
+    [InlineData("- list item", false)]
+    [InlineData("2. ordered item", false)]
+    [InlineData("**bold**", false)]
+    [InlineData("https://example.com", false)]
+    [InlineData("name@example.com", false)]
+    [InlineData("x == marked", false)]
+    public void IsSimplePlainTextTail_UsesConservativeMarkdownDetection(string source, bool expected)
+    {
+        Assert.Equal(expected, StreamingMarkdownRenderer.IsSimplePlainTextTail(source));
     }
 
     [Fact]
