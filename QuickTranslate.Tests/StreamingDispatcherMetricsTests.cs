@@ -1,10 +1,19 @@
 using QuickTranslate.Core;
+using System.Windows.Threading;
 using Xunit;
 
 namespace QuickTranslate.Tests;
 
 public sealed class StreamingDispatcherMetricsTests
 {
+    [Fact]
+    public void PresentationPriority_RunsWithTheWpfRenderPass()
+    {
+        Assert.Equal(
+            DispatcherPriority.Render,
+            StreamingDispatcherMetrics.PresentationPriority);
+    }
+
     [Fact]
     public void Record_AggregatesQueueAndExecutionDurations()
     {

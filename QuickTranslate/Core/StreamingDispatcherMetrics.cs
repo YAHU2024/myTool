@@ -1,3 +1,5 @@
+using System.Windows.Threading;
+
 namespace QuickTranslate.Core;
 
 internal sealed record StreamingDispatcherStats(
@@ -9,6 +11,8 @@ internal sealed record StreamingDispatcherStats(
 
 internal sealed class StreamingDispatcherMetrics
 {
+    internal static DispatcherPriority PresentationPriority => DispatcherPriority.Render;
+
     private readonly object _sync = new();
     private int _frameCount;
     private double _totalQueueDelayMs;

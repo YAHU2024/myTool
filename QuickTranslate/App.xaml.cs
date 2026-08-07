@@ -825,7 +825,7 @@ public partial class App : Application
                                 queueDelay,
                                 Stopwatch.GetElapsedTime(executionStarted));
                         }
-                    }, DispatcherPriority.Background, cancellationToken).Task;
+                    }, StreamingDispatcherMetrics.PresentationPriority, cancellationToken).Task;
                 });
             var result = await _translationService.ExecuteStreamingAsync(
                 request,
@@ -991,7 +991,7 @@ public partial class App : Application
                                 queueDelay,
                                 Stopwatch.GetElapsedTime(executionStarted));
                         }
-                    }, DispatcherPriority.Background, cancellationToken).Task;
+                    }, StreamingDispatcherMetrics.PresentationPriority, cancellationToken).Task;
                 });
             var result = await _translationService.ExecuteAnalysisFollowUpStreamingAsync(
                 request,
