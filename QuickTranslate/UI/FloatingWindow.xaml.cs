@@ -74,6 +74,7 @@ public partial class FloatingWindow : Window
     private ContentType _activeMode = ContentType.Translation;
     private AnalysisConversationState _analysisConversation = AnalysisConversationState.Empty();
     private readonly Dictionary<int, StreamingFollowUpAnswerView> _streamingFollowUpAnswers = new();
+    private StreamingMarkdownRenderer? _streamingMarkdown;
     private readonly HashSet<RichTextBox> _markdownSelectionHosts = [];
     private bool _isMarkdownPointerDown;
     private bool _hasPendingRootMarkdownRefresh;
@@ -266,6 +267,7 @@ public partial class FloatingWindow : Window
             ? analysisConversation ?? AnalysisConversationState.Empty()
             : AnalysisConversationState.Empty();
         _isMarkdownExpanded = false;
+        _streamingMarkdown = null;
         _autoScroll.BeginRequest();
         if (!state.AutoScrollEnabled)
             _autoScroll.PauseForUpwardNavigation();
@@ -337,6 +339,7 @@ public partial class FloatingWindow : Window
         else
             _modeStatus = ModeResultStatus.Loading;
         ApplyConversationFontSize(contentType);
+        _streamingMarkdown = null;
         ShowPlainText();
         _autoScroll.BeginRequest();
         UpdateAutoScrollAffordance();
@@ -441,17 +444,15 @@ public partial class FloatingWindow : Window
             return;
         }
 
-        if (MarkdownRenderer.TryRender(
-                     answer.PendingRawText,
-                     out var rendered,
-                     int.MaxValue,
-                     MarkdownRenderer.AnalysisConversationFontSize) &&
-                 !rendered.UsedPlainTextFallback)
+        answer.Renderer ??= new StreamingMarkdownRenderer(
+            MarkdownRenderer.AnalysisConversationFontSize,
+            int.MaxValue);
+        if (answer.Renderer.Update(answer.PendingRawText))
         {
             var markdown = answer.Markdown;
             if (markdown is null)
             {
-                markdown = CreateSelectableMarkdown(rendered.Document, $"Q{answer.TurnNumber} 回答");
+                markdown = CreateSelectableMarkdown(answer.Renderer.Document, $"Q{answer.TurnNumber} 回答");
                 var index = answer.Container.Children.IndexOf(answer.TextBox);
                 if (index >= 0)
                 {
@@ -461,10 +462,6 @@ public partial class FloatingWindow : Window
                     answer.Container.Children.Insert(index, markdown);
                 }
                 answer.Markdown = markdown;
-            }
-            else
-            {
-                markdown.Document = rendered.Document;
             }
         }
         else
@@ -510,21 +507,20 @@ public partial class FloatingWindow : Window
         var fontSize = _activeMode == ContentType.Analysis
             ? MarkdownRenderer.AnalysisConversationFontSize
             : MarkdownRenderer.ConversationFontSize;
-        if (!MarkdownRenderer.TryRender(
-                _rawText,
-                out var result,
-                MarkdownRenderer.DefaultMaxDisplayCharacters,
-                fontSize) ||
-            result.UsedPlainTextFallback)
+        _streamingMarkdown ??= new StreamingMarkdownRenderer(
+            fontSize,
+            MarkdownRenderer.DefaultMaxDisplayCharacters);
+        if (!_streamingMarkdown.Update(_rawText))
         {
             ShowPlainText(ensureFooter: false);
             return;
         }
 
-        MarkdownDocumentHost.Document = result.Document;
+        if (!ReferenceEquals(MarkdownDocumentHost.Document, _streamingMarkdown.Document))
+            MarkdownDocumentHost.Document = _streamingMarkdown.Document;
         TranslationTextBlock.Visibility = Visibility.Collapsed;
         MarkdownDocumentHost.Visibility = Visibility.Visible;
-        ExpandMarkdownButton.Visibility = result.IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
+        ExpandMarkdownButton.Visibility = _streamingMarkdown.IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ShowCompletedMarkdown()
@@ -546,6 +542,7 @@ public partial class FloatingWindow : Window
         }
 
         MarkdownDocumentHost.Document = result.Document;
+        _streamingMarkdown = null;
         TranslationTextBlock.Visibility = Visibility.Collapsed;
         MarkdownDocumentHost.Visibility = Visibility.Visible;
         ExpandMarkdownButton.Visibility = result.IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
@@ -770,6 +767,7 @@ public partial class FloatingWindow : Window
         {
             Document = document,
             IsReadOnly = true,
+            IsUndoEnabled = false,
             IsReadOnlyCaretVisible = false,
             IsDocumentEnabled = true,
             Focusable = true,
@@ -1076,6 +1074,7 @@ public partial class FloatingWindow : Window
         IsHitTestVisible = false;
         Hide();
         _rawText = string.Empty;
+        _streamingMarkdown = null;
         _copyText = string.Empty;
         _speechText = string.Empty;
         _analysisConversation = AnalysisConversationState.Empty();
@@ -1569,6 +1568,7 @@ public partial class FloatingWindow : Window
         public StackPanel Container { get; } = container;
         public TextBox TextBox { get; } = textBox;
         public RichTextBox? Markdown { get; set; }
+        public StreamingMarkdownRenderer? Renderer { get; set; }
         public string PendingRawText { get; set; } = pendingRawText;
     }
 

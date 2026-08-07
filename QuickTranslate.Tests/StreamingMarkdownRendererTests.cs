@@ -1,0 +1,144 @@
+using System.Windows.Controls;
+using System.Windows.Documents;
+using QuickTranslate.Helpers;
+using Xunit;
+
+namespace QuickTranslate.Tests;
+
+public sealed class StreamingMarkdownRendererTests
+{
+    [Fact]
+    public void Update_AttachedReadOnlyHostWithCodeBlock_DoesNotCreateUndoSerialization()
+    {
+        RunInSta(() =>
+        {
+            var renderer = new StreamingMarkdownRenderer(16, int.MaxValue);
+            var host = new RichTextBox
+            {
+                Document = renderer.Document,
+                IsReadOnly = true,
+                IsUndoEnabled = false
+            };
+
+            Assert.True(renderer.Update("```csharp\nvar value = 1;\n"));
+            Assert.True(renderer.Update("```csharp\nvar value = 1;\nConsole.WriteLine(value);\n"));
+
+            Assert.False(host.IsUndoEnabled);
+            Assert.Single(renderer.Document.Blocks.OfType<BlockUIContainer>());
+            return true;
+        });
+    }
+
+    [Fact]
+    public void Update_PreservesCommittedBlocksWhileReplacingOnlyActiveTail()
+    {
+        RunInSta(() =>
+        {
+            var renderer = new StreamingMarkdownRenderer(16, int.MaxValue);
+            Assert.True(renderer.Update("# Heading\n\nfirst"));
+            var heading = renderer.Document.Blocks.FirstBlock;
+
+            Assert.True(renderer.Update("# Heading\n\nfirst paragraph grows"));
+
+            Assert.Same(heading, renderer.Document.Blocks.FirstBlock);
+            Assert.Equal("Heading\r\nfirst paragraph grows\r\n", DocumentText(renderer.Document));
+            Assert.Equal("first paragraph grows".Length, renderer.ActiveCharacterCount);
+            Assert.Equal("# Heading\n\n".Length, renderer.CommittedCharacterCount);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void Update_DoesNotCommitBlankLinesInsideOpenFence()
+    {
+        RunInSta(() =>
+        {
+            var renderer = new StreamingMarkdownRenderer(16, int.MaxValue);
+
+            Assert.True(renderer.Update("before\n\n```csharp\nvar x = 1;\n\n"));
+
+            Assert.Equal("before\n\n".Length, renderer.CommittedCharacterCount);
+            Assert.Equal("```csharp\nvar x = 1;\n\n".Length, renderer.ActiveCharacterCount);
+
+            Assert.True(renderer.Update("before\n\n```csharp\nvar x = 1;\n\n```\n\nafter"));
+            Assert.Equal("before\n\n```csharp\nvar x = 1;\n\n```\n\n".Length, renderer.CommittedCharacterCount);
+            Assert.Equal("after".Length, renderer.ActiveCharacterCount);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void Update_NonAppendSnapshotResetsDocumentState()
+    {
+        RunInSta(() =>
+        {
+            var renderer = new StreamingMarkdownRenderer(16, int.MaxValue);
+            Assert.True(renderer.Update("old heading\n\nold tail"));
+
+            Assert.True(renderer.Update("replacement"));
+
+            Assert.Equal("replacement\r\n", DocumentText(renderer.Document));
+            Assert.Equal(0, renderer.CommittedCharacterCount);
+            Assert.Equal("replacement".Length, renderer.ActiveCharacterCount);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void Update_ManyCompletedBlocksAvoidsFullDocumentReparseWork()
+    {
+        RunInSta(() =>
+        {
+            var renderer = new StreamingMarkdownRenderer(16, int.MaxValue);
+            var snapshot = string.Empty;
+            long fullDocumentParseCharacters = 0;
+
+            for (var index = 0; index < 200; index++)
+            {
+                snapshot += $"paragraph {index}\n\n";
+                fullDocumentParseCharacters += snapshot.Length;
+                Assert.True(renderer.Update(snapshot));
+            }
+
+            Assert.True(renderer.ParsedCharacterCount < fullDocumentParseCharacters / 10);
+            Assert.Equal(snapshot.Length, renderer.CommittedCharacterCount);
+            Assert.Equal(0, renderer.ActiveCharacterCount);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void FindStablePrefixLength_RequiresCompletedLineAndRespectsFence()
+    {
+        Assert.Equal(0, StreamingMarkdownRenderer.FindStablePrefixLength("paragraph\n"));
+        Assert.Equal(11, StreamingMarkdownRenderer.FindStablePrefixLength("paragraph\n\nnext"));
+        Assert.Equal(0, StreamingMarkdownRenderer.FindStablePrefixLength("```\ncode\n\n"));
+        Assert.Equal(14, StreamingMarkdownRenderer.FindStablePrefixLength("```\ncode\n```\n\nnext"));
+    }
+
+    private static string DocumentText(FlowDocument document) =>
+        new TextRange(document.ContentStart, document.ContentEnd).Text;
+
+    private static T RunInSta<T>(Func<T> action)
+    {
+        T? result = default;
+        Exception? exception = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                result = action();
+            }
+            catch (Exception caught)
+            {
+                exception = caught;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (exception is not null)
+            throw new Xunit.Sdk.XunitException(exception.ToString());
+        return result!;
+    }
+}

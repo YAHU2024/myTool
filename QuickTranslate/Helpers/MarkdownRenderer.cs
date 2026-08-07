@@ -132,7 +132,7 @@ internal static class MarkdownRenderer
         return finalEnd < 0 ? rawText : rawText[..(finalEnd + 1)];
     }
 
-    private static FlowDocument CreateDocument(double fontSize) => new()
+    internal static FlowDocument CreateDocument(double fontSize) => new()
     {
         FontFamily = new FontFamily(ConversationFontFamilyName),
         FontSize = fontSize,
@@ -140,6 +140,30 @@ internal static class MarkdownRenderer
         PagePadding = new Thickness(0),
         TextAlignment = TextAlignment.Left
     };
+
+    internal static bool TryRenderBlocks(
+        string rawText,
+        double fontSize,
+        bool isFinal,
+        out IReadOnlyList<System.Windows.Documents.Block> blocks)
+    {
+        try
+        {
+            var markdown = Markdown.Parse(rawText, Pipeline);
+            var document = CreateDocument(fontSize);
+            var codeBlocks = new List<MarkdownCodeBlock>();
+            AppendBlocks(markdown, document.Blocks, codeBlocks, fontSize, isFinal);
+            var renderedBlocks = document.Blocks.ToList();
+            document.Blocks.Clear();
+            blocks = renderedBlocks;
+            return true;
+        }
+        catch
+        {
+            blocks = Array.Empty<System.Windows.Documents.Block>();
+            return false;
+        }
+    }
 
     private static void AppendBlocks(
         ContainerBlock source,

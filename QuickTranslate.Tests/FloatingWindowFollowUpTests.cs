@@ -38,10 +38,36 @@ public sealed class FloatingWindowFollowUpTests
             Assert.True(window.TranslationTextBlock.Focusable);
             Assert.False(window.TranslationTextBlock.IsTabStop);
             Assert.True(window.MarkdownDocumentHost.IsReadOnly);
+            Assert.False(window.MarkdownDocumentHost.IsUndoEnabled);
             Assert.True(window.MarkdownDocumentHost.Focusable);
             Assert.False(window.MarkdownDocumentHost.IsTabStop);
             window.MarkdownDocumentHost.SelectAll();
             Assert.True(ApplicationCommands.Copy.CanExecute(null, window.MarkdownDocumentHost));
+        });
+    }
+
+    [SkippableFact]
+    public void CompletedFollowUpMarkdown_DisablesUndoHistory()
+    {
+        RunOnSta(window =>
+        {
+            var turn = new AnalysisFollowUpTurnState(
+                1,
+                "why",
+                "```csharp\nvar value = 1;\n```",
+                AnalysisFollowUpTurnStatus.Completed,
+                2);
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([turn]));
+
+            var turnPanel = Assert.IsType<StackPanel>(
+                Assert.IsType<Border>(window.AnalysisTurnsPanel.Children[0]).Child);
+            var markdown = Assert.Single(turnPanel.Children.OfType<RichTextBox>());
+            Assert.True(markdown.IsReadOnly);
+            Assert.False(markdown.IsUndoEnabled);
         });
     }
 
