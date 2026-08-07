@@ -18,6 +18,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
     internal const int MaxAnalysisRequestRunes = 30000;
     internal const int MaxFollowUpQuestionRunes = AnalysisConversationFormatter.MaxQuestionRunes;
     internal const int MaxFollowUpContextCharacters = 60000;
+    internal const double StalledChunkGapThresholdMs = 250;
 
     private readonly HttpClient _httpClient;
     private AppSettings _settings;
@@ -130,7 +131,9 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
             stream_chunk_count = execution.ChunkCount,
             first_chunk_ms = execution.FirstChunkMs,
-            max_chunk_gap_ms = execution.MaxChunkGapMs
+            average_chunk_gap_ms = execution.AverageChunkGapMs,
+            max_chunk_gap_ms = execution.MaxChunkGapMs,
+            stalled_chunk_count = execution.StalledChunkCount
         });
         return result;
     }
@@ -238,7 +241,9 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
                 stream_chunk_count = execution.ChunkCount,
                 first_chunk_ms = execution.FirstChunkMs,
+                average_chunk_gap_ms = execution.AverageChunkGapMs,
                 max_chunk_gap_ms = execution.MaxChunkGapMs,
+                stalled_chunk_count = execution.StalledChunkCount,
                 request_id = request.RequestId
             });
             return result;
@@ -429,6 +434,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         var chunkCount = 0;
         double? firstChunkMs = null;
         var maxChunkGapMs = 0.0;
+        var totalChunkGapMs = 0.0;
+        var stalledChunkCount = 0;
         long? previousChunkAt = null;
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var reader = new StreamReader(stream);
@@ -463,9 +470,11 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 firstChunkMs ??= Stopwatch.GetElapsedTime(streamStartedAt, chunkAt).TotalMilliseconds;
                 if (previousChunkAt is { } previous)
                 {
-                    maxChunkGapMs = Math.Max(
-                        maxChunkGapMs,
-                        Stopwatch.GetElapsedTime(previous, chunkAt).TotalMilliseconds);
+                    var chunkGapMs = Stopwatch.GetElapsedTime(previous, chunkAt).TotalMilliseconds;
+                    totalChunkGapMs += chunkGapMs;
+                    maxChunkGapMs = Math.Max(maxChunkGapMs, chunkGapMs);
+                    if (chunkGapMs >= StalledChunkGapThresholdMs)
+                        stalledChunkCount++;
                 }
                 previousChunkAt = chunkAt;
                 chunkCount++;
@@ -482,7 +491,9 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             fullResult.ToString().Trim(),
             chunkCount,
             firstChunkMs,
-            maxChunkGapMs);
+            chunkCount <= 1 ? 0 : totalChunkGapMs / (chunkCount - 1),
+            maxChunkGapMs,
+            stalledChunkCount);
     }
 
     private static PromptResult BuildSystemPromptCore(
@@ -636,7 +647,9 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         string Result,
         int ChunkCount,
         double? FirstChunkMs,
-        double MaxChunkGapMs);
+        double AverageChunkGapMs,
+        double MaxChunkGapMs,
+        int StalledChunkCount);
 
     private sealed record PromptSettings(
         string ApiBaseUrl,

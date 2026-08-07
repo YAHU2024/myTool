@@ -12,6 +12,15 @@ namespace QuickTranslate.Tests;
 public class TranslationLifecycleTests
 {
     [Fact]
+    public void StalledChunkGapThreshold_IsLongerThanThePresentationFrame()
+    {
+        Assert.Equal(250, OpenAITranslationService.StalledChunkGapThresholdMs);
+        Assert.True(
+            OpenAITranslationService.StalledChunkGapThresholdMs >
+            StreamingPresentationPump.DefaultFrameInterval.TotalMilliseconds);
+    }
+
+    [Fact]
     public void LatestRequestCoordinator_CancelsAndInvalidatesOlderScope()
     {
         var coordinator = new LatestRequestCoordinator();
