@@ -172,6 +172,11 @@ namespace QuickTranslate.Models
         public bool SmartContentType { get; set; } = false;
 
         /// <summary>
+        /// 是否启用供应商支持的思考模式（默认关闭）
+        /// </summary>
+        public bool EnableThinking { get; set; } = false;
+
+        /// <summary>
         /// 自定义翻译提示词（留空使用默认，支持 {targetLang} 占位符）
         /// </summary>
         public string CustomTranslationPrompt { get; set; } = string.Empty;

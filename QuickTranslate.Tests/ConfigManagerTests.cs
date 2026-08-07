@@ -347,6 +347,7 @@ public class ConfigManagerTests : IDisposable
             AutoStart = true,
             AutoDetectLanguage = false,
             SmartContentType = true,
+            EnableThinking = true,
             CustomTranslationPrompt = "Translate: {targetLang}",
             TtsEnabled = false,
             TtsRate = 1.1,
@@ -367,6 +368,7 @@ public class ConfigManagerTests : IDisposable
         Assert.Equal(original.AutoStart, loaded.AutoStart);
         Assert.Equal(original.AutoDetectLanguage, loaded.AutoDetectLanguage);
         Assert.Equal(original.SmartContentType, loaded.SmartContentType);
+        Assert.Equal(original.EnableThinking, loaded.EnableThinking);
         Assert.Equal(original.CustomTranslationPrompt, loaded.CustomTranslationPrompt);
         Assert.Equal(original.TtsEnabled, loaded.TtsEnabled);
         Assert.Equal(original.TtsRate, loaded.TtsRate);

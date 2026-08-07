@@ -63,6 +63,7 @@ namespace QuickTranslate.UI
 
             // 智能内容识别
             SmartContentTypeCheckBox.IsChecked = _settings.SmartContentType;
+            ThinkingModeCheckBox.IsChecked = _settings.EnableThinking;
 
             // 自定义翻译提示词
             CustomTranslationPromptTextBox.Text = _settings.CustomTranslationPrompt;
@@ -595,6 +596,7 @@ namespace QuickTranslate.UI
             _settings.AutoDetectLanguage = AutoDetectLanguageCheckBox.IsChecked ?? true;
 
             _settings.SmartContentType = SmartContentTypeCheckBox.IsChecked ?? false;
+            _settings.EnableThinking = ThinkingModeCheckBox.IsChecked ?? false;
 
             if (FallbackLanguageComboBox.SelectedItem != null)
                 _settings.FallbackLanguage = FallbackLanguageComboBox.SelectedItem.ToString() ?? _settings.FallbackLanguage;

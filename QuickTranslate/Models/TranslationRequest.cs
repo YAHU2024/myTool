@@ -20,4 +20,5 @@ public sealed record TranslationRequest(
     string ApiKey,
     string ModelName,
     string SystemPrompt,
-    bool FallbackUsed);
+    bool FallbackUsed,
+    bool EnableThinking = false);

@@ -83,7 +83,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             settings.ApiKey,
             settings.ModelName,
             prompt,
-            fallbackUsed);
+            fallbackUsed,
+            settings.EnableThinking);
         Logger.Debug(
             "TranslationService",
             "prompt.selected",
@@ -198,7 +199,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             settings.ModelName,
             normalizedQuestion.Length,
             contextCharacters,
-            requestId);
+            requestId,
+            settings.EnableThinking);
     }
 
     public async Task<string> ExecuteAnalysisFollowUpStreamingAsync(
@@ -226,6 +228,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                     request.ModelName,
                     request.Messages,
                     request.ApiBaseUrl,
+                    request.EnableThinking,
                     stream: true),
                 "analysis follow-up",
                 onDelta,
@@ -381,6 +384,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 new ChatCompletionMessage("user", PromptInputContract.Wrap(request.Text))
             ],
             request.ApiBaseUrl,
+            request.EnableThinking,
             stream);
     }
 
@@ -388,6 +392,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         string modelName,
         IReadOnlyList<ChatCompletionMessage> messages,
         string apiBaseUrl,
+        bool enableThinking,
         bool stream)
     {
         var body = new Dictionary<string, object>
@@ -398,10 +403,11 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             ["stream"] = stream
         };
 
-        if (apiBaseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase))
-            body["thinking"] = new { type = "disabled" };
+        if (apiBaseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase) ||
+            apiBaseUrl.Contains("deepseek.com", StringComparison.OrdinalIgnoreCase))
+            body["thinking"] = new { type = enableThinking ? "enabled" : "disabled" };
         else if (apiBaseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
-            body["enable_thinking"] = false;
+            body["enable_thinking"] = enableThinking;
 
         return body;
     }
@@ -655,6 +661,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         string ApiBaseUrl,
         string ApiKey,
         string ModelName,
+        bool EnableThinking,
         string FallbackLanguage,
         bool AutoDetectLanguage,
         bool SmartContentType,
@@ -671,6 +678,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 settings.ApiBaseUrl,
                 settings.ApiKey,
                 settings.ModelName,
+                settings.EnableThinking,
                 settings.FallbackLanguage,
                 settings.AutoDetectLanguage,
                 settings.SmartContentType,

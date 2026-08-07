@@ -1398,7 +1398,8 @@ public partial class App : Application
         settings.ApiBaseUrl,
         settings.ApiKey,
         settings.ModelName,
-        settings.TargetLanguage);
+        settings.TargetLanguage,
+        settings.EnableThinking);
 
     private LocalDictionaryWordLookupService? TryCreateLocalDictionaryWordLookupService()
     {

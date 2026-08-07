@@ -15,6 +15,7 @@ public class TranslationCacheServiceTests
         var changedPrompt = translation with { SystemPrompt = "Explain in English." };
         var changedModel = translation with { ModelName = "model-b" };
         var analysis = translation with { Kind = TranslationRequestKind.Analysis, ContentType = ContentType.Analysis };
+        var changedThinking = translation with { EnableThinking = true };
 
         cache.Set(translation, "result");
 
@@ -23,6 +24,7 @@ public class TranslationCacheServiceTests
         Assert.False(cache.TryGet(changedPrompt, out _));
         Assert.False(cache.TryGet(changedModel, out _));
         Assert.False(cache.TryGet(analysis, out _));
+        Assert.False(cache.TryGet(changedThinking, out _));
     }
 
     [Fact]

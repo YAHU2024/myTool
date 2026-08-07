@@ -128,6 +128,36 @@ public sealed class OpenAIWordLookupServiceTests
     }
 
     [Fact]
+    public async Task LookupAsync_EnablesThinkingForSiliconFlowWhenConfigured()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(FoundEnvelope("run")));
+        using var service = new OpenAIWordLookupService(
+            new WordLookupProviderSettings(
+                "https://api.siliconflow.cn/v1", "secret", "model-a", "简体中文", EnableThinking: true),
+            handler);
+
+        await service.LookupAsync(new WordLookupRequest("run", ""), CancellationToken.None);
+
+        Assert.True(handler.EnableThinking);
+    }
+
+    [Theory]
+    [InlineData(false, "disabled")]
+    [InlineData(true, "enabled")]
+    public async Task LookupAsync_SendsDeepSeekThinkingType(bool enableThinking, string expectedType)
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(FoundEnvelope("run")));
+        using var service = new OpenAIWordLookupService(
+            new WordLookupProviderSettings(
+                "https://api.deepseek.com/v1", "secret", "deepseek-chat", "简体中文", enableThinking),
+            handler);
+
+        await service.LookupAsync(new WordLookupRequest("run", ""), CancellationToken.None);
+
+        Assert.Equal(expectedType, handler.ThinkingType);
+    }
+
+    [Fact]
     public async Task LookupAsync_UsesOneSettingsSnapshotPerRequest()
     {
         var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -303,6 +333,8 @@ public sealed class OpenAIWordLookupServiceTests
         public string? Model { get; private set; }
         public string? UserContent { get; private set; }
         public string? ResponseFormatType { get; private set; }
+        public bool? EnableThinking { get; private set; }
+        public string? ThinkingType { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -317,6 +349,12 @@ public sealed class OpenAIWordLookupServiceTests
             UserContent = json.RootElement.GetProperty("messages")[1].GetProperty("content").GetString();
             ResponseFormatType = json.RootElement.TryGetProperty("response_format", out var responseFormat)
                 ? responseFormat.GetProperty("type").GetString()
+                : null;
+            EnableThinking = json.RootElement.TryGetProperty("enable_thinking", out var enableThinking)
+                ? enableThinking.GetBoolean()
+                : null;
+            ThinkingType = json.RootElement.TryGetProperty("thinking", out var thinking)
+                ? thinking.GetProperty("type").GetString()
                 : null;
             return await _response(new RecordedRequest(cancellationToken));
         }

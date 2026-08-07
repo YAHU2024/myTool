@@ -173,10 +173,11 @@ public sealed class OpenAIWordLookupService :
         };
         if (SupportsStructuredOutput(settings.ApiBaseUrl, settings.ModelName))
             body["response_format"] = BuildResponseFormat(providerId, userContent);
-        if (baseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase))
-            body["thinking"] = new { type = "disabled" };
+        if (baseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase) ||
+            baseUrl.Contains("deepseek.com", StringComparison.OrdinalIgnoreCase))
+            body["thinking"] = new { type = settings.EnableThinking ? "enabled" : "disabled" };
         else if (baseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
-            body["enable_thinking"] = false;
+            body["enable_thinking"] = settings.EnableThinking;
 
         var inputScalars = userContent.EnumerateRunes().Count();
         if (providerId.EndsWith("-enrichment", StringComparison.Ordinal))

@@ -361,7 +361,7 @@
                         <TextBlock Text="翻译设置" Style="{StaticResource SectionTitle}" Margin="0,0,0,14"/>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="目标语言" Style="{StaticResource LabelStyle}"/>
                             <ComboBox x:Name="LanguageComboBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource DarkComboBox}" SelectionChanged="LanguageComboBox_SelectionChanged"/>
                             <TextBox x:Name="CustomLanguageTextBox" Grid.Row="0" Grid.Column="2" Width="100" Style="{StaticResource InputTextBox}" Visibility="Collapsed"/>
@@ -373,6 +373,8 @@
                             <TextBlock Grid.Row="3" Text="内容识别" Style="{StaticResource LabelStyle}"/>
                             <CheckBox x:Name="SmartContentTypeCheckBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource DarkCheckBox}" Content="自动识别代码、命令和专有名词" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
                             <TextBlock Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Text="识别后会使用对应的解析或解释方式。" Style="{StaticResource HintStyle}" Margin="0,0,0,3"/>
+                            <TextBlock Grid.Row="5" Text="思考模式" Style="{StaticResource LabelStyle}"/>
+                            <CheckBox x:Name="ThinkingModeCheckBox" Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource DarkCheckBox}" Content="启用模型思考（仅支持的供应商生效）" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
                         </Grid>
                     </StackPanel>
                 </Border>

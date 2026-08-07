@@ -14,4 +14,5 @@ public sealed record AnalysisFollowUpRequest(
     string ModelName,
     int QuestionLength,
     int ContextCharacters,
-    long RequestId = 0);
+    long RequestId = 0,
+    bool EnableThinking = false);
