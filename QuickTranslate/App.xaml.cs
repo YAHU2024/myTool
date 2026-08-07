@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
@@ -161,6 +162,9 @@ public partial class App : Application
         _floatingWindow.RefreshRequested += OnRefreshRequested;
         _floatingWindow.HideRequested += OnHideRequested;
         _floatingWindow.ScrollStateChanged += OnScrollStateChanged;
+        _floatingWindow.AnalysisFollowUpRequested += OnAnalysisFollowUpRequested;
+        _floatingWindow.AnalysisFollowUpRetryRequested += OnAnalysisFollowUpRetryRequested;
+        _floatingWindow.AnalysisDraftChanged += OnAnalysisDraftChanged;
 
         _ttsService = new EdgeTtsService();
         _ttsPlayback = new TtsPlaybackCoordinator(_ttsService);
@@ -599,6 +603,8 @@ public partial class App : Application
 
     private void OnHideRequested()
     {
+        if (_resultSessions.CancelActiveFollowUp())
+            _translationRequests.Cancel();
         _floatingWindow?.ResetPin();
         _floatingWindow?.Hide();
     }
@@ -614,6 +620,33 @@ public partial class App : Application
             mode,
             scrollOffset,
             autoScrollEnabled);
+    }
+
+    private void OnAnalysisDraftChanged(Guid sessionId, string draft) =>
+        _resultSessions.TrySetAnalysisDraft(sessionId, draft);
+
+    private async void OnAnalysisFollowUpRequested(string question)
+    {
+        try
+        {
+            await ExecuteAnalysisFollowUpAsync(_resultSessions.BeginFollowUp(question));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            _floatingWindow?.ShowAnalysisFollowUpFeedback(ex.Message);
+        }
+    }
+
+    private async void OnAnalysisFollowUpRetryRequested()
+    {
+        try
+        {
+            await ExecuteAnalysisFollowUpAsync(_resultSessions.RetryLatestFollowUp());
+        }
+        catch (InvalidOperationException ex)
+        {
+            _floatingWindow?.ShowAnalysisFollowUpFeedback(ex.Message);
+        }
     }
 
     private Task StartSessionRequestAsync(
@@ -648,7 +681,8 @@ public partial class App : Application
             _floatingWindow.SetSessionView(
                 transition.Session.SessionId,
                 transition.Session.ActiveMode,
-                state);
+                state,
+                transition.Session.AnalysisConversation);
             return;
         }
 
@@ -663,7 +697,8 @@ public partial class App : Application
         _floatingWindow.SetSessionView(
             transition.Session.SessionId,
             transition.Session.ActiveMode,
-            transition.Session.ModeStates[transition.Session.ActiveMode]);
+            transition.Session.ModeStates[transition.Session.ActiveMode],
+            transition.Session.AnalysisConversation);
         await ExecuteRequestAsync(
             transition.Session.SourceText,
             identity.Mode,
@@ -721,7 +756,10 @@ public partial class App : Application
                     _translationMetrics.RecordExpired();
                     return;
                 }
-                if (!_resultSessions.TryComplete(sessionIdentity, cachedResult))
+                if (!_resultSessions.TryComplete(
+                    sessionIdentity,
+                    cachedResult,
+                    CreateAnalysisSemanticSnapshot(request)))
                 {
                     _translationMetrics.RecordExpired();
                     return;
@@ -759,18 +797,45 @@ public partial class App : Application
                 return;
             }
 
+            var presentedText = new StringBuilder();
+            var dispatcherMetrics = new StreamingDispatcherMetrics();
+            var runtimeStart = StreamingRuntimeStats.Capture();
+            await using var presentationPump = new StreamingPresentationPump(
+                (frame, cancellationToken) =>
+                {
+                    var queuedAt = Stopwatch.GetTimestamp();
+                    return Dispatcher.InvokeAsync(() =>
+                    {
+                        var executionStarted = Stopwatch.GetTimestamp();
+                        var queueDelay = Stopwatch.GetElapsedTime(queuedAt, executionStarted);
+                        try
+                        {
+                            presentedText.Append(frame.Delta);
+                            var snapshot = presentedText.ToString();
+                            if (IsCurrentRequest(requestScope) &&
+                                _resultSessions.TryUpdateStreaming(sessionIdentity, snapshot) &&
+                                _floatingWindow?.IsPresentationCurrent(presentationId) == true)
+                            {
+                                _floatingWindow.UpdateTranslation(presentationId, snapshot);
+                            }
+                        }
+                        finally
+                        {
+                            dispatcherMetrics.Record(
+                                queueDelay,
+                                Stopwatch.GetElapsedTime(executionStarted));
+                        }
+                    }, StreamingDispatcherMetrics.PresentationPriority, cancellationToken).Task;
+                });
             var result = await _translationService.ExecuteStreamingAsync(
                 request,
-                chunk => Dispatcher.BeginInvoke(() =>
-                {
-                    if (IsCurrentRequest(requestScope) &&
-                        _resultSessions.TryUpdateStreaming(sessionIdentity, chunk) &&
-                        _floatingWindow?.IsPresentationCurrent(presentationId) == true)
-                    {
-                        _floatingWindow.UpdateTranslation(presentationId, chunk);
-                    }
-                }, DispatcherPriority.Render),
+                delta => presentationPump.Publish(delta),
                 requestScope.Token);
+            var presentationStats = await presentationPump.CompleteAsync();
+            var dispatcherStats = dispatcherMetrics.GetStats();
+            var markdownStats = _floatingWindow.GetStreamingMarkdownStats();
+            var compositionStats = _floatingWindow.GetStreamingCompositionStats();
+            var runtimeStats = StreamingRuntimeStats.Capture().Since(runtimeStart);
 
             requestScope.Token.ThrowIfCancellationRequested();
             if (!IsCurrentRequest(requestScope))
@@ -778,7 +843,10 @@ public partial class App : Application
                 _translationMetrics.RecordExpired();
                 return;
             }
-            if (!_resultSessions.TryComplete(sessionIdentity, result))
+            if (!_resultSessions.TryComplete(
+                sessionIdentity,
+                result,
+                CreateAnalysisSemanticSnapshot(request)))
             {
                 _translationMetrics.RecordExpired();
                 return;
@@ -800,7 +868,34 @@ public partial class App : Application
                 operation = operationName,
                 content_type = request.ContentType.ToString(),
                 result_len = result.Length,
-                duration_ms = duration.TotalMilliseconds
+                duration_ms = duration.TotalMilliseconds,
+                stream_chunk_count = presentationStats.PublishedChunkCount,
+                ui_frame_count = presentationStats.AppliedFrameCount,
+                coalesced_chunk_count = presentationStats.CoalescedChunkCount,
+                first_frame_latency_ms = presentationStats.FirstFrameLatencyMs,
+                max_frame_latency_ms = presentationStats.MaxFrameLatencyMs,
+                average_ui_apply_ms = presentationStats.AverageApplyDurationMs,
+                max_ui_apply_ms = presentationStats.MaxApplyDurationMs,
+                final_frame_interval_ms = presentationStats.FinalFrameIntervalMs,
+                average_dispatcher_queue_ms = dispatcherStats.AverageQueueDelayMs,
+                max_dispatcher_queue_ms = dispatcherStats.MaxQueueDelayMs,
+                average_ui_execution_ms = dispatcherStats.AverageExecutionDurationMs,
+                max_ui_execution_ms = dispatcherStats.MaxExecutionDurationMs,
+                markdown_frame_count = markdownStats.FrameCount,
+                average_markdown_render_ms = markdownStats.AverageRenderDurationMs,
+                max_markdown_render_ms = markdownStats.MaxRenderDurationMs,
+                markdown_allocated_bytes = markdownStats.AllocatedBytes,
+                markdown_parsed_characters = markdownStats.ParsedCharacters,
+                gc_gen0_collections = runtimeStats.Gen0Collections,
+                gc_gen1_collections = runtimeStats.Gen1Collections,
+                gc_gen2_collections = runtimeStats.Gen2Collections,
+                gc_pause_ms = runtimeStats.GcPauseDurationMs,
+                runtime_allocated_bytes = runtimeStats.AllocatedBytes,
+                composition_requested_frame_count = compositionStats.RequestedFrameCount,
+                composition_presented_frame_count = compositionStats.PresentedFrameCount,
+                composition_coalesced_request_count = compositionStats.CoalescedRequestCount,
+                average_composition_wait_ms = compositionStats.AverageWaitDurationMs,
+                max_composition_wait_ms = compositionStats.MaxWaitDurationMs
             });
         }
         catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))
@@ -837,6 +932,146 @@ public partial class App : Application
         }
     }
 
+    private async Task ExecuteAnalysisFollowUpAsync(AnalysisFollowUpTransition transition)
+    {
+        if (_translationService == null || _floatingWindow == null)
+            return;
+
+        UpdateFloatingSessionView();
+        var identity = transition.RequestIdentity;
+        var presentationId = identity.PresentationId;
+        var requestScope = BeginTranslationRequest();
+
+        try
+        {
+            requestScope.Token.ThrowIfCancellationRequested();
+            var conversation = transition.Session.AnalysisConversation;
+            var semanticSnapshot = conversation.SemanticSnapshot
+                ?? throw new InvalidOperationException("当前解析结果不能追问");
+            var rootAnalysis = transition.Session.ModeStates[ContentType.Analysis].RawText;
+            var request = _translationService.CreateAnalysisFollowUpRequest(
+                transition.Session.SourceText,
+                rootAnalysis,
+                semanticSnapshot,
+                _resultSessions.GetCompletedFollowUpExchanges(transition.Session.SessionId),
+                transition.Turn.Question,
+                transition.Turn.TurnNumber,
+                identity.RequestId);
+
+            var presentedText = new StringBuilder();
+            var dispatcherMetrics = new StreamingDispatcherMetrics();
+            var runtimeStart = StreamingRuntimeStats.Capture();
+            await using var presentationPump = new StreamingPresentationPump(
+                (frame, cancellationToken) =>
+                {
+                    var queuedAt = Stopwatch.GetTimestamp();
+                    return Dispatcher.InvokeAsync(() =>
+                    {
+                        var executionStarted = Stopwatch.GetTimestamp();
+                        var queueDelay = Stopwatch.GetElapsedTime(queuedAt, executionStarted);
+                        try
+                        {
+                            presentedText.Append(frame.Delta);
+                            var snapshot = presentedText.ToString();
+                            if (!IsCurrentRequest(requestScope) ||
+                                !_resultSessions.TryUpdateFollowUpStreaming(identity, snapshot) ||
+                                _floatingWindow?.IsPresentationCurrent(presentationId) != true)
+                            {
+                                return;
+                            }
+
+                            var currentTurn = _resultSessions.CurrentSession?
+                                .AnalysisConversation.Turns.LastOrDefault();
+                            if (currentTurn is not null && currentTurn.LastRequestId == identity.RequestId)
+                                _floatingWindow.UpdateAnalysisFollowUpStreaming(presentationId, currentTurn);
+                        }
+                        finally
+                        {
+                            dispatcherMetrics.Record(
+                                queueDelay,
+                                Stopwatch.GetElapsedTime(executionStarted));
+                        }
+                    }, StreamingDispatcherMetrics.PresentationPriority, cancellationToken).Task;
+                });
+            var result = await _translationService.ExecuteAnalysisFollowUpStreamingAsync(
+                request,
+                delta => presentationPump.Publish(delta),
+                requestScope.Token);
+            var presentationStats = await presentationPump.CompleteAsync();
+            var dispatcherStats = dispatcherMetrics.GetStats();
+            var markdownStats = _floatingWindow.GetAnalysisFollowUpStreamingStats(identity.TurnNumber);
+            var compositionStats = _floatingWindow.GetAnalysisFollowUpCompositionStats(identity.TurnNumber);
+            var runtimeStats = StreamingRuntimeStats.Capture().Since(runtimeStart);
+
+            requestScope.Token.ThrowIfCancellationRequested();
+            if (!IsCurrentRequest(requestScope) ||
+                !_resultSessions.TryCompleteFollowUp(identity, result) ||
+                !_floatingWindow.IsPresentationCurrent(presentationId))
+            {
+                return;
+            }
+
+            UpdateFloatingSessionView();
+            Logger.Info("App", "analysis.follow_up.presented", new
+            {
+                turn = identity.TurnNumber,
+                request_id = identity.RequestId,
+                stream_chunk_count = presentationStats.PublishedChunkCount,
+                ui_frame_count = presentationStats.AppliedFrameCount,
+                coalesced_chunk_count = presentationStats.CoalescedChunkCount,
+                first_frame_latency_ms = presentationStats.FirstFrameLatencyMs,
+                max_frame_latency_ms = presentationStats.MaxFrameLatencyMs,
+                average_ui_apply_ms = presentationStats.AverageApplyDurationMs,
+                max_ui_apply_ms = presentationStats.MaxApplyDurationMs,
+                final_frame_interval_ms = presentationStats.FinalFrameIntervalMs,
+                average_dispatcher_queue_ms = dispatcherStats.AverageQueueDelayMs,
+                max_dispatcher_queue_ms = dispatcherStats.MaxQueueDelayMs,
+                average_ui_execution_ms = dispatcherStats.AverageExecutionDurationMs,
+                max_ui_execution_ms = dispatcherStats.MaxExecutionDurationMs,
+                markdown_frame_count = markdownStats.FrameCount,
+                average_markdown_render_ms = markdownStats.AverageRenderDurationMs,
+                max_markdown_render_ms = markdownStats.MaxRenderDurationMs,
+                markdown_allocated_bytes = markdownStats.AllocatedBytes,
+                markdown_parsed_characters = markdownStats.ParsedCharacters,
+                gc_gen0_collections = runtimeStats.Gen0Collections,
+                gc_gen1_collections = runtimeStats.Gen1Collections,
+                gc_gen2_collections = runtimeStats.Gen2Collections,
+                gc_pause_ms = runtimeStats.GcPauseDurationMs,
+                runtime_allocated_bytes = runtimeStats.AllocatedBytes,
+                composition_requested_frame_count = compositionStats.RequestedFrameCount,
+                composition_presented_frame_count = compositionStats.PresentedFrameCount,
+                composition_coalesced_request_count = compositionStats.CoalescedRequestCount,
+                average_composition_wait_ms = compositionStats.AverageWaitDurationMs,
+                max_composition_wait_ms = compositionStats.MaxWaitDurationMs
+            });
+        }
+        catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))
+        {
+            if (_resultSessions.TryCancelFollowUp(identity) &&
+                _floatingWindow.IsPresentationCurrent(presentationId))
+            {
+                UpdateFloatingSessionView();
+            }
+        }
+        catch (Exception ex)
+        {
+            if (IsCurrentRequest(requestScope) &&
+                _resultSessions.TryFailFollowUp(identity) &&
+                _floatingWindow.IsPresentationCurrent(presentationId))
+            {
+                UpdateFloatingSessionView();
+                _floatingWindow.ShowAnalysisFollowUpFeedback(
+                    ex is InvalidOperationException { Message: "当前解析内容过长，无法继续追问" }
+                        ? "当前解析内容过长，无法继续追问"
+                        : "追问失败，请重试本轮。");
+            }
+        }
+        finally
+        {
+            CompleteTranslationRequest(requestScope);
+        }
+    }
+
     private void UpdateFloatingSessionView()
     {
         if (_floatingWindow is null || _resultSessions.CurrentSession is not { } session)
@@ -845,10 +1080,16 @@ public partial class App : Application
         _floatingWindow.SetSessionView(
             session.SessionId,
             session.ActiveMode,
-            session.ModeStates[session.ActiveMode]);
+            session.ModeStates[session.ActiveMode],
+            session.AnalysisConversation);
         _trayIcon?.SetRestoreAvailable(
             session.ModeStates.Values.Any(state => state.Status == ModeResultStatus.Completed));
     }
+
+    private static AnalysisSemanticSnapshot? CreateAnalysisSemanticSnapshot(TranslationRequest request) =>
+        request.Kind == TranslationRequestKind.Analysis
+            ? new AnalysisSemanticSnapshot(request.SystemPrompt, request.TargetLanguage)
+            : null;
 
     private async Task ShowMessageWithoutReplacingSessionAsync(
         string message,
@@ -878,6 +1119,7 @@ public partial class App : Application
     {
         _resultSessions.CancelActiveRequest();
         _translationRequests.Cancel();
+        UpdateFloatingSessionView();
     }
 
     private Task<bool> ShowRequestLoadingAsync(

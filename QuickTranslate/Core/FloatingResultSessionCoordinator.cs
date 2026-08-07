@@ -19,6 +19,29 @@ internal sealed record FloatingResultSessionTransition(
     FloatingResultSession? Session,
     FloatingResultRequestIdentity? RequestIdentity);
 
+internal enum FloatingResultActiveOperationKind
+{
+    Root,
+    FollowUp
+}
+
+internal readonly record struct FloatingResultActiveOperation(
+    FloatingResultActiveOperationKind Kind,
+    FloatingResultRequestIdentity? RootIdentity,
+    AnalysisFollowUpRequestIdentity? FollowUpIdentity)
+{
+    public static FloatingResultActiveOperation Root(FloatingResultRequestIdentity identity) =>
+        new(FloatingResultActiveOperationKind.Root, identity, null);
+
+    public static FloatingResultActiveOperation FollowUp(AnalysisFollowUpRequestIdentity identity) =>
+        new(FloatingResultActiveOperationKind.FollowUp, null, identity);
+}
+
+internal sealed record AnalysisFollowUpTransition(
+    FloatingResultSession Session,
+    AnalysisFollowUpRequestIdentity RequestIdentity,
+    AnalysisFollowUpTurnState Turn);
+
 /// <summary>
 /// Owns the session, request and presentation identities for floating results.
 /// It is deliberately transport-agnostic: callers use transitions to start/cancel HTTP work,
@@ -30,7 +53,7 @@ internal sealed class FloatingResultSessionCoordinator
     private long _requestId;
     private long _presentationId;
     private FloatingResultSession? _currentSession;
-    private FloatingResultRequestIdentity? _activeRequest;
+    private FloatingResultActiveOperation? _activeOperation;
 
     public Guid? CurrentSessionId
     {
@@ -50,6 +73,11 @@ internal sealed class FloatingResultSessionCoordinator
     public FloatingResultSession? CurrentSession
     {
         get { lock (_sync) return _currentSession; }
+    }
+
+    public FloatingResultActiveOperation? ActiveOperation
+    {
+        get { lock (_sync) return _activeOperation; }
     }
 
     public FloatingResultSessionTransition StartSession(
@@ -105,6 +133,8 @@ internal sealed class FloatingResultSessionCoordinator
                 return new(FloatingResultSessionTransitionKind.NoOp, null, null);
 
             CancelActiveRequestLocked();
+            if (_currentSession.ActiveMode == ContentType.Analysis)
+                _currentSession.SetAnalysisConversation(AnalysisConversationState.Empty());
             return StartRequestLocked(_currentSession, _currentSession.ActiveMode);
         }
     }
@@ -165,13 +195,35 @@ internal sealed class FloatingResultSessionCoordinator
             ErrorMessage = null
         });
 
-    public bool TryComplete(FloatingResultRequestIdentity identity, string rawText) =>
-        TryApply(identity, state => state with
+    public bool TryComplete(
+        FloatingResultRequestIdentity identity,
+        string rawText,
+        AnalysisSemanticSnapshot? semanticSnapshot = null)
+    {
+        lock (_sync)
         {
-            Status = ModeResultStatus.Completed,
-            RawText = rawText,
-            ErrorMessage = null
-        }, clearActiveRequest: true);
+            if (!CanApplyRootLocked(identity))
+                return false;
+
+            var state = _currentSession!.GetModeState(identity.Mode);
+            _currentSession.SetModeState(identity.Mode, state with
+            {
+                Status = ModeResultStatus.Completed,
+                RawText = rawText,
+                ErrorMessage = null
+            });
+            if (identity.Mode == ContentType.Analysis)
+            {
+                _currentSession.SetAnalysisConversation(new AnalysisConversationState(
+                    identity.RequestId,
+                    semanticSnapshot,
+                    string.Empty,
+                    Array.Empty<AnalysisFollowUpTurnState>()));
+            }
+            _activeOperation = null;
+            return true;
+        }
+    }
 
     public bool TryFail(FloatingResultRequestIdentity identity, string errorMessage)
     {
@@ -185,6 +237,124 @@ internal sealed class FloatingResultSessionCoordinator
 
     public bool TryCancel(FloatingResultRequestIdentity identity) =>
         TryApply(identity, state => state with { Status = ModeResultStatus.Cancelled }, clearActiveRequest: true);
+
+    public AnalysisFollowUpTransition BeginFollowUp(string question)
+    {
+        lock (_sync)
+        {
+            var session = RequireFollowUpReadySessionLocked();
+            var conversation = session.AnalysisConversation;
+            if (conversation.Turns.Count >= 10)
+                throw new InvalidOperationException("已达到本次解析的 10 轮追问上限");
+
+            CancelActiveRequestLocked();
+            var normalizedQuestion = AnalysisConversationFormatter.NormalizeQuestion(question);
+
+            var identity = NewFollowUpIdentityLocked(session, conversation, conversation.Turns.Count + 1);
+            var turn = new AnalysisFollowUpTurnState(
+                identity.TurnNumber,
+                normalizedQuestion,
+                string.Empty,
+                AnalysisFollowUpTurnStatus.Loading,
+                identity.RequestId);
+            session.SetAnalysisConversation(conversation with
+            {
+                Draft = string.Empty,
+                Turns = conversation.Turns.Append(turn).ToArray()
+            });
+            _activeOperation = FloatingResultActiveOperation.FollowUp(identity);
+            return new AnalysisFollowUpTransition(session, identity, turn);
+        }
+    }
+
+    public AnalysisFollowUpTransition RetryLatestFollowUp()
+    {
+        lock (_sync)
+        {
+            var session = RequireFollowUpReadySessionLocked();
+            var conversation = session.AnalysisConversation;
+            var turn = conversation.Turns.LastOrDefault()
+                ?? throw new InvalidOperationException("没有可重试的追问");
+            if (turn.Status is not (AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled))
+                throw new InvalidOperationException("只有最新未完成追问可以重试");
+
+            CancelActiveRequestLocked();
+            var identity = NewFollowUpIdentityLocked(session, conversation, turn.TurnNumber);
+            var replacement = turn with
+            {
+                AnswerRawText = string.Empty,
+                Status = AnalysisFollowUpTurnStatus.Loading,
+                LastRequestId = identity.RequestId
+            };
+            session.SetAnalysisConversation(conversation with
+            {
+                Turns = conversation.Turns.Take(conversation.Turns.Count - 1).Append(replacement).ToArray()
+            });
+            _activeOperation = FloatingResultActiveOperation.FollowUp(identity);
+            return new AnalysisFollowUpTransition(session, identity, replacement);
+        }
+    }
+
+    public bool TryUpdateFollowUpStreaming(AnalysisFollowUpRequestIdentity identity, string rawText) =>
+        TryApplyFollowUp(identity, turn => turn with
+        {
+            AnswerRawText = rawText,
+            Status = AnalysisFollowUpTurnStatus.Loading
+        });
+
+    public bool TryCompleteFollowUp(AnalysisFollowUpRequestIdentity identity, string rawText) =>
+        TryApplyFollowUp(identity, turn => turn with
+        {
+            AnswerRawText = rawText,
+            Status = AnalysisFollowUpTurnStatus.Completed
+        }, clearActiveRequest: true);
+
+    public bool TryFailFollowUp(AnalysisFollowUpRequestIdentity identity) =>
+        TryApplyFollowUp(identity, turn => turn with
+        {
+            Status = AnalysisFollowUpTurnStatus.Failed
+        }, clearActiveRequest: true);
+
+    public bool TryCancelFollowUp(AnalysisFollowUpRequestIdentity identity) =>
+        TryApplyFollowUp(identity, turn => turn with
+        {
+            Status = AnalysisFollowUpTurnStatus.Cancelled
+        }, clearActiveRequest: true);
+
+    public bool CancelActiveFollowUp()
+    {
+        lock (_sync)
+        {
+            if (_activeOperation is not { Kind: FloatingResultActiveOperationKind.FollowUp })
+                return false;
+            CancelActiveRequestLocked();
+            return true;
+        }
+    }
+
+    public bool TrySetAnalysisDraft(Guid sessionId, string draft)
+    {
+        lock (_sync)
+        {
+            if (_currentSession?.SessionId != sessionId)
+                return false;
+            _currentSession.SetAnalysisConversation(_currentSession.AnalysisConversation with { Draft = draft });
+            return true;
+        }
+    }
+
+    public IReadOnlyList<AnalysisFollowUpExchange> GetCompletedFollowUpExchanges(Guid sessionId)
+    {
+        lock (_sync)
+        {
+            if (_currentSession?.SessionId != sessionId)
+                return Array.Empty<AnalysisFollowUpExchange>();
+            return _currentSession.AnalysisConversation.Turns
+                .Where(turn => turn.Status == AnalysisFollowUpTurnStatus.Completed)
+                .Select(turn => new AnalysisFollowUpExchange(turn.Question, turn.AnswerRawText))
+                .ToArray();
+        }
+    }
 
     public bool TrySetScrollState(Guid sessionId, ContentType mode, double scrollOffset, bool autoScrollEnabled)
     {
@@ -223,23 +393,37 @@ internal sealed class FloatingResultSessionCoordinator
             ScrollOffset = 0,
             AutoScrollEnabled = true
         });
-        _activeRequest = identity;
+        _activeOperation = FloatingResultActiveOperation.Root(identity);
         return new(FloatingResultSessionTransitionKind.StartedRequest, session, identity);
     }
 
     private void CancelActiveRequestLocked()
     {
-        if (_activeRequest is not { } identity || _currentSession is null || _currentSession.SessionId != identity.SessionId)
+        if (_activeOperation is not { } operation || _currentSession is null)
         {
-            _activeRequest = null;
+            _activeOperation = null;
             return;
         }
 
-        var state = _currentSession.GetModeState(identity.Mode);
-        if (state.Status == ModeResultStatus.Loading && state.LastRequestId == identity.RequestId)
-            _currentSession.SetModeState(identity.Mode, state with { Status = ModeResultStatus.Cancelled });
+        if (operation.Kind == FloatingResultActiveOperationKind.Root && operation.RootIdentity is { } rootIdentity)
+        {
+            if (_currentSession.SessionId == rootIdentity.SessionId)
+            {
+                var state = _currentSession.GetModeState(rootIdentity.Mode);
+                if (state.Status == ModeResultStatus.Loading && state.LastRequestId == rootIdentity.RequestId)
+                    _currentSession.SetModeState(rootIdentity.Mode, state with { Status = ModeResultStatus.Cancelled });
+            }
+        }
+        else if (operation.FollowUpIdentity is { } followUpIdentity &&
+                 _currentSession.SessionId == followUpIdentity.SessionId)
+        {
+            UpdateFollowUpTurnLocked(followUpIdentity, turn => turn with
+            {
+                Status = AnalysisFollowUpTurnStatus.Cancelled
+            });
+        }
 
-        _activeRequest = null;
+        _activeOperation = null;
     }
 
     private bool TryApply(
@@ -249,21 +433,114 @@ internal sealed class FloatingResultSessionCoordinator
     {
         lock (_sync)
         {
-            if (_currentSession?.SessionId != identity.SessionId ||
-                _activeRequest != identity ||
-                _presentationId != identity.PresentationId)
+            if (!CanApplyRootLocked(identity))
             {
                 return false;
             }
 
-            var state = _currentSession.GetModeState(identity.Mode);
+            var session = _currentSession!;
+            var state = session.GetModeState(identity.Mode);
             if (state.Status != ModeResultStatus.Loading || state.LastRequestId != identity.RequestId)
                 return false;
 
-            _currentSession.SetModeState(identity.Mode, update(state));
+            session.SetModeState(identity.Mode, update(state));
             if (clearActiveRequest)
-                _activeRequest = null;
+                _activeOperation = null;
             return true;
         }
+    }
+
+    private bool CanApplyRootLocked(FloatingResultRequestIdentity identity) =>
+        _currentSession?.SessionId == identity.SessionId &&
+        _activeOperation is
+        {
+            Kind: FloatingResultActiveOperationKind.Root,
+            RootIdentity: { } activeIdentity
+        } &&
+        activeIdentity == identity &&
+        _presentationId == identity.PresentationId &&
+        _currentSession.GetModeState(identity.Mode) is
+        {
+            Status: ModeResultStatus.Loading,
+            LastRequestId: { } lastRequestId
+        } &&
+        lastRequestId == identity.RequestId;
+
+    private FloatingResultSession RequireFollowUpReadySessionLocked()
+    {
+        var session = _currentSession ?? throw new InvalidOperationException("当前没有结果会话");
+        if (session.ActiveMode != ContentType.Analysis ||
+            session.GetModeState(ContentType.Analysis).Status != ModeResultStatus.Completed ||
+            session.AnalysisConversation is not
+            {
+                RootAnalysisRequestId: { },
+                SemanticSnapshot: not null
+            })
+        {
+            throw new InvalidOperationException("当前解析结果不能追问");
+        }
+        return session;
+    }
+
+    private AnalysisFollowUpRequestIdentity NewFollowUpIdentityLocked(
+        FloatingResultSession session,
+        AnalysisConversationState conversation,
+        int turnNumber) => new(
+            session.SessionId,
+            conversation.RootAnalysisRequestId!.Value,
+            turnNumber,
+            ++_requestId,
+            _presentationId);
+
+    private bool TryApplyFollowUp(
+        AnalysisFollowUpRequestIdentity identity,
+        Func<AnalysisFollowUpTurnState, AnalysisFollowUpTurnState> update,
+        bool clearActiveRequest = false)
+    {
+        lock (_sync)
+        {
+            if (_currentSession?.SessionId != identity.SessionId ||
+                _currentSession.ActiveMode != ContentType.Analysis ||
+                _currentSession.AnalysisConversation.RootAnalysisRequestId != identity.RootAnalysisRequestId ||
+                _activeOperation is not
+                {
+                    Kind: FloatingResultActiveOperationKind.FollowUp,
+                    FollowUpIdentity: { } activeIdentity
+                } ||
+                activeIdentity != identity ||
+                _presentationId != identity.PresentationId ||
+                !UpdateFollowUpTurnLocked(identity, update))
+            {
+                return false;
+            }
+
+            if (clearActiveRequest)
+                _activeOperation = null;
+            return true;
+        }
+    }
+
+    private bool UpdateFollowUpTurnLocked(
+        AnalysisFollowUpRequestIdentity identity,
+        Func<AnalysisFollowUpTurnState, AnalysisFollowUpTurnState> update)
+    {
+        if (_currentSession is null)
+            return false;
+        var conversation = _currentSession.AnalysisConversation;
+        var index = conversation.Turns.Count - 1;
+        if (index < 0)
+            return false;
+        var turn = conversation.Turns[index];
+        if (turn.TurnNumber != identity.TurnNumber ||
+            turn.LastRequestId != identity.RequestId ||
+            turn.Status != AnalysisFollowUpTurnStatus.Loading)
+        {
+            return false;
+        }
+
+        var turns = conversation.Turns.ToArray();
+        turns[index] = update(turn);
+        _currentSession.SetAnalysisConversation(conversation with { Turns = turns });
+        return true;
     }
 }

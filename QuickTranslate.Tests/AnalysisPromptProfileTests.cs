@@ -33,7 +33,8 @@ public sealed class AnalysisPromptProfileTests
 
         var prompt = AnalysisPromptCatalog.Resolve(settings, "简体中文");
 
-        Assert.Equal("Explain architecture in 简体中文.", prompt);
+        Assert.StartsWith("Explain architecture in 简体中文.", prompt, StringComparison.Ordinal);
+        Assert.Contains("close every fenced code block", prompt);
         Assert.DoesNotContain("OTHER", prompt);
     }
 

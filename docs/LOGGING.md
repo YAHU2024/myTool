@@ -43,6 +43,7 @@
 2. 查看是否存在 `translation.started`。
 3. 检查后续是 `translation.completed`、`translation.failed`、`translation.cancelled` 还是 `translation.cache_hit`。
 4. `translation.completed` 表示服务响应完成；`translation.presented` 表示最新有效请求已写入当前界面和历史。
+5. 流式卡顿时先看 `average_chunk_gap_ms`、`max_chunk_gap_ms` 和 `stalled_chunk_count`，再看 `max_frame_latency_ms`：前三者高通常表示模型、服务商或网络缓冲，后者高表示本地 UI 呈现延迟。
 
 快速查词没有结果：
 
@@ -188,6 +189,27 @@ quicktranslate-2026-07-23-2.log
 | `result_len` | 结果字符数，不包含结果内容 |
 | `duration_ms` | 操作耗时，单位毫秒 |
 | `request_id` | 进程内请求身份，用于判断取消和过期请求 |
+| `stream_chunk_count` | 服务接收或呈现泵发布的有效流式 chunk 数量 |
+| `first_chunk_ms` | 从开始请求到收到首个有效 chunk 的耗时 |
+| `average_chunk_gap_ms` | 相邻有效 chunk 到达间隔的平均值；只在至少收到两个有效 chunk 时计算 |
+| `max_chunk_gap_ms` | 相邻有效 chunk 的最大到达间隔 |
+| `stalled_chunk_count` | 到达间隔不小于 250ms 的 chunk 次数，用于识别服务端或网络停顿 |
+| `ui_frame_count` | 合并后真正应用到 UI 的帧数 |
+| `coalesced_chunk_count` | 被合并进已有 UI 帧的 chunk 数量 |
+| `first_frame_latency_ms` | 首批 chunk 从发布到 UI 应用完成的管线耗时 |
+| `max_frame_latency_ms` | 任一批 chunk 从发布到 UI 应用完成的最大管线耗时 |
+| `average_ui_apply_ms` / `max_ui_apply_ms` | 呈现泵等待并执行 UI 帧的平均/最大耗时 |
+| `average_dispatcher_queue_ms` / `max_dispatcher_queue_ms` | UI 委托进入 Dispatcher 后的平均/最大排队时间 |
+| `average_ui_execution_ms` / `max_ui_execution_ms` | UI 委托实际执行的平均/最大耗时，不包含排队 |
+| `average_markdown_render_ms` / `max_markdown_render_ms` | 增量 Markdown 更新的平均/最大耗时 |
+| `markdown_allocated_bytes` / `markdown_parsed_characters` | 流式 Markdown 路径的线程分配量和累计解析字符数 |
+| `gc_gen0_collections` / `gc_gen1_collections` / `gc_gen2_collections` | 请求期间发生的各代 GC 次数（进程口径） |
+| `gc_pause_ms` | 请求期间新增的 GC 总暂停时间（进程口径） |
+| `runtime_allocated_bytes` | 请求期间进程累计分配量的增量近似值 |
+| `composition_requested_frame_count` | 内容更新后登记的合成帧请求数 |
+| `composition_presented_frame_count` | 请求完成前观测到的真实 WPF 合成帧数 |
+| `composition_coalesced_request_count` | 在同一合成帧前被合并的重复内容更新数 |
+| `average_composition_wait_ms` / `max_composition_wait_ms` | 内容更新到下一次 `CompositionTarget.Rendering` 的平均/最大等待时间 |
 | `error_type` / `exception_type` | 异常类型名称，不包含异常消息 |
 | `query_scalars` | 查词输入的 Unicode 字符数量，不包含查询内容 |
 | `senses` / `examples` / `collocations` | 结构化查词结果的项目数量，不包含项目正文 |
@@ -210,6 +232,14 @@ quicktranslate-2026-07-23-2.log
 - 所有指标仅保存在当前进程内，应用重启后重新统计；跨午夜会重置“今日”计数。
 
 当前界面显示平均耗时和 P95。P50、P99 已由指标服务计算，可用于后续诊断或开发扩展。
+
+流式卡顿判读：
+
+- `max_dispatcher_queue_ms` 高，而 `max_ui_execution_ms`、`max_markdown_render_ms` 和 `gc_pause_ms` 都低：优先检查 WPF 布局、窗口尺寸变化或其他 Dispatcher 工作。
+- `gc_pause_ms` 与排队峰值同量级，且存在 Gen1/Gen2 回收：优先检查请求期间的累计分配和长寿命 WPF 对象。
+- `max_ui_execution_ms` 与 `max_markdown_render_ms` 接近：停顿发生在当前 Markdown 更新帧内。
+- `max_composition_wait_ms` 高或合成请求大量合并：UI 更新已经提交，但实际呈现帧受布局或合成限制。
+- 合成观测不阻塞流式泵；请求结束时最后一帧可能仍待呈现，因此 requested 数可略大于 presented 数。
 
 ## 6. 隐私与安全边界
 
@@ -389,6 +419,32 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 验证完成后删除生成的隔离输出目录，不要提交 `bin/`、`obj/` 或其他构建产物。
 
 自动化测试不能替代以下 Windows 桌面验证：托盘入口、日志窗口关闭/重开、日志刷新、真实文件轮转、设置即时生效、文件占用以及混合 DPI 下的窗口显示。
+
+## Streaming timing events
+
+| Event | Level | Context keys (no text body) |
+|------|-------|-----------------------------|
+| translation.completed | Info | operation, content_type, target_language, text_len, result_len, duration_ms, stream_chunk_count, first_chunk_ms, average_chunk_gap_ms, max_chunk_gap_ms, stalled_chunk_count |
+| translation.presented | Info | operation, content_type, result_len, duration_ms, stream/UI/Dispatcher/Markdown/GC/composition timing fields listed above |
+| analysis.follow_up.completed | Info | turn, answer_len, duration_ms, request_id, stream_chunk_count, first_chunk_ms, average_chunk_gap_ms, max_chunk_gap_ms, stalled_chunk_count |
+| analysis.follow_up.presented | Info | turn, request_id, stream/UI/Dispatcher/Markdown/GC/composition timing fields listed above |
+
+这些字段只包含计数和毫秒值。它们不记录 chunk 正文、累计结果、问题、回答、Prompt、API Key、Authorization 头或供应商响应体。
+
+## Analysis follow-up events (Phase 11)
+
+| Event | Level | Context keys (no text body) |
+|------|-------|-----------------------------|
+| analysis.follow_up.started | Info | turn, question_len, context_chars, request_id |
+| analysis.follow_up.completed | Info | turn, answer_len, duration_ms, request_id, stream_chunk_count, first_chunk_ms, average_chunk_gap_ms, max_chunk_gap_ms, stalled_chunk_count |
+| analysis.follow_up.presented | Info | turn, request_id, stream_chunk_count, ui_frame_count, coalesced_chunk_count, first_frame_latency_ms, max_frame_latency_ms |
+| analysis.follow_up.cancelled | Debug | turn, request_id |
+| analysis.follow_up.failed | Warn | turn, error_type, status_code, request_id |
+| analysis.follow_up.limit_reached | Info | turn_count, context_chars, limit_kind, request_id |
+
+These events never contain the selected source text, questions, answers, summaries,
+message bodies, system prompts, API keys, Authorization headers, endpoint/model
+configuration, provider response bodies, or exception messages.
 
 ## TTS events (Phase 14 / 14.1)
 

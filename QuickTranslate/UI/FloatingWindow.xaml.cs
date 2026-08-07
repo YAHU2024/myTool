@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
@@ -23,10 +24,13 @@ public partial class FloatingWindow : Window
 {
     private const double PlacementGapDip = 12;
     private const double DefaultWindowMinHeight = 120;
+    private static readonly TimeSpan StreamingScrollInterval = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan StreamingPositionInterval = TimeSpan.FromMilliseconds(125);
     private readonly DispatcherTimer _autoHideTimer;
     private readonly DispatcherTimer _scrollBarHideTimer;
     private readonly LatestPresentationCoordinator _presentations = new();
     private readonly AutoScrollController _autoScroll = new();
+    private readonly StreamingCompositionMetrics _rootCompositionMetrics = new();
     private bool _isMouseInside;
     private bool _isLoading;
     private bool _isProgrammaticScroll;
@@ -67,19 +71,69 @@ public partial class FloatingWindow : Window
     private Action? _statusAction;
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
-    private long _lastPositioningTicks;
-    private const long MinPositioningIntervalTicks = 30 * TimeSpan.TicksPerMillisecond;
     private double _lastPositionedHeight;
+    private long _lastStreamingScrollTimestamp;
+    private long _lastStreamingPositionTimestamp;
+    private DispatcherOperation? _pendingStreamingScroll;
     private bool _placeAbove;
     private Guid _sessionId;
     private ContentType _activeMode = ContentType.Translation;
+    private AnalysisConversationState _analysisConversation = AnalysisConversationState.Empty();
+    private readonly Dictionary<int, StreamingFollowUpAnswerView> _streamingFollowUpAnswers = new();
+    private StreamingMarkdownRenderer? _streamingMarkdown;
+    private readonly HashSet<RichTextBox> _rootMarkdownHosts = [];
+    private readonly HashSet<RichTextBox> _rootMarkdownSelectionHosts = [];
+    private readonly HashSet<RichTextBox> _followUpMarkdownSelectionHosts = [];
+    private readonly HashSet<RichTextBox> _streamingFollowUpMarkdownHosts = [];
+    private bool _isRootMarkdownPointerDown;
+    private bool _isFollowUpMarkdownPointerDown;
+    private bool _isStreamingPlainTextSelectionActive;
+    private bool _hasPendingRootMarkdownRefresh;
+    private bool _isImeComposing;
+    private bool _suppressDraftEvent;
+    private string _copyText = string.Empty;
+    private string _speechText = string.Empty;
+    private readonly List<ConversationNodeView> _conversationNodes = [];
+    private string? _currentConversationNodeKey;
+    private string? _clickedConversationNodeKey;
+    private bool _isConversationNodeNavigationPending;
+
+    private static readonly Color ConversationNodeActiveColor = Color.FromRgb(0x44, 0x88, 0xFF);
+    private static readonly Color ConversationNodeStreamingColor = Color.FromRgb(0x4D, 0xB6, 0xAC);
+    private static readonly Color ConversationNodeStreamingDimColor = Color.FromRgb(0x25, 0x62, 0x5D);
 
     public event Action<ContentType>? ModeRequested;
     public event Action? RefreshRequested;
     public event Action? HideRequested;
     public event Action<Guid, ContentType, double, bool>? ScrollStateChanged;
+    public event Action<string>? AnalysisFollowUpRequested;
+    public event Action? AnalysisFollowUpRetryRequested;
+    public event Action<Guid, string>? AnalysisDraftChanged;
 
     internal bool IsTtsBusy => _isTtsBusy;
+    internal int AnalysisTurnViewCount => AnalysisTurnsPanel.Children.Count;
+    internal int ConversationNodeCount => ConversationNodeRail.Children.Count;
+    internal string? CurrentConversationNodeKey => _currentConversationNodeKey;
+    internal bool IsAutoScrollEnabledForTests => _autoScroll.IsAutoScrollEnabled;
+
+    internal StreamingMarkdownRenderStats GetStreamingMarkdownStats() =>
+        _streamingMarkdown?.GetStats() ?? StreamingMarkdownRenderStats.Empty;
+
+    internal StreamingMarkdownRenderStats GetAnalysisFollowUpStreamingStats(int turnNumber) =>
+        _streamingFollowUpAnswers.TryGetValue(turnNumber, out var answer)
+            ? answer.Renderer?.GetStats() ?? StreamingMarkdownRenderStats.Empty
+            : StreamingMarkdownRenderStats.Empty;
+
+    internal StreamingCompositionStats GetStreamingCompositionStats() =>
+        _rootCompositionMetrics.GetStats();
+
+    internal StreamingCompositionStats GetAnalysisFollowUpCompositionStats(int turnNumber) =>
+        _streamingFollowUpAnswers.TryGetValue(turnNumber, out var answer)
+            ? answer.CompositionMetrics.GetStats()
+            : StreamingCompositionStats.Empty;
+
+    internal Button GetConversationNodeForTests(string key) =>
+        _conversationNodes.Single(node => node.Key == key).Button;
 
     public bool IsPinned { get; private set; }
 
@@ -87,13 +141,19 @@ public partial class FloatingWindow : Window
     {
         InitializeComponent();
         SourceInitialized += FloatingWindow_SourceInitialized;
-        MarkdownDocumentHost.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
-        MarkdownDocumentHost.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
+        ConfigureRootMarkdownHost(MarkdownDocumentHost);
+        ConfigureRootMarkdownHost(StreamingStableMarkdownHost);
+        ConfigureRootMarkdownHost(StreamingActiveMarkdownHost);
+        ConfigureStreamingPlainTextInteraction();
+        CompositionTarget.Rendering += CompositionTarget_Rendering;
+        Closed += FloatingWindow_Closed;
         TitleBar.PreviewMouseLeftButtonDown += TitleBar_PreviewMouseLeftButtonDown;
         TitleBar.PreviewMouseMove += TitleBar_PreviewMouseMove;
         TitleBar.PreviewMouseLeftButtonUp += TitleBar_PreviewMouseLeftButtonUp;
         TitleBar.LostMouseCapture += TitleBar_LostMouseCapture;
-
+        TextCompositionManager.AddPreviewTextInputStartHandler(FollowUpTextBox, OnFollowUpTextInputStart);
+        TextCompositionManager.AddPreviewTextInputUpdateHandler(FollowUpTextBox, OnFollowUpTextInputUpdate);
+        TextCompositionManager.AddPreviewTextInputHandler(FollowUpTextBox, OnFollowUpTextInputCompleted);
         _autoHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _autoHideTimer.Tick += (_, _) =>
         {
@@ -101,6 +161,8 @@ public partial class FloatingWindow : Window
                 Hide();
             _autoHideTimer.Stop();
         };
+        FollowUpTextBox.GotKeyboardFocus += (_, _) => _autoHideTimer.Stop();
+        FollowUpTextBox.LostKeyboardFocus += (_, _) => ResetAutoHideTimer();
 
         _scrollBarHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.2) };
         _scrollBarHideTimer.Tick += (_, _) =>
@@ -213,7 +275,11 @@ public partial class FloatingWindow : Window
     /// Applies the current mode state from the session coordinator, including its saved scroll state.
     /// This method does not start work or mutate coordinator state.
     /// </summary>
-    internal void SetSessionView(Guid sessionId, ContentType mode, ModeResultState state)
+    internal void SetSessionView(
+        Guid sessionId,
+        ContentType mode,
+        ModeResultState state,
+        AnalysisConversationState? analysisConversation = null)
     {
         // Persist the currently visible mode before its view is replaced.
         RaiseScrollStateChanged();
@@ -223,10 +289,16 @@ public partial class FloatingWindow : Window
 
         _sessionId = sessionId;
         _activeMode = mode;
+        ApplyConversationFontSize(mode);
         _modeStatus = state.Status;
         SetActiveModeButton(mode);
         _rawText = state.RawText;
+        _analysisConversation = mode == ContentType.Analysis
+            ? analysisConversation ?? AnalysisConversationState.Empty()
+            : AnalysisConversationState.Empty();
         _isMarkdownExpanded = false;
+        _streamingMarkdown = null;
+        ResetStreamingUiThrottle();
         _autoScroll.BeginRequest();
         if (!state.AutoScrollEnabled)
             _autoScroll.PauseForUpwardNavigation();
@@ -237,6 +309,7 @@ public partial class FloatingWindow : Window
         else
             ShowPlainText();
         SetLoading(state.Status == ModeResultStatus.Loading);
+        RenderAnalysisConversation();
         RefreshSpeakButton();
 
         var expectedSessionId = sessionId;
@@ -290,10 +363,15 @@ public partial class FloatingWindow : Window
             return false;
 
         _rawText = translation;
+        _copyText = translation;
+        _speechText = translation;
         if (!_isLoading)
             _modeStatus = ModeResultStatus.Completed;
         else
             _modeStatus = ModeResultStatus.Loading;
+        ApplyConversationFontSize(contentType);
+        _streamingMarkdown = null;
+        _rootCompositionMetrics.Reset();
         ShowPlainText();
         _autoScroll.BeginRequest();
         UpdateAutoScrollAffordance();
@@ -304,7 +382,7 @@ public partial class FloatingWindow : Window
         var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(anchor.PreferredPoint);
         var scale = DpiHelper.GetScaleForPhysicalPoint(anchor.PreferredPoint);
         var exclusionBounds = anchor.GetEffectiveExclusionBounds(scale);
-        const double chromeHeightDip = 54;
+        var chromeHeightDip = contentType == ContentType.Analysis ? 94 : 54;
         var gap = PlacementGapDip * scale.Y;
         var minimumWindowHeight = (80 + chromeHeightDip) * scale.Y;
         _placeAbove = FloatingWindowPlacement.ShouldPlaceAbove(exclusionBounds, workArea, minimumWindowHeight, gap);
@@ -340,25 +418,112 @@ public partial class FloatingWindow : Window
             return;
 
         _rawText = translation;
-        ShowPlainText(ensureFooter: false);
+        if (_analysisConversation.Turns.Count == 0)
+        {
+            _copyText = translation;
+            _speechText = translation;
+        }
+        // Render the current accumulated snapshot during streaming as well. Markdig is
+        // tolerant of incomplete tail syntax, while ShowCompletedMarkdown performs the
+        // final full-document pass after the request has been committed.
+        ShowStreamingMarkdown();
         if (_isLoading && !string.IsNullOrEmpty(translation))
             HideLoadingIndicator();
-        if (_autoScroll.OnContentOrViewportChanged())
-            ScrollToEndProgrammatically();
+        var nowTimestamp = Stopwatch.GetTimestamp();
+        if (_autoScroll.OnContentOrViewportChanged() &&
+            ShouldRunStreamingAction(
+                ref _lastStreamingScrollTimestamp,
+                nowTimestamp,
+                StreamingScrollInterval))
+        {
+            ScheduleStreamingScrollToEnd();
+        }
 
-        // Throttle expensive work to ~30 fps so the dispatcher
-        // has time to render between streaming chunks.
-        var now = DateTime.UtcNow.Ticks;
-        if (now - _lastPositioningTicks < MinPositioningIntervalTicks)
-            return;
-        _lastPositioningTicks = now;
-
-        if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5)
+        if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5 &&
+            ShouldRunStreamingAction(
+                ref _lastStreamingPositionTimestamp,
+                nowTimestamp,
+                StreamingPositionInterval))
         {
             _lastPositionedHeight = ActualHeight;
             PositionWindowAtAnchor();
         }
         ResetAutoHideTimer();
+    }
+
+    internal void UpdateAnalysisFollowUpStreaming(
+        long presentationId,
+        AnalysisFollowUpTurnState turn)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            _sessionId == Guid.Empty ||
+            _activeMode != ContentType.Analysis ||
+            !_streamingFollowUpAnswers.TryGetValue(turn.TurnNumber, out var answer))
+        {
+            return;
+        }
+
+        answer.PendingRawText = turn.AnswerRawText;
+        if (IsFollowUpMarkdownInteractionActive)
+            return;
+
+        RenderStreamingFollowUpAnswer(answer);
+        var nowTimestamp = Stopwatch.GetTimestamp();
+        if (_autoScroll.OnContentOrViewportChanged() &&
+            ShouldRunStreamingAction(
+                ref _lastStreamingScrollTimestamp,
+                nowTimestamp,
+                StreamingScrollInterval))
+        {
+            ScheduleStreamingScrollToEnd();
+        }
+
+        if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5 &&
+            ShouldRunStreamingAction(
+                ref _lastStreamingPositionTimestamp,
+                nowTimestamp,
+                StreamingPositionInterval))
+        {
+            _lastPositionedHeight = ActualHeight;
+            PositionWindowAtAnchor();
+            UpdateCurrentConversationNodeFromViewport();
+        }
+    }
+
+    private void RenderStreamingFollowUpAnswer(StreamingFollowUpAnswerView answer)
+    {
+        if (string.IsNullOrEmpty(answer.PendingRawText))
+        {
+            answer.TextBox.Text = "回答中...";
+            return;
+        }
+
+        answer.Renderer ??= new StreamingMarkdownRenderer(
+            MarkdownRenderer.AnalysisConversationFontSize,
+            int.MaxValue);
+        if (answer.Renderer.Update(answer.PendingRawText))
+        {
+            var markdown = answer.Markdown;
+            if (markdown is null)
+            {
+                markdown = CreateSelectableMarkdown(answer.Renderer.Document, $"Q{answer.TurnNumber} 回答");
+                var index = answer.Container.Children.IndexOf(answer.TextBox);
+                if (index >= 0)
+                {
+                    // UIElementCollection does not reliably support replacing an item
+                    // through its IList indexer while it is attached to a live visual tree.
+                    answer.Container.Children.RemoveAt(index);
+                    answer.Container.Children.Insert(index, markdown);
+                }
+                answer.Markdown = markdown;
+                _streamingFollowUpMarkdownHosts.Add(markdown);
+            }
+            answer.CompositionMetrics.RequestFrame();
+        }
+        else
+        {
+            answer.TextBox.Text = answer.PendingRawText;
+        }
     }
 
     /// <summary>
@@ -376,9 +541,29 @@ public partial class FloatingWindow : Window
         PositionWindowAtAnchor();
     }
 
+    internal static bool ShouldRunStreamingAction(
+        ref long lastTimestamp,
+        long nowTimestamp,
+        TimeSpan minimumInterval)
+    {
+        if (lastTimestamp != 0 && Stopwatch.GetElapsedTime(lastTimestamp, nowTimestamp) < minimumInterval)
+            return false;
+
+        lastTimestamp = nowTimestamp;
+        return true;
+    }
+
+    private void ResetStreamingUiThrottle()
+    {
+        CancelPendingStreamingScroll();
+        _lastStreamingScrollTimestamp = 0;
+        _lastStreamingPositionTimestamp = 0;
+    }
+
     private void ShowPlainText(bool ensureFooter = true)
     {
         MarkdownDocumentHost.Visibility = Visibility.Collapsed;
+        ReleaseStreamingMarkdownHosts();
         ExpandMarkdownButton.Visibility = Visibility.Collapsed;
         if (ensureFooter)
             EnsureFooterFitsWindow();
@@ -386,10 +571,66 @@ public partial class FloatingWindow : Window
         TranslationTextBlock.Text = _rawText;
     }
 
+    private void ShowStreamingMarkdown()
+    {
+        if (IsRootMarkdownInteractionActive)
+        {
+            _hasPendingRootMarkdownRefresh = true;
+            return;
+        }
+
+        _hasPendingRootMarkdownRefresh = false;
+        var fontSize = _activeMode == ContentType.Analysis
+            ? MarkdownRenderer.AnalysisConversationFontSize
+            : MarkdownRenderer.ConversationFontSize;
+        _streamingMarkdown ??= new StreamingMarkdownRenderer(
+            fontSize,
+            MarkdownRenderer.DefaultMaxDisplayCharacters,
+            separateActiveDocument: true);
+        if (!_streamingMarkdown.Update(_rawText))
+        {
+            ShowPlainText(ensureFooter: false);
+            return;
+        }
+
+        if (!ReferenceEquals(StreamingStableMarkdownHost.Document, _streamingMarkdown.Document))
+            StreamingStableMarkdownHost.Document = _streamingMarkdown.Document;
+        if (!ReferenceEquals(StreamingActiveMarkdownHost.Document, _streamingMarkdown.ActiveDocument))
+            StreamingActiveMarkdownHost.Document = _streamingMarkdown.ActiveDocument!;
+        TranslationTextBlock.Visibility = Visibility.Collapsed;
+        MarkdownDocumentHost.Visibility = Visibility.Collapsed;
+        StreamingStableMarkdownHost.Visibility = _streamingMarkdown.HasStableBlocks
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        var activePlainText = _streamingMarkdown.ActivePlainText;
+        if (activePlainText is not null)
+        {
+            if (activePlainText.StartsWith(StreamingActiveTextHost.Text, StringComparison.Ordinal))
+                StreamingActiveTextHost.AppendText(activePlainText[StreamingActiveTextHost.Text.Length..]);
+            else
+                StreamingActiveTextHost.Text = activePlainText;
+        }
+        else if (StreamingActiveTextHost.Text.Length > 0)
+            StreamingActiveTextHost.Clear();
+        StreamingActiveTextHost.Visibility = activePlainText is not null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        StreamingActiveMarkdownHost.Visibility = _streamingMarkdown.HasActiveBlocks
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        StreamingMarkdownHost.Visibility = Visibility.Visible;
+        ExpandMarkdownButton.Visibility = _streamingMarkdown.IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
+        _rootCompositionMetrics.RequestFrame();
+    }
+
     private void ShowCompletedMarkdown()
     {
+        CancelPendingStreamingScroll();
         var maxDisplayCharacters = _isMarkdownExpanded ? int.MaxValue : MarkdownRenderer.DefaultMaxDisplayCharacters;
-        if (!MarkdownRenderer.TryRender(_rawText, out var result, maxDisplayCharacters) || result.UsedPlainTextFallback)
+        var fontSize = _activeMode == ContentType.Analysis
+            ? MarkdownRenderer.AnalysisConversationFontSize
+            : MarkdownRenderer.ConversationFontSize;
+        if (!MarkdownRenderer.TryRender(_rawText, out var result, maxDisplayCharacters, fontSize, isFinal: true) || result.UsedPlainTextFallback)
         {
             if (result.Error is not null)
             {
@@ -402,7 +643,9 @@ public partial class FloatingWindow : Window
         }
 
         MarkdownDocumentHost.Document = result.Document;
+        _streamingMarkdown = null;
         TranslationTextBlock.Visibility = Visibility.Collapsed;
+        ReleaseStreamingMarkdownHosts();
         MarkdownDocumentHost.Visibility = Visibility.Visible;
         ExpandMarkdownButton.Visibility = result.IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
         EnsureFooterFitsWindow();
@@ -410,6 +653,577 @@ public partial class FloatingWindow : Window
         PositionWindowAtAnchor();
         if (_autoScroll.IsAutoScrollEnabled)
             ScrollToEndProgrammatically();
+    }
+
+    private void RenderAnalysisConversation()
+    {
+        StopConversationNodeAnimations();
+        _streamingFollowUpAnswers.Clear();
+        _streamingFollowUpMarkdownHosts.Clear();
+        AnalysisTurnsPanel.Children.Clear();
+        ConversationNodeRail.Children.Clear();
+        _conversationNodes.Clear();
+
+        var turns = _analysisConversation.Turns;
+        var canFollowUp = _activeMode == ContentType.Analysis &&
+            _modeStatus == ModeResultStatus.Completed &&
+            _analysisConversation.SemanticSnapshot is not null &&
+            !string.IsNullOrWhiteSpace(_rawText);
+        var hasTurns = canFollowUp && turns.Count > 0;
+        AnalysisRootLabel.Visibility = hasTurns ? Visibility.Visible : Visibility.Collapsed;
+        AnalysisTurnsPanel.Visibility = hasTurns ? Visibility.Visible : Visibility.Collapsed;
+        ConversationNodeRail.Visibility = hasTurns ? Visibility.Visible : Visibility.Collapsed;
+        ConversationRailColumn.Width = hasTurns ? GridLength.Auto : new GridLength(0);
+        AnalysisFollowUpInput.Visibility = canFollowUp ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!canFollowUp)
+        {
+            _currentConversationNodeKey = null;
+            _clickedConversationNodeKey = null;
+            _copyText = _rawText;
+            _speechText = _rawText;
+            return;
+        }
+
+        if (_currentConversationNodeKey != "解析" &&
+            !turns.Any(turn => _currentConversationNodeKey == $"Q{turn.TurnNumber}"))
+        {
+            _currentConversationNodeKey = "解析";
+        }
+        if (_clickedConversationNodeKey != "解析" &&
+            !turns.Any(turn => _clickedConversationNodeKey == $"Q{turn.TurnNumber}"))
+        {
+            _clickedConversationNodeKey = null;
+        }
+
+        AddConversationNode(
+            "解析",
+            "初始解析",
+            RootResultHost,
+            AnalysisRootLabel,
+            isStreaming: false,
+            isWarning: false);
+        foreach (var turn in turns)
+            AddFollowUpTurn(turn, turn == turns[^1]);
+
+        var busy = turns.LastOrDefault()?.Status == AnalysisFollowUpTurnStatus.Loading;
+        var limitReached = turns.Count >= 10;
+        if (busy)
+            _ = StopTtsAsync();
+        FollowUpTextBox.IsEnabled = !busy && !limitReached;
+        FollowUpSendButton.IsEnabled = !busy && !limitReached;
+        FollowUpSendButton.Opacity = FollowUpSendButton.IsEnabled ? 1.0 : 0.45;
+        FollowUpInputHint.Text = limitReached
+            ? "已达到本次解析的 10 轮追问上限"
+            : "继续追问...";
+        FollowUpInputHint.Visibility = string.IsNullOrEmpty(FollowUpTextBox.Text)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        _suppressDraftEvent = true;
+        try
+        {
+            if (FollowUpTextBox.Text != _analysisConversation.Draft)
+                FollowUpTextBox.Text = _analysisConversation.Draft;
+        }
+        finally
+        {
+            _suppressDraftEvent = false;
+        }
+
+        _copyText = turns.Count == 0
+            ? _rawText
+            : AnalysisConversationFormatter.BuildCopyText(_rawText, turns);
+        _speechText = turns.LastOrDefault(turn => turn.Status == AnalysisFollowUpTurnStatus.Completed)?.AnswerRawText
+            ?? _rawText;
+        EnsureFooterFitsWindow();
+        Dispatcher.BeginInvoke(UpdateCurrentConversationNodeFromViewport, DispatcherPriority.Loaded);
+    }
+
+    private void AddFollowUpTurn(AnalysisFollowUpTurnState turn, bool isTail)
+    {
+        var container = new StackPanel();
+        var border = new Border
+        {
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3E, 0x3E, 0x52)),
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Margin = new Thickness(0, 10, 0, 0),
+            Padding = new Thickness(0, 10, 4, 0),
+            Child = container
+        };
+        AnalysisTurnsPanel.Children.Add(border);
+
+        var questionHeader = new Grid
+        {
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        questionHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        questionHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        container.Children.Add(questionHeader);
+
+        var label = new TextBlock
+        {
+            Text = $"Q{turn.TurnNumber}",
+            Foreground = new SolidColorBrush(Color.FromRgb(0xB7, 0xC5, 0xFF)),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 1, 8, 0),
+            VerticalAlignment = VerticalAlignment.Top,
+            Focusable = true
+        };
+        AutomationProperties.SetName(label, $"追问 Q{turn.TurnNumber}");
+        questionHeader.Children.Add(label);
+        var question = CreateSelectableTextBox(
+            turn.Question,
+            Brushes.White,
+            13);
+        question.FontWeight = FontWeights.SemiBold;
+        Grid.SetColumn(question, 1);
+        AutomationProperties.SetName(question, $"Q{turn.TurnNumber} 问题");
+        questionHeader.Children.Add(question);
+
+        if (turn.Status == AnalysisFollowUpTurnStatus.Completed &&
+            MarkdownRenderer.TryRender(
+                turn.AnswerRawText,
+                out var rendered,
+                int.MaxValue,
+                MarkdownRenderer.AnalysisConversationFontSize,
+                isFinal: true) &&
+            !rendered.UsedPlainTextFallback)
+        {
+            var markdown = CreateSelectableMarkdown(rendered.Document, $"Q{turn.TurnNumber} 回答");
+            container.Children.Add(markdown);
+        }
+        else
+        {
+            var answer = CreateSelectableTextBox(
+                FollowUpStatusText(turn),
+                turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled
+                    ? new SolidColorBrush(Color.FromRgb(0xD8, 0xB4, 0x7A))
+                    : new SolidColorBrush(Color.FromRgb(0xE4, 0xE4, 0xEA)),
+                13);
+            AutomationProperties.SetName(answer, $"Q{turn.TurnNumber} 回答");
+            container.Children.Add(answer);
+            if (turn.Status == AnalysisFollowUpTurnStatus.Loading)
+                _streamingFollowUpAnswers[turn.TurnNumber] = new StreamingFollowUpAnswerView(
+                    turn.TurnNumber,
+                    container,
+                    answer,
+                    turn.AnswerRawText);
+        }
+
+        if (isTail && turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled)
+        {
+            var retry = new Button
+            {
+                Content = "\uE72C",
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                ToolTip = "重试本轮",
+                Style = (Style)FindResource("IconToolbarButton"),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 6, 0, 0)
+            };
+            AutomationProperties.SetName(retry, $"重试 Q{turn.TurnNumber}");
+            retry.Click += (_, _) => AnalysisFollowUpRetryRequested?.Invoke();
+            container.Children.Add(retry);
+        }
+
+        AddConversationNode(
+            $"Q{turn.TurnNumber}",
+            AnalysisConversationFormatter.SummarizeQuestion(turn.Question),
+            border,
+            label,
+            isStreaming: turn.Status == AnalysisFollowUpTurnStatus.Loading,
+            isWarning: turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled);
+    }
+
+    private static TextBox CreateSelectableTextBox(
+        string text,
+        Brush foreground,
+        double fontSize,
+        Thickness? margin = null) => new()
+        {
+            Text = text,
+            Foreground = foreground,
+            FontFamily = new FontFamily("Microsoft YaHei UI"),
+            FontSize = fontSize,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = margin ?? new Thickness(0),
+            IsReadOnly = true,
+            IsReadOnlyCaretVisible = false,
+            Focusable = true,
+            IsTabStop = false,
+            AcceptsReturn = true,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(0),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            SelectionBrush = new SolidColorBrush(ConversationNodeStreamingColor),
+            SelectionOpacity = 0.45,
+            Cursor = Cursors.IBeam
+        };
+
+    private RichTextBox CreateSelectableMarkdown(FlowDocument document, string automationName)
+    {
+        var markdown = new RichTextBox
+        {
+            Document = document,
+            IsReadOnly = true,
+            IsUndoEnabled = false,
+            IsReadOnlyCaretVisible = false,
+            IsDocumentEnabled = true,
+            Focusable = true,
+            IsTabStop = false,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(0),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            SelectionBrush = new SolidColorBrush(ConversationNodeStreamingColor),
+            SelectionOpacity = 0.45,
+            Cursor = Cursors.IBeam
+        };
+        AutomationProperties.SetName(markdown, automationName);
+        markdown.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
+        markdown.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
+        ConfigureMarkdownInteraction(markdown);
+        return markdown;
+    }
+
+    private bool IsRootMarkdownInteractionActive =>
+        _isRootMarkdownPointerDown ||
+        _isStreamingPlainTextSelectionActive ||
+        _rootMarkdownSelectionHosts.Any(host => !ReferenceEquals(host, StreamingStableMarkdownHost));
+
+    private bool IsFollowUpMarkdownInteractionActive =>
+        _isFollowUpMarkdownPointerDown ||
+        _followUpMarkdownSelectionHosts.Any(_streamingFollowUpMarkdownHosts.Contains);
+
+    private void ConfigureMarkdownInteraction(RichTextBox markdown)
+    {
+        markdown.PreviewMouseLeftButtonDown += Markdown_PreviewMouseLeftButtonDown;
+        markdown.PreviewMouseLeftButtonUp += Markdown_PreviewMouseLeftButtonUp;
+        markdown.SelectionChanged += Markdown_SelectionChanged;
+        markdown.GotKeyboardFocus += Markdown_KeyboardFocusChanged;
+        markdown.LostKeyboardFocus += Markdown_KeyboardFocusChanged;
+        markdown.Unloaded += Markdown_Unloaded;
+    }
+
+    private void ConfigureRootMarkdownHost(RichTextBox markdown)
+    {
+        _rootMarkdownHosts.Add(markdown);
+        markdown.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
+        markdown.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
+        ConfigureMarkdownInteraction(markdown);
+    }
+
+    private void ConfigureStreamingPlainTextInteraction()
+    {
+        StreamingActiveTextHost.PreviewMouseLeftButtonDown += Markdown_PreviewMouseLeftButtonDown;
+        StreamingActiveTextHost.PreviewMouseLeftButtonUp += Markdown_PreviewMouseLeftButtonUp;
+        StreamingActiveTextHost.SelectionChanged += StreamingPlainText_SelectionChanged;
+        StreamingActiveTextHost.GotKeyboardFocus += StreamingPlainText_KeyboardFocusChanged;
+        StreamingActiveTextHost.LostKeyboardFocus += StreamingPlainText_KeyboardFocusChanged;
+        StreamingActiveTextHost.Unloaded += StreamingPlainText_Unloaded;
+    }
+
+    private void StreamingPlainText_SelectionChanged(object sender, RoutedEventArgs e) =>
+        UpdateStreamingPlainTextSelectionState();
+
+    private void StreamingPlainText_KeyboardFocusChanged(object sender, KeyboardFocusChangedEventArgs e) =>
+        UpdateStreamingPlainTextSelectionState();
+
+    private void StreamingPlainText_Unloaded(object sender, RoutedEventArgs e)
+    {
+        if (!_isStreamingPlainTextSelectionActive)
+            return;
+        _isStreamingPlainTextSelectionActive = false;
+        SchedulePendingMarkdownRefresh();
+    }
+
+    private void UpdateStreamingPlainTextSelectionState()
+    {
+        var isActive =
+            StreamingActiveTextHost.SelectionLength > 0 &&
+            StreamingActiveTextHost.IsKeyboardFocusWithin;
+        if (_isStreamingPlainTextSelectionActive == isActive)
+            return;
+        _isStreamingPlainTextSelectionActive = isActive;
+        SchedulePendingMarkdownRefresh();
+    }
+
+    private void ReleaseStreamingMarkdownHosts()
+    {
+        StreamingMarkdownHost.Visibility = Visibility.Collapsed;
+        StreamingStableMarkdownHost.Visibility = Visibility.Collapsed;
+        StreamingActiveTextHost.Visibility = Visibility.Collapsed;
+        StreamingActiveMarkdownHost.Visibility = Visibility.Collapsed;
+        if (StreamingActiveTextHost.Text.Length > 0)
+            StreamingActiveTextHost.Clear();
+
+        var fontSize = _activeMode == ContentType.Analysis
+            ? MarkdownRenderer.AnalysisConversationFontSize
+            : MarkdownRenderer.ConversationFontSize;
+        if (StreamingStableMarkdownHost.Document.Blocks.Count > 0)
+            StreamingStableMarkdownHost.Document = MarkdownRenderer.CreateDocument(fontSize);
+        if (StreamingActiveMarkdownHost.Document.Blocks.Count > 0)
+            StreamingActiveMarkdownHost.Document = MarkdownRenderer.CreateDocument(fontSize);
+    }
+
+    private void Markdown_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) =>
+        SetMarkdownPointerState(sender, isDown: true);
+
+    private void Markdown_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        SetMarkdownPointerState(sender, isDown: false);
+        SchedulePendingMarkdownRefresh();
+    }
+
+    private void SetMarkdownPointerState(object sender, bool isDown)
+    {
+        if (sender is RichTextBox markdown && _rootMarkdownHosts.Contains(markdown))
+        {
+            _isRootMarkdownPointerDown =
+                isDown && !ReferenceEquals(markdown, StreamingStableMarkdownHost);
+        }
+        else if (ReferenceEquals(sender, StreamingActiveTextHost))
+            _isRootMarkdownPointerDown = isDown;
+        else if (sender is RichTextBox followUp)
+            _isFollowUpMarkdownPointerDown = isDown && _streamingFollowUpMarkdownHosts.Contains(followUp);
+    }
+
+    private void Markdown_SelectionChanged(object sender, RoutedEventArgs e)
+    {
+        if (sender is RichTextBox markdown)
+            UpdateMarkdownSelectionState(markdown);
+    }
+
+    private void Markdown_KeyboardFocusChanged(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is RichTextBox markdown)
+            UpdateMarkdownSelectionState(markdown);
+    }
+
+    private void Markdown_Unloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is RichTextBox markdown)
+        {
+            _rootMarkdownSelectionHosts.Remove(markdown);
+            _followUpMarkdownSelectionHosts.Remove(markdown);
+            _streamingFollowUpMarkdownHosts.Remove(markdown);
+        }
+        SchedulePendingMarkdownRefresh();
+    }
+
+    private void UpdateMarkdownSelectionState(RichTextBox markdown)
+    {
+        var selectionHosts = _rootMarkdownHosts.Contains(markdown)
+            ? _rootMarkdownSelectionHosts
+            : _followUpMarkdownSelectionHosts;
+        if (!markdown.Selection.IsEmpty && markdown.IsKeyboardFocusWithin)
+            selectionHosts.Add(markdown);
+        else
+            selectionHosts.Remove(markdown);
+        SchedulePendingMarkdownRefresh();
+    }
+
+    private void SchedulePendingMarkdownRefresh()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_hasPendingRootMarkdownRefresh && !IsRootMarkdownInteractionActive)
+                ShowStreamingMarkdown();
+            if (!IsFollowUpMarkdownInteractionActive)
+            {
+                foreach (var answer in _streamingFollowUpAnswers.Values)
+                    RenderStreamingFollowUpAnswer(answer);
+            }
+        }, DispatcherPriority.ContextIdle);
+    }
+
+    private void CompositionTarget_Rendering(object? sender, EventArgs e)
+    {
+        _rootCompositionMetrics.RecordPresentedFrame();
+        foreach (var answer in _streamingFollowUpAnswers.Values)
+            answer.CompositionMetrics.RecordPresentedFrame();
+    }
+
+    private void FloatingWindow_Closed(object? sender, EventArgs e)
+    {
+        CompositionTarget.Rendering -= CompositionTarget_Rendering;
+        Closed -= FloatingWindow_Closed;
+    }
+
+    private void ApplyConversationFontSize(ContentType mode)
+    {
+        var fontSize = mode == ContentType.Analysis
+            ? MarkdownRenderer.AnalysisConversationFontSize
+            : MarkdownRenderer.ConversationFontSize;
+        TranslationTextBlock.FontSize = fontSize;
+        StreamingActiveTextHost.FontSize = fontSize;
+    }
+
+    private void AddConversationNode(
+        string key,
+        string toolTip,
+        FrameworkElement target,
+        FrameworkElement focusTarget,
+        bool isStreaming,
+        bool isWarning)
+    {
+        var button = new Button
+        {
+            Content = key,
+            ToolTip = toolTip,
+            Style = (Style)FindResource("ConversationNodeButton"),
+            Background = Brushes.Transparent,
+            BorderBrush = isWarning
+                ? new SolidColorBrush(Color.FromRgb(0xD8, 0xB4, 0x7A))
+                : new SolidColorBrush(Color.FromRgb(0x70, 0x70, 0x86)),
+            BorderThickness = new Thickness(1),
+        };
+        AutomationProperties.SetName(button, key == "解析" ? "定位到初始解析" : $"定位到{key}");
+        button.Click += ConversationNode_Click;
+        ConversationNodeRail.Children.Add(button);
+        var node = new ConversationNodeView(key, button, target, focusTarget, isStreaming);
+        button.Tag = node;
+        focusTarget.GotKeyboardFocus += ConversationContent_GotKeyboardFocus;
+        _conversationNodes.Add(node);
+        ApplyConversationNodeVisual(node);
+    }
+
+    private static string FollowUpStatusText(AnalysisFollowUpTurnState turn) => turn.Status switch
+    {
+        AnalysisFollowUpTurnStatus.Loading => string.IsNullOrEmpty(turn.AnswerRawText) ? "回答中..." : turn.AnswerRawText,
+        AnalysisFollowUpTurnStatus.Failed => "追问失败，请重试本轮。",
+        AnalysisFollowUpTurnStatus.Cancelled => "追问已取消。",
+        _ => turn.AnswerRawText
+    };
+
+    private void ConversationNode_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: ConversationNodeView node })
+            return;
+        _clickedConversationNodeKey = node.Key;
+        SetCurrentConversationNode(node.Key);
+        _autoScroll.PauseForUpwardNavigation();
+        UpdateAutoScrollAffordance();
+        _isConversationNodeNavigationPending = true;
+        _isProgrammaticScroll = true;
+        try
+        {
+            var targetTop = node.FocusTarget.TranslatePoint(new Point(0, 0), ConversationContentPanel).Y;
+            TranslationScroller.ScrollToVerticalOffset(Math.Max(0, targetTop - 4));
+            node.FocusTarget.Focus();
+        }
+        finally
+        {
+            _isProgrammaticScroll = false;
+        }
+        Dispatcher.BeginInvoke(
+            () => _isConversationNodeNavigationPending = false,
+            DispatcherPriority.Loaded);
+        RaiseScrollStateChanged();
+    }
+
+    private void ConversationContent_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        var node = _conversationNodes.FirstOrDefault(candidate => candidate.FocusTarget == sender);
+        if (node is not null)
+        {
+            _clickedConversationNodeKey = node.Key;
+            SetCurrentConversationNode(node.Key);
+        }
+    }
+
+    private void UpdateCurrentConversationNodeFromViewport()
+    {
+        if (_conversationNodes.Count == 0 ||
+            TranslationScroller.ViewportHeight <= 0 ||
+            !TranslationScroller.IsVisible ||
+            _clickedConversationNodeKey is not null)
+        {
+            return;
+        }
+
+        ConversationNodeView? current = null;
+        var largestVisibleHeight = 0.0;
+        foreach (var node in _conversationNodes)
+        {
+            if (!node.Target.IsVisible || node.Target.ActualHeight <= 0)
+                continue;
+
+            try
+            {
+                var top = node.Target.TranslatePoint(new Point(0, 0), TranslationScroller).Y;
+                var bottom = top + node.Target.ActualHeight;
+                var visibleHeight = Math.Max(
+                    0,
+                    Math.Min(bottom, TranslationScroller.ViewportHeight) - Math.Max(top, 0));
+                if (visibleHeight > largestVisibleHeight)
+                {
+                    largestVisibleHeight = visibleHeight;
+                    current = node;
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // The visual tree may be rebuilding during a mode/session replacement.
+            }
+        }
+
+        if (current is not null)
+            SetCurrentConversationNode(current.Key);
+    }
+
+    private void SetCurrentConversationNode(string key)
+    {
+        if (_currentConversationNodeKey == key)
+            return;
+        _currentConversationNodeKey = key;
+        foreach (var node in _conversationNodes)
+            ApplyConversationNodeVisual(node);
+    }
+
+    private void ApplyConversationNodeVisual(ConversationNodeView node)
+    {
+        if (node.IsStreaming)
+        {
+            if (node.Button.Background is not SolidColorBrush brush ||
+                brush.IsFrozen ||
+                brush.Color != ConversationNodeStreamingDimColor)
+            {
+                brush = new SolidColorBrush(ConversationNodeStreamingDimColor);
+                node.Button.Background = brush;
+            }
+
+            var animation = new ColorAnimation
+            {
+                From = ConversationNodeStreamingDimColor,
+                To = ConversationNodeStreamingColor,
+                Duration = TimeSpan.FromMilliseconds(900),
+                AutoReverse = true,
+                RepeatBehavior = RepeatBehavior.Forever
+            };
+            brush.BeginAnimation(SolidColorBrush.ColorProperty, animation);
+            return;
+        }
+
+        if (node.Button.Background is SolidColorBrush { IsFrozen: false } animatedBrush)
+            animatedBrush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+        node.Button.Background = node.Key == _currentConversationNodeKey
+            ? new SolidColorBrush(ConversationNodeActiveColor)
+            : Brushes.Transparent;
+    }
+
+    private void StopConversationNodeAnimations()
+    {
+        foreach (var node in _conversationNodes)
+        {
+            if (node.Button.Background is SolidColorBrush { IsFrozen: false } brush)
+                brush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+        }
     }
 
     private void MarkdownCodeCopyButton_Click(object sender, RoutedEventArgs e)
@@ -465,9 +1279,14 @@ public partial class FloatingWindow : Window
         IsHitTestVisible = false;
         Hide();
         _rawText = string.Empty;
+        _streamingMarkdown = null;
+        _copyText = string.Empty;
+        _speechText = string.Empty;
+        _analysisConversation = AnalysisConversationState.Empty();
+        RenderAnalysisConversation();
         _isMarkdownExpanded = false;
-        _lastPositioningTicks = 0;
         _lastPositionedHeight = 0;
+        ResetStreamingUiThrottle();
         ShowPlainText();
         SetActiveModeButton(ContentType.Translation);
         RefreshSpeakButton();
@@ -495,7 +1314,7 @@ public partial class FloatingWindow : Window
 
     private void CopyAllButton_Click(object sender, RoutedEventArgs e)
     {
-        var text = _rawText;
+        var text = string.IsNullOrWhiteSpace(_copyText) ? _rawText : _copyText;
         if (string.IsNullOrEmpty(text)) return;
         try
         {
@@ -527,10 +1346,11 @@ public partial class FloatingWindow : Window
             return;
         _lastSpeakClickUtc = now;
 
-        if (!TtsTextSelector.CanSpeak(_modeStatus, _rawText, _ttsEnabled))
+        var sourceText = string.IsNullOrWhiteSpace(_speechText) ? _rawText : _speechText;
+        if (!TtsTextSelector.CanSpeak(_modeStatus, sourceText, _ttsEnabled))
             return;
 
-        var speechText = TtsTextSelector.NormalizeForSpeech(_rawText, _ttsMaxChars, out var truncated);
+        var speechText = TtsTextSelector.NormalizeForSpeech(sourceText, _ttsMaxChars, out var truncated);
         if (string.IsNullOrWhiteSpace(speechText))
             return;
 
@@ -538,7 +1358,7 @@ public partial class FloatingWindow : Window
         {
             Logger.Warn("FloatingWindow", "tts.speak.truncated", new Dictionary<string, object?>
             {
-                ["text_len"] = _rawText.Length,
+                ["text_len"] = sourceText.Length,
                 ["max_chars"] = _ttsMaxChars
             });
             ShowTransientStatus("文本过长，已截断朗读", FloatingStatusKind.Warning);
@@ -595,7 +1415,8 @@ public partial class FloatingWindow : Window
 
         var busy = _tts?.IsBusy(TtsPlaybackOwner.FloatingResult) == true || _isTtsBusy;
         _isTtsBusy = busy;
-        var canSpeak = TtsTextSelector.CanSpeak(_modeStatus, _rawText, _ttsEnabled);
+        var sourceText = string.IsNullOrWhiteSpace(_speechText) ? _rawText : _speechText;
+        var canSpeak = TtsTextSelector.CanSpeak(_modeStatus, sourceText, _ttsEnabled);
 
         if (busy)
         {
@@ -648,6 +1469,7 @@ public partial class FloatingWindow : Window
 
     private void TranslationScroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        _clickedConversationNodeKey = null;
         RevealScrollBarTemporarily();
         if (e.Delta > 0)
         {
@@ -660,6 +1482,9 @@ public partial class FloatingWindow : Window
     private void TranslationScroller_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key is Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End)
+            _clickedConversationNodeKey = null;
+
+        if (e.Key is Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End)
             RevealScrollBarTemporarily();
 
         if (e.Key is Key.Up or Key.PageUp or Key.Home)
@@ -670,9 +1495,29 @@ public partial class FloatingWindow : Window
         }
     }
 
+    private void TranslationScroller_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!IsInsideScrollBar(e.OriginalSource as DependencyObject))
+            return;
+
+        _clickedConversationNodeKey = null;
+        _autoScroll.PauseForUpwardNavigation();
+        UpdateAutoScrollAffordance();
+        RaiseScrollStateChanged();
+    }
+
     private void TranslationScroller_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
-        if (_isProgrammaticScroll || e.VerticalChange == 0)
+        if (_isProgrammaticScroll ||
+            _isConversationNodeNavigationPending ||
+            _clickedConversationNodeKey is not null)
+        {
+            return;
+        }
+
+        if (e.VerticalChange != 0 || e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0)
+            UpdateCurrentConversationNodeFromViewport();
+        if (e.VerticalChange == 0)
             return;
 
         RevealScrollBarTemporarily();
@@ -692,6 +1537,7 @@ public partial class FloatingWindow : Window
         _isProgrammaticScroll = true;
         try { TranslationScroller.ScrollToVerticalOffset(Math.Max(0, offset)); }
         finally { _isProgrammaticScroll = false; }
+        UpdateCurrentConversationNodeFromViewport();
     }
 
     private void ScrollToEndProgrammatically()
@@ -699,6 +1545,27 @@ public partial class FloatingWindow : Window
         _isProgrammaticScroll = true;
         try { TranslationScroller.ScrollToEnd(); }
         finally { _isProgrammaticScroll = false; }
+        UpdateCurrentConversationNodeFromViewport();
+    }
+
+    private void ScheduleStreamingScrollToEnd()
+    {
+        if (_pendingStreamingScroll is { Status: DispatcherOperationStatus.Pending })
+            return;
+
+        _pendingStreamingScroll = Dispatcher.BeginInvoke(() =>
+        {
+            _pendingStreamingScroll = null;
+            if (_autoScroll.IsAutoScrollEnabled && TranslationScroller.ScrollableHeight > 0.5)
+                ScrollToEndProgrammatically();
+        }, DispatcherPriority.Background);
+    }
+
+    private void CancelPendingStreamingScroll()
+    {
+        if (_pendingStreamingScroll is { Status: DispatcherOperationStatus.Pending } pending)
+            pending.Abort();
+        _pendingStreamingScroll = null;
     }
 
     private void RaiseScrollStateChanged()
@@ -758,6 +1625,9 @@ public partial class FloatingWindow : Window
         timer.Start();
         RenderStatusBar();
     }
+
+    internal void ShowAnalysisFollowUpFeedback(string message) =>
+        ShowTransientStatus(message, FloatingStatusKind.Warning);
 
     private void ClearAllStatusMessages()
     {
@@ -849,6 +1719,16 @@ public partial class FloatingWindow : Window
                 status = 34;
         }
 
+        var followUp = 0.0;
+        if (AnalysisFollowUpInput is { Visibility: Visibility.Visible })
+        {
+            followUp = AnalysisFollowUpInput.ActualHeight +
+                AnalysisFollowUpInput.Margin.Top +
+                AnalysisFollowUpInput.Margin.Bottom;
+            if (followUp < 1)
+                followUp = 39;
+        }
+
         var expand = 0.0;
         if (ExpandMarkdownButton is { Visibility: Visibility.Visible })
         {
@@ -857,7 +1737,7 @@ public partial class FloatingWindow : Window
                 expand = 26;
         }
 
-        var needed = borderVerticalChrome + title + bodyMinHeight + status + expand;
+        var needed = borderVerticalChrome + title + bodyMinHeight + followUp + status + expand;
         if (needed <= 0 || double.IsNaN(needed))
             return;
 
@@ -897,6 +1777,28 @@ public partial class FloatingWindow : Window
         public Action? Action { get; }
     }
 
+    private sealed record ConversationNodeView(
+        string Key,
+        Button Button,
+        FrameworkElement Target,
+        FrameworkElement FocusTarget,
+        bool IsStreaming);
+
+    private sealed class StreamingFollowUpAnswerView(
+        int turnNumber,
+        StackPanel container,
+        TextBox textBox,
+        string pendingRawText)
+    {
+        public int TurnNumber { get; } = turnNumber;
+        public StackPanel Container { get; } = container;
+        public TextBox TextBox { get; } = textBox;
+        public RichTextBox? Markdown { get; set; }
+        public StreamingMarkdownRenderer? Renderer { get; set; }
+        public StreamingCompositionMetrics CompositionMetrics { get; } = new();
+        public string PendingRawText { get; set; } = pendingRawText;
+    }
+
     private void SetActiveModeButton(ContentType activeMode)
     {
         _activeMode = activeMode;
@@ -912,7 +1814,14 @@ public partial class FloatingWindow : Window
         PinButton.ToolTip = IsPinned ? "取消固定" : "固定窗口";
     }
 
-    private bool CanAutoHide() => !IsPinned && !_isLoading && !_isMouseInside && !_isSystemSizing && !_isTtsBusy;
+    private bool CanAutoHide() =>
+        !IsPinned &&
+        !_isLoading &&
+        !_isMouseInside &&
+        !_isSystemSizing &&
+        !_isTtsBusy &&
+        !FollowUpTextBox.IsKeyboardFocusWithin &&
+        _analysisConversation.Turns.LastOrDefault()?.Status != AnalysisFollowUpTurnStatus.Loading;
 
     private void ResetAutoHideTimer()
     {
@@ -923,6 +1832,17 @@ public partial class FloatingWindow : Window
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Enter &&
+            FollowUpTextBox.IsKeyboardFocusWithin &&
+            !_isImeComposing &&
+            e.ImeProcessedKey == Key.None &&
+            Keyboard.Modifiers == ModifierKeys.None)
+        {
+            SubmitFollowUp();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key != Key.Escape)
             return;
 
@@ -930,6 +1850,42 @@ public partial class FloatingWindow : Window
         HideRequested?.Invoke();
         Hide();
     }
+
+    private void FollowUpTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        FollowUpInputHint.Visibility = string.IsNullOrEmpty(FollowUpTextBox.Text)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        if (!_suppressDraftEvent && _sessionId != Guid.Empty)
+            AnalysisDraftChanged?.Invoke(_sessionId, FollowUpTextBox.Text);
+        ResetAutoHideTimer();
+    }
+
+    private void FollowUpSendButton_Click(object sender, RoutedEventArgs e) => SubmitFollowUp();
+
+    private void SubmitFollowUp()
+    {
+        if (!FollowUpTextBox.IsEnabled || !FollowUpSendButton.IsEnabled)
+            return;
+
+        try
+        {
+            var question = AnalysisConversationFormatter.NormalizeQuestion(FollowUpTextBox.Text);
+            AnalysisFollowUpRequested?.Invoke(question);
+        }
+        catch (ArgumentException ex)
+        {
+            var message = ex.Message.StartsWith("追问不能超过", StringComparison.Ordinal)
+                ? $"追问不能超过 {AnalysisConversationFormatter.MaxQuestionRunes} 个字符"
+                : "请输入追问内容";
+            ShowTransientStatus(message, FloatingStatusKind.Warning);
+        }
+        ResetAutoHideTimer();
+    }
+
+    private void OnFollowUpTextInputStart(object sender, TextCompositionEventArgs e) => _isImeComposing = true;
+    private void OnFollowUpTextInputUpdate(object sender, TextCompositionEventArgs e) => _isImeComposing = true;
+    private void OnFollowUpTextInputCompleted(object sender, TextCompositionEventArgs e) => _isImeComposing = false;
 
     private void PositionWindowAtAnchor()
     {
@@ -1127,6 +2083,17 @@ public partial class FloatingWindow : Window
         for (var current = source; current is not null; current = GetParent(current))
         {
             if (current is Button)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsInsideScrollBar(DependencyObject? source)
+    {
+        for (var current = source; current is not null; current = GetParent(current))
+        {
+            if (current is System.Windows.Controls.Primitives.ScrollBar)
                 return true;
         }
 

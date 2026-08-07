@@ -237,12 +237,14 @@ signtool verify /pa /v publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.
 
 ### 4.1 编写更新日志
 
-在 GitHub Release 中记录变更内容。建议分类：
+先更新并审核 [`RELEASE_NOTES_NEXT.md`](RELEASE_NOTES_NEXT.md)，再将其中已经进入本次发布的内容复制到 GitHub Release。建议分类：
 
 - **新增特性** — 新功能
 - **优化改进** — 性能、体验优化
 - **修复** — Bug 修复
 - **依赖** — 依赖变更说明
+
+草稿中的自动化结果与人工验收边界必须保持分开；没有执行的真实 Provider、安装升级、混合 DPI 或辅助功能验证不得写成已通过。发布完成后，将已发布条目移出草稿，为下一版本重新建立基线。
 
 ### 4.2 准备发布提交
 

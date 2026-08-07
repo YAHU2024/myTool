@@ -15,7 +15,7 @@ A lightweight .NET 8 WPF desktop translator that connects to OpenAI-compatible A
 [![Downloads](https://img.shields.io/github/downloads/YAHU2024/myTool/total?style=flat-square)](https://github.com/YAHU2024/myTool/releases)
 [![Stars](https://img.shields.io/github/stars/YAHU2024/myTool?style=flat-square&label=stars)](https://github.com/YAHU2024/myTool/stargazers)
 [![Build](https://img.shields.io/github/actions/workflow/status/YAHU2024/myTool/build.yml?branch=main&style=flat-square&label=build)](https://github.com/YAHU2024/myTool/actions/workflows/build.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL--2.0-22C55E?style=flat-square)](LICENSE)
 [![中文](https://img.shields.io/badge/中文-文档-512BD4?style=flat-square)](README.md)
 
 <br>
@@ -31,8 +31,9 @@ A lightweight .NET 8 WPF desktop translator that connects to OpenAI-compatible A
 | Core Translation | SSE streaming token-by-token output · drag / double-click / triple-click selection · red-dot guidance interaction · floating window instant preview · 14 languages · automatic language detection |
 | Smart Detection | Auto-classifies Translation / Code / Term and routes to specialized prompts · confidence diagnostics · browser / terminal scene awareness |
 | Multi-mode Sessions | Switch between Translate / Command-parse / Term-explain / Deep-analysis on the same text · instant restore of finished results |
+| Analysis Follow-ups | Up to 10 contextual questions after deep analysis · streaming answers · history-node navigation · retry for the latest failed turn |
 | Quick Lookup | Local dictionary priority (ECDICT/OEWN) · automatic AI fallback on miss · one-click AI Chinese completion · unified POS labels · structured definitions / phonetics / examples / collocations · five recent items · speech and copy · centered popup / toggle visibility |
-| Markdown | Safe parse & render · standalone copy of fenced code blocks · tables / lists / quotes · only http/https links allowed |
+| Markdown | Incremental rendering while streaming · syntax highlighting after a fence closes · standalone code copy · tables / lists / quotes · only http/https links allowed |
 | Text-to-Speech | Edge TTS online synthesis · read selected text · one-click read of translation result · automatic language matching |
 | Translation History | SQLite local persistence · search & filter by time / language · paginated browsing · double-click to copy · Anki-format export |
 | System Integration | Two independent global hotkey sets (select-to-translate / quick lookup) · lookup hotkey has on/off toggle disabled by default · single-click tray lookup · restore latest translation from the context menu · launch on startup · in-browser trigger · single-instance guard |
@@ -223,6 +224,7 @@ QuickTranslate/
 │   ├── Logger.cs                      # Async logger (JSON Lines / rotation / cleanup)
 │   ├── LogEvent.cs                    # Structured log event model
 │   ├── MarkdownRenderer.cs            # Safe Markdown renderer
+│   ├── CodeSyntaxHighlighter.cs       # Local fenced-code syntax highlighting
 │   ├── Win32Api.cs                    # Win32 P/Invoke declarations
 │   ├── DpiHelper.cs                   # DPI scaling coordinate conversion
 │   ├── ApiEndpointValidator.cs        # API endpoint format validation
@@ -262,7 +264,9 @@ myTool/
 ├── docs/                              # Documentation
 │   ├── images/                        # Screenshots
 │   ├── LOGGING.md                     # Logging guide
-│   └── RELEASE.md                     # Release process
+│   ├── RELEASE.md                     # Release process
+│   ├── RELEASE_NOTES_NEXT.md          # Next-release notes draft
+│   └── THIRD_PARTY_NOTICES.md         # Third-party notices
 ├── .gitignore                         # Git ignore rules
 ├── CONTRIBUTING.md                    # Contribution guide
 ├── LICENSE
@@ -287,7 +291,7 @@ Inno Setup produces two installers:
 
 On startup the app silently checks the latest GitHub Release. When a new version is found, a tray toast notifies the user; clicking it opens the update dialog. Download and install are handled by AutoUpdater.NET, with SHA256 integrity verification.
 
-See [docs/RELEASE.md](docs/RELEASE.md) for details.
+See [docs/RELEASE.md](docs/RELEASE.md) for the release process and the [next-release notes draft](docs/RELEASE_NOTES_NEXT.md) for pending user-visible changes.
 
 ---
 
@@ -295,9 +299,9 @@ See [docs/RELEASE.md](docs/RELEASE.md) for details.
 
 | Phase | Core work | Status |
 |:----:|:---------|:----:|
-| 1–12 | Skeleton, select-to-translate, tray, history, smart detection, semantic cache, multi-mode sessions, structured logs, TTS, auto update | done |
+| 1–12 | Skeleton, select-to-translate, tray, history, smart detection, semantic cache, multi-mode sessions, real-time Markdown, syntax highlighting, structured logs, TTS, auto update | done |
 | 13 | Quick lookup panel + independent global hotkey + tray click integration + local dictionary (ECDICT/OEWN) + AI Chinese completion + POS normalization | done |
-| 14 | Follow-up analysis | planned |
+| 14 | Contextual analysis follow-ups + streaming answers + history-node navigation | done |
 | 15 | Performance optimization | planned |
 | 16 | UI unification & internationalization | planned |
 
@@ -307,6 +311,14 @@ See [docs/RELEASE.md](docs/RELEASE.md) for details.
 
 <div align="center">
 
-MIT License — free to use, modify, and distribute.
+New versions released on or after 2026-08-06 are licensed under the
+[Mozilla Public License 2.0 (MPL-2.0)](LICENSE).
+MPL-2.0 permits personal, commercial, and redistribution use. When distributing
+MPL-covered files with modifications, the modified source for those files must
+also be made available. New independent files may use other licenses. The
+project name, logo, and icons are not licensed as trademarks.
+
+Versions released before this date remain available under the original MIT
+License included with those releases; this change is not retroactive.
 
 </div>

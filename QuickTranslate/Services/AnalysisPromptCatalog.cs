@@ -11,6 +11,11 @@ public static class AnalysisPromptCatalog
 {
     public const string GeneralId = "builtin:general";
 
+    private const string MarkdownOutputContract =
+        " Markdown output must use valid CommonMark: close every fenced code block. " +
+        "When showing Markdown that itself contains fenced code, use a four-backtick outer fence or tildes. " +
+        "Do not use equal-length nested backtick fences.";
+
     public static IReadOnlyList<BuiltInAnalysisPrompt> BuiltIns { get; } =
     [
         new(GeneralId, "通用解析", "Analyze this text in {targetLang}. Cover its core meaning, key points, grammar, structure, and relevant context. Output only a clear, concise analysis; no preamble or markdown headers."),
@@ -39,10 +44,15 @@ public static class AnalysisPromptCatalog
             var custom = profiles.FirstOrDefault(profile =>
                 string.Equals(profile.Id, selectedId, StringComparison.Ordinal));
             if (custom != null && !string.IsNullOrWhiteSpace(custom.Prompt))
-                return custom.Prompt.Replace("{targetLang}", targetLang, StringComparison.Ordinal);
+                return Compose(custom.Prompt.Replace("{targetLang}", targetLang, StringComparison.Ordinal));
         }
 
         var builtIn = GetBuiltInOrGeneral(selectedId);
-        return builtIn.PromptTemplate.Replace("{targetLang}", targetLang, StringComparison.Ordinal);
+        return Compose(builtIn.PromptTemplate.Replace("{targetLang}", targetLang, StringComparison.Ordinal));
     }
+
+    private static string Compose(string taskPrompt) =>
+        taskPrompt.Trim() + " " +
+        PromptInputContract.SystemInstruction +
+        MarkdownOutputContract;
 }

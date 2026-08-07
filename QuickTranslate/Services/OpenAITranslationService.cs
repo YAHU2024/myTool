@@ -14,6 +14,12 @@ namespace QuickTranslate.Services;
 /// </summary>
 public sealed class OpenAITranslationService : ITranslationService, IDisposable
 {
+    internal const int MaxInitialRequestRunes = 20000;
+    internal const int MaxAnalysisRequestRunes = 30000;
+    internal const int MaxFollowUpQuestionRunes = AnalysisConversationFormatter.MaxQuestionRunes;
+    internal const int MaxFollowUpContextCharacters = 60000;
+    internal const double StalledChunkGapThresholdMs = 250;
+
     private readonly HttpClient _httpClient;
     private AppSettings _settings;
 
@@ -47,6 +53,11 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         ContentType contentType,
         TranslationRequestKind kind = TranslationRequestKind.Translation)
     {
+        ArgumentNullException.ThrowIfNull(text);
+        var maxRunes = kind == TranslationRequestKind.Analysis || contentType == ContentType.Analysis
+            ? MaxAnalysisRequestRunes
+            : MaxInitialRequestRunes;
+        EnsureInputLength(text, maxRunes, kind == TranslationRequestKind.Analysis ? "解析" : "请求");
         var settings = PromptSettings.From(Volatile.Read(ref _settings));
         string prompt;
         var fallbackUsed = false;
@@ -86,7 +97,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
     public async Task<string> ExecuteStreamingAsync(
         TranslationRequest request,
-        Action<string> onChunk,
+        Action<string> onDelta,
         CancellationToken cancellationToken = default)
     {
         ValidateRequest(request);
@@ -102,9 +113,311 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             text_len = request.Text.Length
         });
 
-        var requestBody = BuildRequestBody(request, stream: true);
-        using var response = await SendAsync(
+        var execution = await ExecuteChatStreamingAsync(
+            request.ApiBaseUrl,
+            request.ApiKey,
+            BuildRequestBody(request, stream: true),
+            operation,
+            onDelta,
+            cancellationToken).ConfigureAwait(false);
+        var result = execution.Result;
+        Logger.Info("TranslationService", "translation.completed", new
+        {
+            operation,
+            content_type = request.ContentType.ToString(),
+            target_language = request.TargetLanguage,
+            text_len = request.Text.Length,
+            result_len = result.Length,
+            duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+            stream_chunk_count = execution.ChunkCount,
+            first_chunk_ms = execution.FirstChunkMs,
+            average_chunk_gap_ms = execution.AverageChunkGapMs,
+            max_chunk_gap_ms = execution.MaxChunkGapMs,
+            stalled_chunk_count = execution.StalledChunkCount
+        });
+        return result;
+    }
+
+    public AnalysisFollowUpRequest CreateAnalysisFollowUpRequest(
+        string sourceText,
+        string rootAnalysis,
+        AnalysisSemanticSnapshot semanticSnapshot,
+        IReadOnlyList<AnalysisFollowUpExchange> completedTurns,
+        string question,
+        int turnNumber,
+        long requestId = 0)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceText);
+        ArgumentException.ThrowIfNullOrWhiteSpace(rootAnalysis);
+        ArgumentNullException.ThrowIfNull(semanticSnapshot);
+        ArgumentNullException.ThrowIfNull(completedTurns);
+
+        if (string.IsNullOrWhiteSpace(semanticSnapshot.SystemPrompt))
+            throw new ArgumentException("解析 Prompt 不能为空", nameof(semanticSnapshot));
+        if (turnNumber is < 1 or > 10)
+            throw new ArgumentOutOfRangeException(nameof(turnNumber));
+        if (completedTurns.Count > 9)
+            throw new ArgumentOutOfRangeException(nameof(completedTurns));
+
+        var normalizedQuestion = AnalysisConversationFormatter.NormalizeQuestion(question);
+
+        var messages = new List<ChatCompletionMessage>(4 + completedTurns.Count * 2)
+        {
+            new("system", semanticSnapshot.SystemPrompt),
+            new("user", PromptInputContract.Wrap(sourceText)),
+            new("assistant", rootAnalysis)
+        };
+        foreach (var turn in completedTurns)
+        {
+            if (string.IsNullOrWhiteSpace(turn.Question) || string.IsNullOrWhiteSpace(turn.Answer))
+                throw new ArgumentException("已完成追问必须包含问题和回答", nameof(completedTurns));
+            messages.Add(new ChatCompletionMessage("user", PromptInputContract.Wrap(turn.Question)));
+            messages.Add(new ChatCompletionMessage("assistant", turn.Answer));
+        }
+        messages.Add(new ChatCompletionMessage("user", PromptInputContract.Wrap(normalizedQuestion)));
+
+        var contextCharacters = messages.Sum(message => message.Content.EnumerateRunes().Count());
+        if (contextCharacters > MaxFollowUpContextCharacters)
+        {
+            Logger.Info("TranslationService", "analysis.follow_up.limit_reached", new
+            {
+                turn_count = turnNumber,
+                context_chars = contextCharacters,
+                limit_kind = "context_chars",
+                request_id = requestId
+            });
+            throw new InvalidOperationException("当前解析内容过长，无法继续追问");
+        }
+
+        var settings = PromptSettings.From(Volatile.Read(ref _settings));
+        return new AnalysisFollowUpRequest(
+            turnNumber,
+            messages.ToArray(),
+            settings.ApiBaseUrl,
+            settings.ApiKey,
+            settings.ModelName,
+            normalizedQuestion.Length,
+            contextCharacters,
+            requestId);
+    }
+
+    public async Task<string> ExecuteAnalysisFollowUpStreamingAsync(
+        AnalysisFollowUpRequest request,
+        Action<string> onDelta,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateFollowUpRequest(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        var startedAt = Stopwatch.GetTimestamp();
+        Logger.Info("TranslationService", "analysis.follow_up.started", new
+        {
+            turn = request.TurnNumber,
+            question_len = request.QuestionLength,
+            context_chars = request.ContextCharacters,
+            request_id = request.RequestId
+        });
+
+        try
+        {
+            var execution = await ExecuteChatStreamingAsync(
+                request.ApiBaseUrl,
+                request.ApiKey,
+                BuildRequestBody(
+                    request.ModelName,
+                    request.Messages,
+                    request.ApiBaseUrl,
+                    stream: true),
+                "analysis follow-up",
+                onDelta,
+                cancellationToken).ConfigureAwait(false);
+            var result = execution.Result;
+            if (string.IsNullOrWhiteSpace(result))
+                throw new FormatException("追问返回为空");
+
+            Logger.Info("TranslationService", "analysis.follow_up.completed", new
+            {
+                turn = request.TurnNumber,
+                answer_len = result.Length,
+                duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+                stream_chunk_count = execution.ChunkCount,
+                first_chunk_ms = execution.FirstChunkMs,
+                average_chunk_gap_ms = execution.AverageChunkGapMs,
+                max_chunk_gap_ms = execution.MaxChunkGapMs,
+                stalled_chunk_count = execution.StalledChunkCount,
+                request_id = request.RequestId
+            });
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.Debug("TranslationService", "analysis.follow_up.cancelled", new
+            {
+                turn = request.TurnNumber,
+                request_id = request.RequestId
+            });
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn("TranslationService", "analysis.follow_up.failed", new
+            {
+                turn = request.TurnNumber,
+                error_type = ex.GetType().Name,
+                request_id = request.RequestId,
+                status_code = ex is HttpRequestException { StatusCode: { } statusCode }
+                    ? (int?)statusCode
+                    : null
+            });
+            throw;
+        }
+    }
+
+    public async Task<string> TranslateStreamingAsync(
+        string text,
+        string targetLang,
+        Action<string> onChunk,
+        ContentType contentType = ContentType.Translation,
+        Action? onFallbackUsed = null,
+        CancellationToken cancellationToken = default)
+    {
+        var request = CreateRequest(text, targetLang, contentType);
+        if (request.FallbackUsed)
+            onFallbackUsed?.Invoke();
+        var accumulated = new StringBuilder();
+        return await ExecuteStreamingAsync(
             request,
+            delta =>
+            {
+                accumulated.Append(delta);
+                onChunk(accumulated.ToString());
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string> TranslateAsync(
+        string text,
+        string targetLang,
+        ContentType contentType = ContentType.Translation,
+        CancellationToken cancellationToken = default)
+    {
+        var request = CreateRequest(text, targetLang, contentType);
+        ValidateRequest(request);
+
+        var requestBody = BuildRequestBody(request, stream: false);
+        using var response = await SendAsync(
+            request.ApiBaseUrl,
+            request.ApiKey,
+            requestBody,
+            HttpCompletionOption.ResponseContentRead,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                $"translation request failed ({(int)response.StatusCode})");
+        }
+
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        return ExtractTranslation(responseBody);
+    }
+
+    public async Task<string> AnalyzeStreamingAsync(
+        string text,
+        string targetLang,
+        Action<string> onChunk,
+        CancellationToken cancellationToken = default)
+    {
+        var request = CreateRequest(
+            text,
+            targetLang,
+            ContentType.Analysis,
+            TranslationRequestKind.Analysis);
+        var accumulated = new StringBuilder();
+        return await ExecuteStreamingAsync(
+            request,
+            delta =>
+            {
+                accumulated.Append(delta);
+                onChunk(accumulated.ToString());
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal string BuildSystemPrompt(
+        string targetLang,
+        ContentType contentType,
+        string sourceText,
+        Action? onFallbackUsed = null)
+    {
+        var request = CreateRequest(sourceText, targetLang, contentType);
+        if (request.FallbackUsed)
+            onFallbackUsed?.Invoke();
+        return request.SystemPrompt;
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(
+        string apiBaseUrl,
+        string apiKey,
+        Dictionary<string, object> requestBody,
+        HttpCompletionOption completionOption,
+        CancellationToken cancellationToken)
+    {
+        var url = $"{apiBaseUrl.TrimEnd('/')}/chat/completions";
+        var jsonContent = JsonSerializer.Serialize(requestBody, JsonOptions);
+        using var message = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(jsonContent, Encoding.UTF8, "application/json")
+        };
+        message.Headers.Add("Authorization", $"Bearer {apiKey}");
+        return await _httpClient.SendAsync(message, completionOption, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static Dictionary<string, object> BuildRequestBody(TranslationRequest request, bool stream)
+    {
+        return BuildRequestBody(
+            request.ModelName,
+            [
+                new ChatCompletionMessage("system", request.SystemPrompt),
+                new ChatCompletionMessage("user", PromptInputContract.Wrap(request.Text))
+            ],
+            request.ApiBaseUrl,
+            stream);
+    }
+
+    private static Dictionary<string, object> BuildRequestBody(
+        string modelName,
+        IReadOnlyList<ChatCompletionMessage> messages,
+        string apiBaseUrl,
+        bool stream)
+    {
+        var body = new Dictionary<string, object>
+        {
+            ["model"] = modelName,
+            ["messages"] = messages,
+            ["temperature"] = 0.3,
+            ["stream"] = stream
+        };
+
+        if (apiBaseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase))
+            body["thinking"] = new { type = "disabled" };
+        else if (apiBaseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
+            body["enable_thinking"] = false;
+
+        return body;
+    }
+
+    private async Task<ChatStreamingResult> ExecuteChatStreamingAsync(
+        string apiBaseUrl,
+        string apiKey,
+        Dictionary<string, object> requestBody,
+        string operation,
+        Action<string> onDelta,
+        CancellationToken cancellationToken)
+    {
+        var streamStartedAt = Stopwatch.GetTimestamp();
+        using var response = await SendAsync(
+            apiBaseUrl,
+            apiKey,
             requestBody,
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken).ConfigureAwait(false);
@@ -112,13 +425,20 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         if (!response.IsSuccessStatusCode)
         {
             throw new HttpRequestException(
-                $"{operation} request failed ({(int)response.StatusCode})");
+                $"{operation} request failed ({(int)response.StatusCode})",
+                inner: null,
+                response.StatusCode);
         }
 
         var fullResult = new StringBuilder();
+        var chunkCount = 0;
+        double? firstChunkMs = null;
+        var maxChunkGapMs = 0.0;
+        var totalChunkGapMs = 0.0;
+        var stalledChunkCount = 0;
+        long? previousChunkAt = null;
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var reader = new StreamReader(stream);
-
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -146,9 +466,20 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 var chunk = contentElement.GetString();
                 if (string.IsNullOrEmpty(chunk))
                     continue;
-
+                var chunkAt = Stopwatch.GetTimestamp();
+                firstChunkMs ??= Stopwatch.GetElapsedTime(streamStartedAt, chunkAt).TotalMilliseconds;
+                if (previousChunkAt is { } previous)
+                {
+                    var chunkGapMs = Stopwatch.GetElapsedTime(previous, chunkAt).TotalMilliseconds;
+                    totalChunkGapMs += chunkGapMs;
+                    maxChunkGapMs = Math.Max(maxChunkGapMs, chunkGapMs);
+                    if (chunkGapMs >= StalledChunkGapThresholdMs)
+                        stalledChunkCount++;
+                }
+                previousChunkAt = chunkAt;
+                chunkCount++;
                 fullResult.Append(chunk);
-                onChunk(fullResult.ToString());
+                onDelta(chunk);
             }
             catch (JsonException)
             {
@@ -156,121 +487,13 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             }
         }
 
-        var result = fullResult.ToString().Trim();
-        Logger.Info("TranslationService", "translation.completed", new
-        {
-            operation,
-            content_type = request.ContentType.ToString(),
-            target_language = request.TargetLanguage,
-            text_len = request.Text.Length,
-            result_len = result.Length,
-            duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds
-        });
-        return result;
-    }
-
-    public Task<string> TranslateStreamingAsync(
-        string text,
-        string targetLang,
-        Action<string> onChunk,
-        ContentType contentType = ContentType.Translation,
-        Action? onFallbackUsed = null,
-        CancellationToken cancellationToken = default)
-    {
-        var request = CreateRequest(text, targetLang, contentType);
-        if (request.FallbackUsed)
-            onFallbackUsed?.Invoke();
-        return ExecuteStreamingAsync(request, onChunk, cancellationToken);
-    }
-
-    public async Task<string> TranslateAsync(
-        string text,
-        string targetLang,
-        ContentType contentType = ContentType.Translation,
-        CancellationToken cancellationToken = default)
-    {
-        var request = CreateRequest(text, targetLang, contentType);
-        ValidateRequest(request);
-
-        var requestBody = BuildRequestBody(request, stream: false);
-        using var response = await SendAsync(
-            request,
-            requestBody,
-            HttpCompletionOption.ResponseContentRead,
-            cancellationToken).ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new HttpRequestException(
-                $"translation request failed ({(int)response.StatusCode})");
-        }
-
-        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        return ExtractTranslation(responseBody);
-    }
-
-    public Task<string> AnalyzeStreamingAsync(
-        string text,
-        string targetLang,
-        Action<string> onChunk,
-        CancellationToken cancellationToken = default)
-    {
-        var request = CreateRequest(
-            text,
-            targetLang,
-            ContentType.Analysis,
-            TranslationRequestKind.Analysis);
-        return ExecuteStreamingAsync(request, onChunk, cancellationToken);
-    }
-
-    internal string BuildSystemPrompt(
-        string targetLang,
-        ContentType contentType,
-        string sourceText,
-        Action? onFallbackUsed = null)
-    {
-        var request = CreateRequest(sourceText, targetLang, contentType);
-        if (request.FallbackUsed)
-            onFallbackUsed?.Invoke();
-        return request.SystemPrompt;
-    }
-
-    private async Task<HttpResponseMessage> SendAsync(
-        TranslationRequest request,
-        Dictionary<string, object> requestBody,
-        HttpCompletionOption completionOption,
-        CancellationToken cancellationToken)
-    {
-        var url = $"{request.ApiBaseUrl.TrimEnd('/')}/chat/completions";
-        var jsonContent = JsonSerializer.Serialize(requestBody, JsonOptions);
-        using var message = new HttpRequestMessage(HttpMethod.Post, url)
-        {
-            Content = new StringContent(jsonContent, Encoding.UTF8, "application/json")
-        };
-        message.Headers.Add("Authorization", $"Bearer {request.ApiKey}");
-        return await _httpClient.SendAsync(message, completionOption, cancellationToken).ConfigureAwait(false);
-    }
-
-    private static Dictionary<string, object> BuildRequestBody(TranslationRequest request, bool stream)
-    {
-        var body = new Dictionary<string, object>
-        {
-            ["model"] = request.ModelName,
-            ["messages"] = new[]
-            {
-                new { role = "system", content = request.SystemPrompt },
-                new { role = "user", content = request.Text }
-            },
-            ["temperature"] = 0.3,
-            ["stream"] = stream
-        };
-
-        if (request.ApiBaseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase))
-            body["thinking"] = new { type = "disabled" };
-        else if (request.ApiBaseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
-            body["enable_thinking"] = false;
-
-        return body;
+        return new ChatStreamingResult(
+            fullResult.ToString().Trim(),
+            chunkCount,
+            firstChunkMs,
+            chunkCount <= 1 ? 0 : totalChunkGapMs / (chunkCount - 1),
+            maxChunkGapMs,
+            stalledChunkCount);
     }
 
     private static PromptResult BuildSystemPromptCore(
@@ -290,26 +513,32 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             prompt = $"Explain this code, script, SQL, configuration, or terminal command in {targetLang}. " +
                      "For commands, cover each command, option, pipe, redirect, and important side effect. " +
                      "Do not translate or reproduce the full source; quote only tiny snippets when necessary. " +
-                     "Output a concise explanation with no preamble, labels, or markdown headers.";
+                     "Output a concise explanation with no preamble, labels, or markdown headers. " +
+                     PromptInputContract.SystemInstruction;
         }
         else if (contentType == ContentType.Term)
         {
             prompt = $"Explain this term in {targetLang} in 1-2 concise sentences: what it is and its main use. " +
-                     "Output only the explanation; no preamble or markdown headers.";
+                     "Output only the explanation; no preamble or markdown headers. " +
+                     PromptInputContract.SystemInstruction;
         }
         else if (!string.IsNullOrWhiteSpace(settings.CustomTranslationPrompt))
         {
-            prompt = settings.CustomTranslationPrompt.Replace("{targetLang}", effectiveTarget);
+            prompt = settings.CustomTranslationPrompt.Replace("{targetLang}", effectiveTarget) + " " +
+                     PromptInputContract.SystemInstruction +
+                     " Output only the requested result in the target language, with no unrelated preamble or explanation.";
         }
         else if (settings.AutoDetectLanguage)
         {
             prompt = $"Translate the input into {effectiveTarget}. " +
-                     "Always translate; never return the original unchanged. Output only the translation.";
+                     "Always translate; never return the original unchanged. Output only the translation. " +
+                     PromptInputContract.SystemInstruction;
         }
         else
         {
             prompt = $"Translate the input into {targetLang}. If it is already in {targetLang}, translate it into {settings.FallbackLanguage}. " +
-                     "Always translate; never return the original unchanged. Output only the translation.";
+                     "Always translate; never return the original unchanged. Output only the translation. " +
+                     PromptInputContract.SystemInstruction;
         }
         return new PromptResult(prompt, sourceMatchesTarget);
     }
@@ -390,12 +619,37 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         ApiEndpointValidator.ValidateAndNormalize(request.ApiBaseUrl);
     }
 
+    private static void EnsureInputLength(string text, int maxRunes, string operation)
+    {
+        var runeCount = text.EnumerateRunes().Count();
+        if (runeCount > maxRunes)
+            throw new InvalidOperationException($"{operation}内容过长，最多支持 {maxRunes} 个字符");
+    }
+
+    private static void ValidateFollowUpRequest(AnalysisFollowUpRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Messages.Count < 4)
+            throw new ArgumentException("追问上下文不完整", nameof(request));
+        if (string.IsNullOrWhiteSpace(request.ApiKey))
+            throw new InvalidOperationException("请先在设置中配置 API Key");
+        ApiEndpointValidator.ValidateAndNormalize(request.ApiBaseUrl);
+    }
+
     public void Dispose()
     {
         _httpClient.Dispose();
     }
 
     private sealed record PromptResult(string Prompt, bool FallbackUsed);
+
+    private sealed record ChatStreamingResult(
+        string Result,
+        int ChunkCount,
+        double? FirstChunkMs,
+        double AverageChunkGapMs,
+        double MaxChunkGapMs,
+        int StalledChunkCount);
 
     private sealed record PromptSettings(
         string ApiBaseUrl,

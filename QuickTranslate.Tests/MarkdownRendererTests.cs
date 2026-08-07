@@ -41,6 +41,31 @@ public sealed class MarkdownRendererTests
     }
 
     [Fact]
+    public void RenderDetailed_UsesTheStreamingConversationFontForBodyText()
+    {
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed("简体中文正文");
+            Assert.Equal(MarkdownRenderer.ConversationFontFamilyName, result.Document.FontFamily.Source);
+            Assert.Equal(MarkdownRenderer.ConversationFontSize, result.Document.FontSize);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void RenderDetailed_AllowsFollowUpBodyScale()
+    {
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed("# 标题\n\n正文", fontSize: MarkdownRenderer.AnalysisConversationFontSize);
+            Assert.Equal(15, result.Document.FontSize);
+            var heading = Assert.IsType<Paragraph>(result.Document.Blocks.First());
+            Assert.Equal(20.25, heading.FontSize);
+            return true;
+        });
+    }
+
+    [Fact]
     public void RenderDetailed_RendersPipeTable()
     {
         const string markdown = "| Name | Value |\n| --- | --- |\n| alpha | 1 |";
@@ -133,6 +158,112 @@ public sealed class MarkdownRendererTests
         Assert.True(succeeded);
         Assert.Equal(markdown, result!.RawText);
         Assert.Null(result.Error);
+    }
+
+    [Theory]
+    [InlineData("# streaming head")]
+    [InlineData("paragraph with **unfinished emphasis")]
+    [InlineData("- first\n- second in progress")]
+    [InlineData("[link text](https://example.com/incomplete")]
+    public void TryRender_AcceptsIncompleteStreamingPrefixes(string markdown)
+    {
+        MarkdownRenderResult? result = null;
+        var succeeded = RunInSta(() => MarkdownRenderer.TryRender(markdown, out result));
+
+        Assert.True(succeeded);
+        Assert.False(result!.UsedPlainTextFallback);
+        Assert.Equal(markdown, result.RawText);
+        Assert.NotEmpty(result.Document.Blocks);
+    }
+
+    [Fact]
+    public void RenderDetailed_UnclosedStreamingFenceRemainsCopyable()
+    {
+        const string markdown = "```csharp\nConsole.WriteLine(\"streaming\");";
+
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed(markdown);
+            var code = Assert.Single(result.CodeBlocks);
+            Assert.Equal("csharp", code.Language);
+            Assert.Contains("Console.WriteLine", code.Code);
+            var container = Assert.IsType<BlockUIContainer>(Assert.Single(result.Document.Blocks));
+            var border = Assert.IsType<Border>(container.Child);
+            var panel = Assert.IsType<DockPanel>(border.Child);
+            var codeText = Assert.IsType<TextBlock>(panel.Children[1]);
+            Assert.Equal(code.Code, codeText.Text);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void RenderDetailed_ClosedFenceAppliesSyntaxHighlighting()
+    {
+        const string markdown = "```csharp\nusing System;\nreturn true;\n```";
+
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed(markdown);
+            var container = Assert.IsType<BlockUIContainer>(Assert.Single(result.Document.Blocks));
+            var border = Assert.IsType<Border>(container.Child);
+            var panel = Assert.IsType<DockPanel>(border.Child);
+            var codeText = Assert.IsType<TextBlock>(panel.Children[1]);
+            Assert.True(codeText.Inlines.OfType<Run>().Count() > 1);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void RenderDetailed_FinalUnclosedFenceDoesNotSwallowPlainTextAsCode()
+    {
+        const string markdown = "before\n\n```\n普通文本\n## 标题";
+
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed(markdown, isFinal: true);
+
+            Assert.Contains(result.Document.Blocks, block => block is Paragraph paragraph &&
+                new TextRange(paragraph.ContentStart, paragraph.ContentEnd).Text.Contains("普通文本"));
+            Assert.DoesNotContain(result.Document.Blocks, block => block is BlockUIContainer);
+            Assert.Equal(markdown, result.RawText);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void RenderDetailed_FinalNestedFenceCollisionKeepsFollowingProseOutOfCodeBlock()
+    {
+        const string markdown = "```markdown\n```python\nprint(\"Hello\")\n```\n```\n然后这些工具会自动高亮代码。\n## 后续标题";
+
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed(markdown, isFinal: true);
+            var documentText = new TextRange(result.Document.ContentStart, result.Document.ContentEnd).Text;
+
+            Assert.Single(result.CodeBlocks);
+            Assert.Single(result.Document.Blocks.OfType<BlockUIContainer>());
+            Assert.Contains("然后这些工具会自动高亮代码。", documentText);
+            Assert.Equal(markdown, result.RawText);
+            return true;
+        });
+    }
+
+    [Fact]
+    public void RenderDetailed_NormalizesFenceInfoLanguageBeforeHighlighting()
+    {
+        const string markdown = "```python title=demo\ndef greet(name):\n    return name\n```";
+
+        RunInSta(() =>
+        {
+            var result = MarkdownRenderer.RenderDetailed(markdown, isFinal: true);
+            var code = Assert.Single(result.CodeBlocks);
+            Assert.Equal("python", code.Language);
+            var container = Assert.IsType<BlockUIContainer>(Assert.Single(result.Document.Blocks));
+            var panel = Assert.IsType<DockPanel>(Assert.IsType<Border>(container.Child).Child);
+            var codeText = Assert.IsType<TextBlock>(panel.Children[1]);
+            Assert.True(codeText.Inlines.OfType<Run>().Count() > 1);
+            return true;
+        });
     }
 
     [Fact]
