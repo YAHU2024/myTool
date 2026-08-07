@@ -24,6 +24,8 @@ public partial class FloatingWindow : Window
 {
     private const double PlacementGapDip = 12;
     private const double DefaultWindowMinHeight = 120;
+    private static readonly TimeSpan StreamingScrollInterval = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan StreamingPositionInterval = TimeSpan.FromMilliseconds(125);
     private readonly DispatcherTimer _autoHideTimer;
     private readonly DispatcherTimer _scrollBarHideTimer;
     private readonly LatestPresentationCoordinator _presentations = new();
@@ -69,6 +71,8 @@ public partial class FloatingWindow : Window
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
     private double _lastPositionedHeight;
+    private long _lastStreamingScrollTimestamp;
+    private long _lastStreamingPositionTimestamp;
     private bool _placeAbove;
     private Guid _sessionId;
     private ContentType _activeMode = ContentType.Translation;
@@ -104,6 +108,14 @@ public partial class FloatingWindow : Window
     internal int ConversationNodeCount => ConversationNodeRail.Children.Count;
     internal string? CurrentConversationNodeKey => _currentConversationNodeKey;
     internal bool IsAutoScrollEnabledForTests => _autoScroll.IsAutoScrollEnabled;
+
+    internal StreamingMarkdownRenderStats GetStreamingMarkdownStats() =>
+        _streamingMarkdown?.GetStats() ?? StreamingMarkdownRenderStats.Empty;
+
+    internal StreamingMarkdownRenderStats GetAnalysisFollowUpStreamingStats(int turnNumber) =>
+        _streamingFollowUpAnswers.TryGetValue(turnNumber, out var answer)
+            ? answer.Renderer?.GetStats() ?? StreamingMarkdownRenderStats.Empty
+            : StreamingMarkdownRenderStats.Empty;
 
     internal Button GetConversationNodeForTests(string key) =>
         _conversationNodes.Single(node => node.Key == key).Button;
@@ -268,6 +280,7 @@ public partial class FloatingWindow : Window
             : AnalysisConversationState.Empty();
         _isMarkdownExpanded = false;
         _streamingMarkdown = null;
+        ResetStreamingUiThrottle();
         _autoScroll.BeginRequest();
         if (!state.AutoScrollEnabled)
             _autoScroll.PauseForUpwardNavigation();
@@ -397,10 +410,21 @@ public partial class FloatingWindow : Window
         ShowStreamingMarkdown();
         if (_isLoading && !string.IsNullOrEmpty(translation))
             HideLoadingIndicator();
-        if (_autoScroll.OnContentOrViewportChanged())
+        var nowTimestamp = Stopwatch.GetTimestamp();
+        if (_autoScroll.OnContentOrViewportChanged() &&
+            ShouldRunStreamingAction(
+                ref _lastStreamingScrollTimestamp,
+                nowTimestamp,
+                StreamingScrollInterval))
+        {
             ScrollToEndProgrammatically();
+        }
 
-        if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5)
+        if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5 &&
+            ShouldRunStreamingAction(
+                ref _lastStreamingPositionTimestamp,
+                nowTimestamp,
+                StreamingPositionInterval))
         {
             _lastPositionedHeight = ActualHeight;
             PositionWindowAtAnchor();
@@ -425,10 +449,21 @@ public partial class FloatingWindow : Window
             return;
 
         RenderStreamingFollowUpAnswer(answer);
-        if (_autoScroll.OnContentOrViewportChanged())
+        var nowTimestamp = Stopwatch.GetTimestamp();
+        if (_autoScroll.OnContentOrViewportChanged() &&
+            ShouldRunStreamingAction(
+                ref _lastStreamingScrollTimestamp,
+                nowTimestamp,
+                StreamingScrollInterval))
+        {
             ScrollToEndProgrammatically();
+        }
 
-        if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5)
+        if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5 &&
+            ShouldRunStreamingAction(
+                ref _lastStreamingPositionTimestamp,
+                nowTimestamp,
+                StreamingPositionInterval))
         {
             _lastPositionedHeight = ActualHeight;
             PositionWindowAtAnchor();
@@ -483,6 +518,24 @@ public partial class FloatingWindow : Window
         UpdateLayout();
         _lastPositionedHeight = ActualHeight;
         PositionWindowAtAnchor();
+    }
+
+    internal static bool ShouldRunStreamingAction(
+        ref long lastTimestamp,
+        long nowTimestamp,
+        TimeSpan minimumInterval)
+    {
+        if (lastTimestamp != 0 && Stopwatch.GetElapsedTime(lastTimestamp, nowTimestamp) < minimumInterval)
+            return false;
+
+        lastTimestamp = nowTimestamp;
+        return true;
+    }
+
+    private void ResetStreamingUiThrottle()
+    {
+        _lastStreamingScrollTimestamp = 0;
+        _lastStreamingPositionTimestamp = 0;
     }
 
     private void ShowPlainText(bool ensureFooter = true)
@@ -1081,6 +1134,7 @@ public partial class FloatingWindow : Window
         RenderAnalysisConversation();
         _isMarkdownExpanded = false;
         _lastPositionedHeight = 0;
+        ResetStreamingUiThrottle();
         ShowPlainText();
         SetActiveModeButton(ContentType.Translation);
         RefreshSpeakButton();

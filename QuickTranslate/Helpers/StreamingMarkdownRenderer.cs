@@ -1,7 +1,18 @@
+using System.Diagnostics;
 using System.Text;
 using System.Windows.Documents;
 
 namespace QuickTranslate.Helpers;
+
+internal sealed record StreamingMarkdownRenderStats(
+    int FrameCount,
+    double AverageRenderDurationMs,
+    double MaxRenderDurationMs,
+    long AllocatedBytes,
+    long ParsedCharacters)
+{
+    public static StreamingMarkdownRenderStats Empty { get; } = new(0, 0, 0, 0, 0);
+}
 
 /// <summary>
 /// Incrementally renders an append-only Markdown stream. Completed source blocks remain attached
@@ -15,6 +26,10 @@ internal sealed class StreamingMarkdownRenderer
     private readonly StringBuilder _pendingSource = new();
     private string _rawText = string.Empty;
     private string _displayedRawText = string.Empty;
+    private int _renderFrameCount;
+    private double _totalRenderDurationMs;
+    private double _maxRenderDurationMs;
+    private long _allocatedBytes;
 
     public StreamingMarkdownRenderer(double fontSize, int maxDisplayCharacters)
     {
@@ -42,6 +57,32 @@ internal sealed class StreamingMarkdownRenderer
     {
         ArgumentNullException.ThrowIfNull(rawText);
 
+        var startedAt = Stopwatch.GetTimestamp();
+        var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        try
+        {
+            return UpdateCore(rawText);
+        }
+        finally
+        {
+            var durationMs = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
+            _renderFrameCount++;
+            _totalRenderDurationMs += durationMs;
+            _maxRenderDurationMs = Math.Max(_maxRenderDurationMs, durationMs);
+            _allocatedBytes += Math.Max(0, GC.GetAllocatedBytesForCurrentThread() - allocatedBefore);
+        }
+    }
+
+    internal StreamingMarkdownRenderStats GetStats() => new(
+        _renderFrameCount,
+        _renderFrameCount == 0 ? 0 : _totalRenderDurationMs / _renderFrameCount,
+        _maxRenderDurationMs,
+        _allocatedBytes,
+        ParsedCharacterCount);
+
+    private bool UpdateCore(string rawText)
+    {
+
         if (!rawText.StartsWith(_rawText, StringComparison.Ordinal))
             Reset();
 
@@ -54,7 +95,7 @@ internal sealed class StreamingMarkdownRenderer
             ResetDocumentState();
 
         var appended = displayedRawText[_displayedRawText.Length..];
-        var candidateTail = _pendingSource.ToString() + appended;
+        var candidateTail = _pendingSource.Append(appended).ToString();
         var commitLength = FindStablePrefixLength(candidateTail);
         var stableSource = candidateTail[..commitLength];
         var activeSource = candidateTail[commitLength..];
@@ -123,6 +164,10 @@ internal sealed class StreamingMarkdownRenderer
         _displayedRawText = string.Empty;
         CommittedCharacterCount = 0;
         ParsedCharacterCount = 0;
+        _renderFrameCount = 0;
+        _totalRenderDurationMs = 0;
+        _maxRenderDurationMs = 0;
+        _allocatedBytes = 0;
     }
 
     private void RemoveActiveBlocks()

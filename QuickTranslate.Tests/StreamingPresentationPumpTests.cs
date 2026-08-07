@@ -41,6 +41,8 @@ public sealed class StreamingPresentationPumpTests
         Assert.Equal(2, stats.CoalescedChunkCount);
         Assert.True(stats.FirstFrameLatencyMs >= 0);
         Assert.True(stats.MaxFrameLatencyMs >= stats.FirstFrameLatencyMs);
+        Assert.True(stats.AverageApplyDurationMs >= 0);
+        Assert.True(stats.MaxApplyDurationMs >= stats.AverageApplyDurationMs);
     }
 
     [Fact]
@@ -108,6 +110,51 @@ public sealed class StreamingPresentationPumpTests
         Assert.Equal(0, stats.CoalescedChunkCount);
         Assert.Equal(0, stats.FirstFrameLatencyMs);
         Assert.Equal(0, stats.MaxFrameLatencyMs);
+        Assert.Equal(0, stats.AverageApplyDurationMs);
+        Assert.Equal(0, stats.MaxApplyDurationMs);
         Assert.False(pump.Publish("late"));
+    }
+
+    [Fact]
+    public void CalculateNextFrameInterval_ExpandsForSlowFramesAndRecoversGradually()
+    {
+        var minimum = TimeSpan.FromMilliseconds(30);
+        var maximum = TimeSpan.FromMilliseconds(120);
+
+        var expanded = StreamingPresentationPump.CalculateNextFrameInterval(
+            minimum,
+            maximum,
+            minimum,
+            TimeSpan.FromMilliseconds(40));
+        var recovered = StreamingPresentationPump.CalculateNextFrameInterval(
+            minimum,
+            maximum,
+            expanded,
+            TimeSpan.FromMilliseconds(5));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(60), expanded);
+        Assert.Equal(TimeSpan.FromMilliseconds(55), recovered);
+    }
+
+    [Fact]
+    public void CalculateNextFrameInterval_ClampsToConfiguredBounds()
+    {
+        var minimum = TimeSpan.FromMilliseconds(30);
+        var maximum = TimeSpan.FromMilliseconds(120);
+
+        Assert.Equal(
+            maximum,
+            StreamingPresentationPump.CalculateNextFrameInterval(
+                minimum,
+                maximum,
+                TimeSpan.FromMilliseconds(110),
+                TimeSpan.FromMilliseconds(200)));
+        Assert.Equal(
+            minimum,
+            StreamingPresentationPump.CalculateNextFrameInterval(
+                minimum,
+                maximum,
+                minimum,
+                TimeSpan.FromMilliseconds(1)));
     }
 }

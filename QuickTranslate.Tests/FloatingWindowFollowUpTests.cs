@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -16,6 +17,20 @@ public sealed class FloatingWindowFollowUpTests
     private static bool IsRunningOnCI =>
         Environment.GetEnvironmentVariable("CI") == "true" ||
         Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true";
+
+    [Fact]
+    public void StreamingUiThrottle_AllowsFirstAndIntervalBoundaryOnly()
+    {
+        var interval = TimeSpan.FromMilliseconds(100);
+        var start = Stopwatch.Frequency;
+        var beforeBoundary = start + (long)(Stopwatch.Frequency * 0.099);
+        var boundary = start + (long)(Stopwatch.Frequency * 0.100);
+        long lastTimestamp = 0;
+
+        Assert.True(FloatingWindow.ShouldRunStreamingAction(ref lastTimestamp, start, interval));
+        Assert.False(FloatingWindow.ShouldRunStreamingAction(ref lastTimestamp, beforeBoundary, interval));
+        Assert.True(FloatingWindow.ShouldRunStreamingAction(ref lastTimestamp, boundary, interval));
+    }
 
     [SkippableFact]
     public void AnalysisCompleted_ShowsAccessibleFollowUpControls()

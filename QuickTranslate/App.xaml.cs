@@ -815,6 +815,7 @@ public partial class App : Application
                 delta => presentationPump.Publish(delta),
                 requestScope.Token);
             var presentationStats = await presentationPump.CompleteAsync();
+            var markdownStats = _floatingWindow.GetStreamingMarkdownStats();
 
             requestScope.Token.ThrowIfCancellationRequested();
             if (!IsCurrentRequest(requestScope))
@@ -852,7 +853,15 @@ public partial class App : Application
                 ui_frame_count = presentationStats.AppliedFrameCount,
                 coalesced_chunk_count = presentationStats.CoalescedChunkCount,
                 first_frame_latency_ms = presentationStats.FirstFrameLatencyMs,
-                max_frame_latency_ms = presentationStats.MaxFrameLatencyMs
+                max_frame_latency_ms = presentationStats.MaxFrameLatencyMs,
+                average_ui_apply_ms = presentationStats.AverageApplyDurationMs,
+                max_ui_apply_ms = presentationStats.MaxApplyDurationMs,
+                final_frame_interval_ms = presentationStats.FinalFrameIntervalMs,
+                markdown_frame_count = markdownStats.FrameCount,
+                average_markdown_render_ms = markdownStats.AverageRenderDurationMs,
+                max_markdown_render_ms = markdownStats.MaxRenderDurationMs,
+                markdown_allocated_bytes = markdownStats.AllocatedBytes,
+                markdown_parsed_characters = markdownStats.ParsedCharacters
             });
         }
         catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))
@@ -938,6 +947,7 @@ public partial class App : Application
                 delta => presentationPump.Publish(delta),
                 requestScope.Token);
             var presentationStats = await presentationPump.CompleteAsync();
+            var markdownStats = _floatingWindow.GetAnalysisFollowUpStreamingStats(identity.TurnNumber);
 
             requestScope.Token.ThrowIfCancellationRequested();
             if (!IsCurrentRequest(requestScope) ||
@@ -956,7 +966,15 @@ public partial class App : Application
                 ui_frame_count = presentationStats.AppliedFrameCount,
                 coalesced_chunk_count = presentationStats.CoalescedChunkCount,
                 first_frame_latency_ms = presentationStats.FirstFrameLatencyMs,
-                max_frame_latency_ms = presentationStats.MaxFrameLatencyMs
+                max_frame_latency_ms = presentationStats.MaxFrameLatencyMs,
+                average_ui_apply_ms = presentationStats.AverageApplyDurationMs,
+                max_ui_apply_ms = presentationStats.MaxApplyDurationMs,
+                final_frame_interval_ms = presentationStats.FinalFrameIntervalMs,
+                markdown_frame_count = markdownStats.FrameCount,
+                average_markdown_render_ms = markdownStats.AverageRenderDurationMs,
+                max_markdown_render_ms = markdownStats.MaxRenderDurationMs,
+                markdown_allocated_bytes = markdownStats.AllocatedBytes,
+                markdown_parsed_characters = markdownStats.ParsedCharacters
             });
         }
         catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))

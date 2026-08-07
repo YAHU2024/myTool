@@ -103,6 +103,11 @@ public sealed class StreamingMarkdownRendererTests
             Assert.True(renderer.ParsedCharacterCount < fullDocumentParseCharacters / 10);
             Assert.Equal(snapshot.Length, renderer.CommittedCharacterCount);
             Assert.Equal(0, renderer.ActiveCharacterCount);
+            var stats = renderer.GetStats();
+            Assert.Equal(200, stats.FrameCount);
+            Assert.Equal(renderer.ParsedCharacterCount, stats.ParsedCharacters);
+            Assert.True(stats.AllocatedBytes > 0);
+            Assert.True(stats.MaxRenderDurationMs >= stats.AverageRenderDurationMs);
             return true;
         });
     }
