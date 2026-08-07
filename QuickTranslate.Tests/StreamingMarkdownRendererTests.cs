@@ -84,16 +84,16 @@ public sealed class StreamingMarkdownRendererTests
 
             Assert.True(renderer.Update("# Heading\n\nplain"));
             var stableHeading = renderer.Document.Blocks.FirstBlock;
-            var activeParagraph = activeDocument.Blocks.FirstBlock;
 
             Assert.True(renderer.Update("# Heading\n\nplain text grows"));
 
             Assert.Same(stableHeading, renderer.Document.Blocks.FirstBlock);
-            Assert.Same(activeParagraph, activeDocument.Blocks.FirstBlock);
             Assert.Equal("Heading\r\n", DocumentText(renderer.Document));
-            Assert.Equal("plain text grows\r\n", DocumentText(activeDocument));
+            Assert.Empty(activeDocument.Blocks);
+            Assert.Equal("plain text grows", renderer.ActivePlainText);
             Assert.True(renderer.HasStableBlocks);
-            Assert.True(renderer.HasActiveBlocks);
+            Assert.False(renderer.HasActiveBlocks);
+            Assert.True(renderer.HasActiveContent);
             return true;
         });
     }
@@ -111,14 +111,16 @@ public sealed class StreamingMarkdownRendererTests
 
             Assert.True(renderer.Update("first"));
             Assert.False(renderer.HasStableBlocks);
-            Assert.True(renderer.HasActiveBlocks);
+            Assert.False(renderer.HasActiveBlocks);
+            Assert.Equal("first", renderer.ActivePlainText);
 
             Assert.True(renderer.Update("first\n\nnext"));
 
             Assert.Equal("first\r\n", DocumentText(renderer.Document));
-            Assert.Equal("next\r\n", DocumentText(activeDocument));
+            Assert.Empty(activeDocument.Blocks);
+            Assert.Equal("next", renderer.ActivePlainText);
             Assert.True(renderer.HasStableBlocks);
-            Assert.True(renderer.HasActiveBlocks);
+            Assert.True(renderer.HasActiveContent);
             return true;
         });
     }

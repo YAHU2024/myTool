@@ -799,6 +799,7 @@ public partial class App : Application
 
             var presentedText = new StringBuilder();
             var dispatcherMetrics = new StreamingDispatcherMetrics();
+            var runtimeStart = StreamingRuntimeStats.Capture();
             await using var presentationPump = new StreamingPresentationPump(
                 (frame, cancellationToken) =>
                 {
@@ -833,6 +834,8 @@ public partial class App : Application
             var presentationStats = await presentationPump.CompleteAsync();
             var dispatcherStats = dispatcherMetrics.GetStats();
             var markdownStats = _floatingWindow.GetStreamingMarkdownStats();
+            var compositionStats = _floatingWindow.GetStreamingCompositionStats();
+            var runtimeStats = StreamingRuntimeStats.Capture().Since(runtimeStart);
 
             requestScope.Token.ThrowIfCancellationRequested();
             if (!IsCurrentRequest(requestScope))
@@ -882,7 +885,17 @@ public partial class App : Application
                 average_markdown_render_ms = markdownStats.AverageRenderDurationMs,
                 max_markdown_render_ms = markdownStats.MaxRenderDurationMs,
                 markdown_allocated_bytes = markdownStats.AllocatedBytes,
-                markdown_parsed_characters = markdownStats.ParsedCharacters
+                markdown_parsed_characters = markdownStats.ParsedCharacters,
+                gc_gen0_collections = runtimeStats.Gen0Collections,
+                gc_gen1_collections = runtimeStats.Gen1Collections,
+                gc_gen2_collections = runtimeStats.Gen2Collections,
+                gc_pause_ms = runtimeStats.GcPauseDurationMs,
+                runtime_allocated_bytes = runtimeStats.AllocatedBytes,
+                composition_requested_frame_count = compositionStats.RequestedFrameCount,
+                composition_presented_frame_count = compositionStats.PresentedFrameCount,
+                composition_coalesced_request_count = compositionStats.CoalescedRequestCount,
+                average_composition_wait_ms = compositionStats.AverageWaitDurationMs,
+                max_composition_wait_ms = compositionStats.MaxWaitDurationMs
             });
         }
         catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))
@@ -947,6 +960,7 @@ public partial class App : Application
 
             var presentedText = new StringBuilder();
             var dispatcherMetrics = new StreamingDispatcherMetrics();
+            var runtimeStart = StreamingRuntimeStats.Capture();
             await using var presentationPump = new StreamingPresentationPump(
                 (frame, cancellationToken) =>
                 {
@@ -986,6 +1000,8 @@ public partial class App : Application
             var presentationStats = await presentationPump.CompleteAsync();
             var dispatcherStats = dispatcherMetrics.GetStats();
             var markdownStats = _floatingWindow.GetAnalysisFollowUpStreamingStats(identity.TurnNumber);
+            var compositionStats = _floatingWindow.GetAnalysisFollowUpCompositionStats(identity.TurnNumber);
+            var runtimeStats = StreamingRuntimeStats.Capture().Since(runtimeStart);
 
             requestScope.Token.ThrowIfCancellationRequested();
             if (!IsCurrentRequest(requestScope) ||
@@ -1016,7 +1032,17 @@ public partial class App : Application
                 average_markdown_render_ms = markdownStats.AverageRenderDurationMs,
                 max_markdown_render_ms = markdownStats.MaxRenderDurationMs,
                 markdown_allocated_bytes = markdownStats.AllocatedBytes,
-                markdown_parsed_characters = markdownStats.ParsedCharacters
+                markdown_parsed_characters = markdownStats.ParsedCharacters,
+                gc_gen0_collections = runtimeStats.Gen0Collections,
+                gc_gen1_collections = runtimeStats.Gen1Collections,
+                gc_gen2_collections = runtimeStats.Gen2Collections,
+                gc_pause_ms = runtimeStats.GcPauseDurationMs,
+                runtime_allocated_bytes = runtimeStats.AllocatedBytes,
+                composition_requested_frame_count = compositionStats.RequestedFrameCount,
+                composition_presented_frame_count = compositionStats.PresentedFrameCount,
+                composition_coalesced_request_count = compositionStats.CoalescedRequestCount,
+                average_composition_wait_ms = compositionStats.AverageWaitDurationMs,
+                max_composition_wait_ms = compositionStats.MaxWaitDurationMs
             });
         }
         catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))

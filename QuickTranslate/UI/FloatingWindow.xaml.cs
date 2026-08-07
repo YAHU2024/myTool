@@ -30,6 +30,7 @@ public partial class FloatingWindow : Window
     private readonly DispatcherTimer _scrollBarHideTimer;
     private readonly LatestPresentationCoordinator _presentations = new();
     private readonly AutoScrollController _autoScroll = new();
+    private readonly StreamingCompositionMetrics _rootCompositionMetrics = new();
     private bool _isMouseInside;
     private bool _isLoading;
     private bool _isProgrammaticScroll;
@@ -80,8 +81,13 @@ public partial class FloatingWindow : Window
     private AnalysisConversationState _analysisConversation = AnalysisConversationState.Empty();
     private readonly Dictionary<int, StreamingFollowUpAnswerView> _streamingFollowUpAnswers = new();
     private StreamingMarkdownRenderer? _streamingMarkdown;
-    private readonly HashSet<RichTextBox> _markdownSelectionHosts = [];
-    private bool _isMarkdownPointerDown;
+    private readonly HashSet<RichTextBox> _rootMarkdownHosts = [];
+    private readonly HashSet<RichTextBox> _rootMarkdownSelectionHosts = [];
+    private readonly HashSet<RichTextBox> _followUpMarkdownSelectionHosts = [];
+    private readonly HashSet<RichTextBox> _streamingFollowUpMarkdownHosts = [];
+    private bool _isRootMarkdownPointerDown;
+    private bool _isFollowUpMarkdownPointerDown;
+    private bool _isStreamingPlainTextSelectionActive;
     private bool _hasPendingRootMarkdownRefresh;
     private bool _isImeComposing;
     private bool _suppressDraftEvent;
@@ -118,6 +124,14 @@ public partial class FloatingWindow : Window
             ? answer.Renderer?.GetStats() ?? StreamingMarkdownRenderStats.Empty
             : StreamingMarkdownRenderStats.Empty;
 
+    internal StreamingCompositionStats GetStreamingCompositionStats() =>
+        _rootCompositionMetrics.GetStats();
+
+    internal StreamingCompositionStats GetAnalysisFollowUpCompositionStats(int turnNumber) =>
+        _streamingFollowUpAnswers.TryGetValue(turnNumber, out var answer)
+            ? answer.CompositionMetrics.GetStats()
+            : StreamingCompositionStats.Empty;
+
     internal Button GetConversationNodeForTests(string key) =>
         _conversationNodes.Single(node => node.Key == key).Button;
 
@@ -130,6 +144,9 @@ public partial class FloatingWindow : Window
         ConfigureRootMarkdownHost(MarkdownDocumentHost);
         ConfigureRootMarkdownHost(StreamingStableMarkdownHost);
         ConfigureRootMarkdownHost(StreamingActiveMarkdownHost);
+        ConfigureStreamingPlainTextInteraction();
+        CompositionTarget.Rendering += CompositionTarget_Rendering;
+        Closed += FloatingWindow_Closed;
         TitleBar.PreviewMouseLeftButtonDown += TitleBar_PreviewMouseLeftButtonDown;
         TitleBar.PreviewMouseMove += TitleBar_PreviewMouseMove;
         TitleBar.PreviewMouseLeftButtonUp += TitleBar_PreviewMouseLeftButtonUp;
@@ -354,6 +371,7 @@ public partial class FloatingWindow : Window
             _modeStatus = ModeResultStatus.Loading;
         ApplyConversationFontSize(contentType);
         _streamingMarkdown = null;
+        _rootCompositionMetrics.Reset();
         ShowPlainText();
         _autoScroll.BeginRequest();
         UpdateAutoScrollAffordance();
@@ -446,7 +464,7 @@ public partial class FloatingWindow : Window
         }
 
         answer.PendingRawText = turn.AnswerRawText;
-        if (IsMarkdownInteractionActive)
+        if (IsFollowUpMarkdownInteractionActive)
             return;
 
         RenderStreamingFollowUpAnswer(answer);
@@ -498,7 +516,9 @@ public partial class FloatingWindow : Window
                     answer.Container.Children.Insert(index, markdown);
                 }
                 answer.Markdown = markdown;
+                _streamingFollowUpMarkdownHosts.Add(markdown);
             }
+            answer.CompositionMetrics.RequestFrame();
         }
         else
         {
@@ -553,7 +573,7 @@ public partial class FloatingWindow : Window
 
     private void ShowStreamingMarkdown()
     {
-        if (IsMarkdownInteractionActive)
+        if (IsRootMarkdownInteractionActive)
         {
             _hasPendingRootMarkdownRefresh = true;
             return;
@@ -582,11 +602,25 @@ public partial class FloatingWindow : Window
         StreamingStableMarkdownHost.Visibility = _streamingMarkdown.HasStableBlocks
             ? Visibility.Visible
             : Visibility.Collapsed;
+        var activePlainText = _streamingMarkdown.ActivePlainText;
+        if (activePlainText is not null)
+        {
+            if (activePlainText.StartsWith(StreamingActiveTextHost.Text, StringComparison.Ordinal))
+                StreamingActiveTextHost.AppendText(activePlainText[StreamingActiveTextHost.Text.Length..]);
+            else
+                StreamingActiveTextHost.Text = activePlainText;
+        }
+        else if (StreamingActiveTextHost.Text.Length > 0)
+            StreamingActiveTextHost.Clear();
+        StreamingActiveTextHost.Visibility = activePlainText is not null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         StreamingActiveMarkdownHost.Visibility = _streamingMarkdown.HasActiveBlocks
             ? Visibility.Visible
             : Visibility.Collapsed;
         StreamingMarkdownHost.Visibility = Visibility.Visible;
         ExpandMarkdownButton.Visibility = _streamingMarkdown.IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
+        _rootCompositionMetrics.RequestFrame();
     }
 
     private void ShowCompletedMarkdown()
@@ -625,6 +659,7 @@ public partial class FloatingWindow : Window
     {
         StopConversationNodeAnimations();
         _streamingFollowUpAnswers.Clear();
+        _streamingFollowUpMarkdownHosts.Clear();
         AnalysisTurnsPanel.Children.Clear();
         ConversationNodeRail.Children.Clear();
         _conversationNodes.Clear();
@@ -856,8 +891,14 @@ public partial class FloatingWindow : Window
         return markdown;
     }
 
-    private bool IsMarkdownInteractionActive =>
-        _isMarkdownPointerDown || _markdownSelectionHosts.Count > 0;
+    private bool IsRootMarkdownInteractionActive =>
+        _isRootMarkdownPointerDown ||
+        _isStreamingPlainTextSelectionActive ||
+        _rootMarkdownSelectionHosts.Any(host => !ReferenceEquals(host, StreamingStableMarkdownHost));
+
+    private bool IsFollowUpMarkdownInteractionActive =>
+        _isFollowUpMarkdownPointerDown ||
+        _followUpMarkdownSelectionHosts.Any(_streamingFollowUpMarkdownHosts.Contains);
 
     private void ConfigureMarkdownInteraction(RichTextBox markdown)
     {
@@ -871,16 +912,55 @@ public partial class FloatingWindow : Window
 
     private void ConfigureRootMarkdownHost(RichTextBox markdown)
     {
+        _rootMarkdownHosts.Add(markdown);
         markdown.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
         markdown.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
         ConfigureMarkdownInteraction(markdown);
+    }
+
+    private void ConfigureStreamingPlainTextInteraction()
+    {
+        StreamingActiveTextHost.PreviewMouseLeftButtonDown += Markdown_PreviewMouseLeftButtonDown;
+        StreamingActiveTextHost.PreviewMouseLeftButtonUp += Markdown_PreviewMouseLeftButtonUp;
+        StreamingActiveTextHost.SelectionChanged += StreamingPlainText_SelectionChanged;
+        StreamingActiveTextHost.GotKeyboardFocus += StreamingPlainText_KeyboardFocusChanged;
+        StreamingActiveTextHost.LostKeyboardFocus += StreamingPlainText_KeyboardFocusChanged;
+        StreamingActiveTextHost.Unloaded += StreamingPlainText_Unloaded;
+    }
+
+    private void StreamingPlainText_SelectionChanged(object sender, RoutedEventArgs e) =>
+        UpdateStreamingPlainTextSelectionState();
+
+    private void StreamingPlainText_KeyboardFocusChanged(object sender, KeyboardFocusChangedEventArgs e) =>
+        UpdateStreamingPlainTextSelectionState();
+
+    private void StreamingPlainText_Unloaded(object sender, RoutedEventArgs e)
+    {
+        if (!_isStreamingPlainTextSelectionActive)
+            return;
+        _isStreamingPlainTextSelectionActive = false;
+        SchedulePendingMarkdownRefresh();
+    }
+
+    private void UpdateStreamingPlainTextSelectionState()
+    {
+        var isActive =
+            StreamingActiveTextHost.SelectionLength > 0 &&
+            StreamingActiveTextHost.IsKeyboardFocusWithin;
+        if (_isStreamingPlainTextSelectionActive == isActive)
+            return;
+        _isStreamingPlainTextSelectionActive = isActive;
+        SchedulePendingMarkdownRefresh();
     }
 
     private void ReleaseStreamingMarkdownHosts()
     {
         StreamingMarkdownHost.Visibility = Visibility.Collapsed;
         StreamingStableMarkdownHost.Visibility = Visibility.Collapsed;
+        StreamingActiveTextHost.Visibility = Visibility.Collapsed;
         StreamingActiveMarkdownHost.Visibility = Visibility.Collapsed;
+        if (StreamingActiveTextHost.Text.Length > 0)
+            StreamingActiveTextHost.Clear();
 
         var fontSize = _activeMode == ContentType.Analysis
             ? MarkdownRenderer.AnalysisConversationFontSize
@@ -892,12 +972,25 @@ public partial class FloatingWindow : Window
     }
 
     private void Markdown_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) =>
-        _isMarkdownPointerDown = true;
+        SetMarkdownPointerState(sender, isDown: true);
 
     private void Markdown_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        _isMarkdownPointerDown = false;
+        SetMarkdownPointerState(sender, isDown: false);
         SchedulePendingMarkdownRefresh();
+    }
+
+    private void SetMarkdownPointerState(object sender, bool isDown)
+    {
+        if (sender is RichTextBox markdown && _rootMarkdownHosts.Contains(markdown))
+        {
+            _isRootMarkdownPointerDown =
+                isDown && !ReferenceEquals(markdown, StreamingStableMarkdownHost);
+        }
+        else if (ReferenceEquals(sender, StreamingActiveTextHost))
+            _isRootMarkdownPointerDown = isDown;
+        else if (sender is RichTextBox followUp)
+            _isFollowUpMarkdownPointerDown = isDown && _streamingFollowUpMarkdownHosts.Contains(followUp);
     }
 
     private void Markdown_SelectionChanged(object sender, RoutedEventArgs e)
@@ -915,16 +1008,23 @@ public partial class FloatingWindow : Window
     private void Markdown_Unloaded(object sender, RoutedEventArgs e)
     {
         if (sender is RichTextBox markdown)
-            _markdownSelectionHosts.Remove(markdown);
+        {
+            _rootMarkdownSelectionHosts.Remove(markdown);
+            _followUpMarkdownSelectionHosts.Remove(markdown);
+            _streamingFollowUpMarkdownHosts.Remove(markdown);
+        }
         SchedulePendingMarkdownRefresh();
     }
 
     private void UpdateMarkdownSelectionState(RichTextBox markdown)
     {
+        var selectionHosts = _rootMarkdownHosts.Contains(markdown)
+            ? _rootMarkdownSelectionHosts
+            : _followUpMarkdownSelectionHosts;
         if (!markdown.Selection.IsEmpty && markdown.IsKeyboardFocusWithin)
-            _markdownSelectionHosts.Add(markdown);
+            selectionHosts.Add(markdown);
         else
-            _markdownSelectionHosts.Remove(markdown);
+            selectionHosts.Remove(markdown);
         SchedulePendingMarkdownRefresh();
     }
 
@@ -932,21 +1032,36 @@ public partial class FloatingWindow : Window
     {
         Dispatcher.BeginInvoke(() =>
         {
-            if (IsMarkdownInteractionActive)
-                return;
-
-            if (_hasPendingRootMarkdownRefresh)
+            if (_hasPendingRootMarkdownRefresh && !IsRootMarkdownInteractionActive)
                 ShowStreamingMarkdown();
-            foreach (var answer in _streamingFollowUpAnswers.Values)
-                RenderStreamingFollowUpAnswer(answer);
+            if (!IsFollowUpMarkdownInteractionActive)
+            {
+                foreach (var answer in _streamingFollowUpAnswers.Values)
+                    RenderStreamingFollowUpAnswer(answer);
+            }
         }, DispatcherPriority.ContextIdle);
+    }
+
+    private void CompositionTarget_Rendering(object? sender, EventArgs e)
+    {
+        _rootCompositionMetrics.RecordPresentedFrame();
+        foreach (var answer in _streamingFollowUpAnswers.Values)
+            answer.CompositionMetrics.RecordPresentedFrame();
+    }
+
+    private void FloatingWindow_Closed(object? sender, EventArgs e)
+    {
+        CompositionTarget.Rendering -= CompositionTarget_Rendering;
+        Closed -= FloatingWindow_Closed;
     }
 
     private void ApplyConversationFontSize(ContentType mode)
     {
-        TranslationTextBlock.FontSize = mode == ContentType.Analysis
+        var fontSize = mode == ContentType.Analysis
             ? MarkdownRenderer.AnalysisConversationFontSize
             : MarkdownRenderer.ConversationFontSize;
+        TranslationTextBlock.FontSize = fontSize;
+        StreamingActiveTextHost.FontSize = fontSize;
     }
 
     private void AddConversationNode(
@@ -1680,6 +1795,7 @@ public partial class FloatingWindow : Window
         public TextBox TextBox { get; } = textBox;
         public RichTextBox? Markdown { get; set; }
         public StreamingMarkdownRenderer? Renderer { get; set; }
+        public StreamingCompositionMetrics CompositionMetrics { get; } = new();
         public string PendingRawText { get; set; } = pendingRawText;
     }
 

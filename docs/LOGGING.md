@@ -196,6 +196,18 @@ quicktranslate-2026-07-23-2.log
 | `coalesced_chunk_count` | 被合并进已有 UI 帧的 chunk 数量 |
 | `first_frame_latency_ms` | 首批 chunk 从发布到 UI 应用完成的管线耗时 |
 | `max_frame_latency_ms` | 任一批 chunk 从发布到 UI 应用完成的最大管线耗时 |
+| `average_ui_apply_ms` / `max_ui_apply_ms` | 呈现泵等待并执行 UI 帧的平均/最大耗时 |
+| `average_dispatcher_queue_ms` / `max_dispatcher_queue_ms` | UI 委托进入 Dispatcher 后的平均/最大排队时间 |
+| `average_ui_execution_ms` / `max_ui_execution_ms` | UI 委托实际执行的平均/最大耗时，不包含排队 |
+| `average_markdown_render_ms` / `max_markdown_render_ms` | 增量 Markdown 更新的平均/最大耗时 |
+| `markdown_allocated_bytes` / `markdown_parsed_characters` | 流式 Markdown 路径的线程分配量和累计解析字符数 |
+| `gc_gen0_collections` / `gc_gen1_collections` / `gc_gen2_collections` | 请求期间发生的各代 GC 次数（进程口径） |
+| `gc_pause_ms` | 请求期间新增的 GC 总暂停时间（进程口径） |
+| `runtime_allocated_bytes` | 请求期间进程累计分配量的增量近似值 |
+| `composition_requested_frame_count` | 内容更新后登记的合成帧请求数 |
+| `composition_presented_frame_count` | 请求完成前观测到的真实 WPF 合成帧数 |
+| `composition_coalesced_request_count` | 在同一合成帧前被合并的重复内容更新数 |
+| `average_composition_wait_ms` / `max_composition_wait_ms` | 内容更新到下一次 `CompositionTarget.Rendering` 的平均/最大等待时间 |
 | `error_type` / `exception_type` | 异常类型名称，不包含异常消息 |
 | `query_scalars` | 查词输入的 Unicode 字符数量，不包含查询内容 |
 | `senses` / `examples` / `collocations` | 结构化查词结果的项目数量，不包含项目正文 |
@@ -218,6 +230,14 @@ quicktranslate-2026-07-23-2.log
 - 所有指标仅保存在当前进程内，应用重启后重新统计；跨午夜会重置“今日”计数。
 
 当前界面显示平均耗时和 P95。P50、P99 已由指标服务计算，可用于后续诊断或开发扩展。
+
+流式卡顿判读：
+
+- `max_dispatcher_queue_ms` 高，而 `max_ui_execution_ms`、`max_markdown_render_ms` 和 `gc_pause_ms` 都低：优先检查 WPF 布局、窗口尺寸变化或其他 Dispatcher 工作。
+- `gc_pause_ms` 与排队峰值同量级，且存在 Gen1/Gen2 回收：优先检查请求期间的累计分配和长寿命 WPF 对象。
+- `max_ui_execution_ms` 与 `max_markdown_render_ms` 接近：停顿发生在当前 Markdown 更新帧内。
+- `max_composition_wait_ms` 高或合成请求大量合并：UI 更新已经提交，但实际呈现帧受布局或合成限制。
+- 合成观测不阻塞流式泵；请求结束时最后一帧可能仍待呈现，因此 requested 数可略大于 presented 数。
 
 ## 6. 隐私与安全边界
 
@@ -403,9 +423,9 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 | Event | Level | Context keys (no text body) |
 |------|-------|-----------------------------|
 | translation.completed | Info | operation, content_type, target_language, text_len, result_len, duration_ms, stream_chunk_count, first_chunk_ms, max_chunk_gap_ms |
-| translation.presented | Info | operation, content_type, result_len, duration_ms, stream_chunk_count, ui_frame_count, coalesced_chunk_count, first_frame_latency_ms, max_frame_latency_ms |
+| translation.presented | Info | operation, content_type, result_len, duration_ms, stream/UI/Dispatcher/Markdown/GC/composition timing fields listed above |
 | analysis.follow_up.completed | Info | turn, answer_len, duration_ms, request_id, stream_chunk_count, first_chunk_ms, max_chunk_gap_ms |
-| analysis.follow_up.presented | Info | turn, request_id, stream_chunk_count, ui_frame_count, coalesced_chunk_count, first_frame_latency_ms, max_frame_latency_ms |
+| analysis.follow_up.presented | Info | turn, request_id, stream/UI/Dispatcher/Markdown/GC/composition timing fields listed above |
 
 这些字段只包含计数和毫秒值。它们不记录 chunk 正文、累计结果、问题、回答、Prompt、API Key、Authorization 头或供应商响应体。
 

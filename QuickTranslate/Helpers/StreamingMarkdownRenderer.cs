@@ -28,6 +28,7 @@ internal sealed class StreamingMarkdownRenderer
     private string _rawText = string.Empty;
     private string _displayedRawText = string.Empty;
     private Run? _activePlainRun;
+    private string? _activePlainText;
     private int _renderFrameCount;
     private double _totalRenderDurationMs;
     private double _maxRenderDurationMs;
@@ -57,6 +58,10 @@ internal sealed class StreamingMarkdownRenderer
     public bool HasStableBlocks => Document.Blocks.Count > (_activeDocument is null ? _activeBlocks.Count : 0);
 
     public bool HasActiveBlocks => _activeBlocks.Count > 0;
+
+    public bool HasActiveContent => HasActiveBlocks || !string.IsNullOrEmpty(_activePlainText);
+
+    public string? ActivePlainText => _activePlainText;
 
     public bool IsCollapsed { get; private set; }
 
@@ -114,10 +119,13 @@ internal sealed class StreamingMarkdownRenderer
         var activeSource = candidateTail[commitLength..];
 
         if (stableSource.Length == 0 &&
-            _activePlainRun is not null &&
+            (_activePlainRun is not null || _activePlainText is not null) &&
             IsSimplePlainTextTail(activeSource))
         {
-            _activePlainRun.Text = activeSource;
+            if (_activePlainRun is not null)
+                _activePlainRun.Text = activeSource;
+            else
+                _activePlainText = activeSource;
             CommitSourceState(activeSource, displayedRawText, stableCharacterCount: 0);
             return true;
         }
@@ -129,10 +137,16 @@ internal sealed class StreamingMarkdownRenderer
 
         IReadOnlyList<Block> activeBlocks;
         Run? activePlainRun = null;
-        if (IsSimplePlainTextTail(activeSource))
+        string? activePlainText = null;
+        if (IsSimplePlainTextTail(activeSource) && _activeDocument is null)
         {
             activePlainRun = new Run(activeSource);
             activeBlocks = [new Paragraph(activePlainRun) { Margin = new System.Windows.Thickness(0, 2, 0, 7) }];
+        }
+        else if (IsSimplePlainTextTail(activeSource))
+        {
+            activePlainText = activeSource;
+            activeBlocks = Array.Empty<Block>();
         }
         else if (!TryRenderFragment(activeSource, isFinal: false, out activeBlocks))
         {
@@ -149,6 +163,7 @@ internal sealed class StreamingMarkdownRenderer
             _activeBlocks.Add(block);
         }
         _activePlainRun = activePlainRun;
+        _activePlainText = activePlainText;
 
         CommitSourceState(activeSource, displayedRawText, stableSource.Length);
         return true;
@@ -244,6 +259,7 @@ internal sealed class StreamingMarkdownRenderer
         _pendingSource.Clear();
         _displayedRawText = string.Empty;
         _activePlainRun = null;
+        _activePlainText = null;
         CommittedCharacterCount = 0;
         ParsedCharacterCount = 0;
         _renderFrameCount = 0;
@@ -259,6 +275,7 @@ internal sealed class StreamingMarkdownRenderer
             activeTarget.Remove(block);
         _activeBlocks.Clear();
         _activePlainRun = null;
+        _activePlainText = null;
     }
 
     internal static int FindStablePrefixLength(string source)

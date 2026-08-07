@@ -75,7 +75,13 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Equal(Visibility.Collapsed, window.MarkdownDocumentHost.Visibility);
             Assert.Equal(Visibility.Visible, window.StreamingMarkdownHost.Visibility);
             Assert.Equal(Visibility.Visible, window.StreamingStableMarkdownHost.Visibility);
-            Assert.Equal(Visibility.Visible, window.StreamingActiveMarkdownHost.Visibility);
+            Assert.Equal(Visibility.Visible, window.StreamingActiveTextHost.Visibility);
+            Assert.Equal(Visibility.Collapsed, window.StreamingActiveMarkdownHost.Visibility);
+            Assert.True(window.StreamingActiveTextHost.IsReadOnly);
+            Assert.True(window.StreamingActiveTextHost.Focusable);
+            Assert.False(window.StreamingActiveTextHost.IsTabStop);
+            window.StreamingActiveTextHost.SelectAll();
+            Assert.True(ApplicationCommands.Copy.CanExecute(null, window.StreamingActiveTextHost));
             Assert.False(window.StreamingStableMarkdownHost.IsUndoEnabled);
             Assert.False(window.StreamingActiveMarkdownHost.IsUndoEnabled);
             Assert.Equal(
@@ -83,11 +89,15 @@ public sealed class FloatingWindowFollowUpTests
                 new TextRange(
                     window.StreamingStableMarkdownHost.Document.ContentStart,
                     window.StreamingStableMarkdownHost.Document.ContentEnd).Text);
-            Assert.Equal(
-                "active tail\r\n",
-                new TextRange(
-                    window.StreamingActiveMarkdownHost.Document.ContentStart,
-                    window.StreamingActiveMarkdownHost.Document.ContentEnd).Text);
+            Assert.Equal("active tail", window.StreamingActiveTextHost.Text);
+
+            window.UpdateTranslation(presentationId, "# Heading\n\nactive tail **bold**");
+
+            Assert.Equal(Visibility.Collapsed, window.StreamingActiveTextHost.Visibility);
+            Assert.Equal(Visibility.Visible, window.StreamingActiveMarkdownHost.Visibility);
+            Assert.Contains(
+                Assert.IsType<Paragraph>(window.StreamingActiveMarkdownHost.Document.Blocks.FirstBlock).Inlines,
+                inline => inline is Span span && span.FontWeight == FontWeights.Bold);
 
             window.SetSessionView(
                 Guid.NewGuid(),
@@ -95,6 +105,7 @@ public sealed class FloatingWindowFollowUpTests
                 Completed("# Heading\n\ncompleted"));
 
             Assert.Equal(Visibility.Collapsed, window.StreamingMarkdownHost.Visibility);
+            Assert.Equal(string.Empty, window.StreamingActiveTextHost.Text);
             Assert.Empty(window.StreamingStableMarkdownHost.Document.Blocks);
             Assert.Empty(window.StreamingActiveMarkdownHost.Document.Blocks);
             Assert.Equal(Visibility.Visible, window.MarkdownDocumentHost.Visibility);
@@ -123,6 +134,71 @@ public sealed class FloatingWindowFollowUpTests
             var markdown = Assert.Single(turnPanel.Children.OfType<RichTextBox>());
             Assert.True(markdown.IsReadOnly);
             Assert.False(markdown.IsUndoEnabled);
+        });
+    }
+
+    [SkippableFact]
+    public void MarkdownSelection_FreezesOnlyTheSelectedResultScope()
+    {
+        RunOnSta(window =>
+        {
+            var presentationId = window.BeginReplacement();
+            var loading = new AnalysisFollowUpTurnState(
+                1,
+                "why",
+                string.Empty,
+                AnalysisFollowUpTurnStatus.Loading,
+                2);
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("# Root analysis"),
+                Conversation([loading]));
+            window.Show();
+            window.UpdateLayout();
+            PumpDispatcher();
+
+            Assert.True(window.MarkdownDocumentHost.Focus());
+            window.MarkdownDocumentHost.SelectAll();
+            PumpDispatcher();
+
+            window.UpdateAnalysisFollowUpStreaming(
+                presentationId,
+                loading with { AnswerRawText = "follow-up streamed while root is selected" });
+
+            var turnPanel = Assert.IsType<StackPanel>(
+                Assert.IsType<Border>(window.AnalysisTurnsPanel.Children[0]).Child);
+            var followUpMarkdown = Assert.Single(turnPanel.Children.OfType<RichTextBox>());
+            Assert.Contains(
+                "follow-up streamed while root is selected",
+                new TextRange(
+                    followUpMarkdown.Document.ContentStart,
+                    followUpMarkdown.Document.ContentEnd).Text);
+
+            Assert.True(followUpMarkdown.Focus());
+            followUpMarkdown.SelectAll();
+            PumpDispatcher();
+
+            window.UpdateTranslation(
+                presentationId,
+                "# Stable root\n\nroot streamed while follow-up is selected");
+
+            Assert.Equal(Visibility.Visible, window.StreamingActiveTextHost.Visibility);
+            Assert.Equal(
+                "root streamed while follow-up is selected",
+                window.StreamingActiveTextHost.Text);
+
+            Assert.True(window.StreamingStableMarkdownHost.Focus());
+            window.StreamingStableMarkdownHost.SelectAll();
+            PumpDispatcher();
+
+            window.UpdateTranslation(
+                presentationId,
+                "# Stable root\n\nroot streamed while follow-up is selected and keeps growing");
+
+            Assert.Equal(
+                "root streamed while follow-up is selected and keeps growing",
+                window.StreamingActiveTextHost.Text);
         });
     }
 
