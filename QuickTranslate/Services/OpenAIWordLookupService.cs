@@ -177,7 +177,11 @@ public sealed class OpenAIWordLookupService :
             baseUrl.Contains("deepseek.com", StringComparison.OrdinalIgnoreCase))
             body["thinking"] = new { type = settings.EnableThinking ? "enabled" : "disabled" };
         else if (baseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
-            body["enable_thinking"] = settings.EnableThinking;
+        {
+            var capabilities = SiliconFlowModelCapabilitiesResolver.Resolve(settings.ModelName);
+            if (capabilities.SupportsThinking)
+                body[capabilities.ThinkingParameterName] = settings.EnableThinking;
+        }
 
         var inputScalars = userContent.EnumerateRunes().Count();
         if (providerId.EndsWith("-enrichment", StringComparison.Ordinal))

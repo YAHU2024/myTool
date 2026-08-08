@@ -407,7 +407,11 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             apiBaseUrl.Contains("deepseek.com", StringComparison.OrdinalIgnoreCase))
             body["thinking"] = new { type = enableThinking ? "enabled" : "disabled" };
         else if (apiBaseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
-            body["enable_thinking"] = enableThinking;
+        {
+            var capabilities = SiliconFlowModelCapabilitiesResolver.Resolve(modelName);
+            if (capabilities.SupportsThinking)
+                body[capabilities.ThinkingParameterName] = enableThinking;
+        }
 
         return body;
     }

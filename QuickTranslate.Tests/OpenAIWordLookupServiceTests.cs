@@ -133,12 +133,26 @@ public sealed class OpenAIWordLookupServiceTests
         var handler = new RecordingHandler(_ => JsonResponse(FoundEnvelope("run")));
         using var service = new OpenAIWordLookupService(
             new WordLookupProviderSettings(
-                "https://api.siliconflow.cn/v1", "secret", "model-a", "简体中文", EnableThinking: true),
+                "https://api.siliconflow.cn/v1", "secret", "Qwen/Qwen3-8B", "简体中文", EnableThinking: true),
             handler);
 
         await service.LookupAsync(new WordLookupRequest("run", ""), CancellationToken.None);
 
         Assert.True(handler.EnableThinking);
+    }
+
+    [Fact]
+    public async Task LookupAsync_OmitsThinkingForSiliconFlowHunyuanMt()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(FoundEnvelope("run")));
+        using var service = new OpenAIWordLookupService(
+            new WordLookupProviderSettings(
+                "https://api.siliconflow.cn/v1", "secret", "tencent/Hunyuan-MT-7B", "简体中文", EnableThinking: true),
+            handler);
+
+        await service.LookupAsync(new WordLookupRequest("run", ""), CancellationToken.None);
+
+        Assert.Null(handler.EnableThinking);
     }
 
     [Theory]
