@@ -403,8 +403,13 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             ["stream"] = stream
         };
 
-        if (apiBaseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase) ||
-            apiBaseUrl.Contains("deepseek.com", StringComparison.OrdinalIgnoreCase))
+        if (apiBaseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase))
+        {
+            var capabilities = BigModelModelCapabilitiesResolver.Resolve(modelName);
+            if (capabilities.SupportsThinking)
+                body["thinking"] = new { type = enableThinking ? "enabled" : "disabled" };
+        }
+        else if (apiBaseUrl.Contains("deepseek.com", StringComparison.OrdinalIgnoreCase))
             body["thinking"] = new { type = enableThinking ? "enabled" : "disabled" };
         else if (apiBaseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
         {

@@ -103,7 +103,7 @@ public sealed class OpenAITranslationServiceFollowUpTests
     {
         var handler = new RecordingHandler(_ => SseResponse("ok"));
         using var service = new OpenAITranslationService(
-            Settings("https://open.bigmodel.cn/api/paas/v4", "secret", "glm"),
+            Settings("https://open.bigmodel.cn/api/paas/v4", "secret", "glm-4.7-flash"),
             handler);
         var request = service.CreateAnalysisFollowUpRequest(
             "source",
@@ -116,6 +116,26 @@ public sealed class OpenAITranslationServiceFollowUpTests
         await service.ExecuteAnalysisFollowUpStreamingAsync(request, _ => { }, CancellationToken.None);
 
         Assert.Equal("disabled", handler.ThinkingType);
+    }
+
+    [Fact]
+    public async Task ExecuteStreaming_OmitsThinkingForUnsupportedBigModelModel()
+    {
+        var handler = new RecordingHandler(_ => SseResponse("ok"));
+        using var service = new OpenAITranslationService(
+            Settings("https://open.bigmodel.cn/api/paas/v4", "secret", "glm-4-flash"),
+            handler);
+        var request = service.CreateAnalysisFollowUpRequest(
+            "source",
+            "root",
+            new AnalysisSemanticSnapshot("prompt", "简体中文"),
+            [],
+            "question",
+            1);
+
+        await service.ExecuteAnalysisFollowUpStreamingAsync(request, _ => { }, CancellationToken.None);
+
+        Assert.Null(handler.ThinkingType);
     }
 
     [Fact]

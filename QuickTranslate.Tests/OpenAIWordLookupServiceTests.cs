@@ -156,6 +156,29 @@ public sealed class OpenAIWordLookupServiceTests
     }
 
     [Theory]
+    [InlineData("glm-5.2", true, "enabled")]
+    [InlineData("glm-4-flash", true, null)]
+    public async Task LookupAsync_UsesBigModelThinkingCapabilities(
+        string modelName,
+        bool enableThinking,
+        string? expectedType)
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(FoundEnvelope("run")));
+        using var service = new OpenAIWordLookupService(
+            new WordLookupProviderSettings(
+                "https://open.bigmodel.cn/api/paas/v4",
+                "secret",
+                modelName,
+                "简体中文",
+                enableThinking),
+            handler);
+
+        await service.LookupAsync(new WordLookupRequest("run", ""), CancellationToken.None);
+
+        Assert.Equal(expectedType, handler.ThinkingType);
+    }
+
+    [Theory]
     [InlineData(false, "disabled")]
     [InlineData(true, "enabled")]
     public async Task LookupAsync_SendsDeepSeekThinkingType(bool enableThinking, string expectedType)
