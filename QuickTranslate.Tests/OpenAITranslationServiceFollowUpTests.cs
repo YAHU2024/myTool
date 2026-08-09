@@ -103,7 +103,7 @@ public sealed class OpenAITranslationServiceFollowUpTests
     {
         var handler = new RecordingHandler(_ => SseResponse("ok"));
         using var service = new OpenAITranslationService(
-            Settings("https://open.bigmodel.cn/api/paas/v4", "secret", "glm"),
+            Settings("https://open.bigmodel.cn/api/paas/v4", "secret", "glm-4.7-flash"),
             handler);
         var request = service.CreateAnalysisFollowUpRequest(
             "source",
@@ -119,10 +119,30 @@ public sealed class OpenAITranslationServiceFollowUpTests
     }
 
     [Fact]
+    public async Task ExecuteStreaming_OmitsThinkingForUnsupportedBigModelModel()
+    {
+        var handler = new RecordingHandler(_ => SseResponse("ok"));
+        using var service = new OpenAITranslationService(
+            Settings("https://open.bigmodel.cn/api/paas/v4", "secret", "glm-4-flash"),
+            handler);
+        var request = service.CreateAnalysisFollowUpRequest(
+            "source",
+            "root",
+            new AnalysisSemanticSnapshot("prompt", "简体中文"),
+            [],
+            "question",
+            1);
+
+        await service.ExecuteAnalysisFollowUpStreamingAsync(request, _ => { }, CancellationToken.None);
+
+        Assert.Null(handler.ThinkingType);
+    }
+
+    [Fact]
     public async Task ExecuteStreaming_EnablesThinkingWhenConfigured()
     {
         var handler = new RecordingHandler(_ => SseResponse("ok"));
-        var settings = Settings("https://api.deepseek.com/v1", "secret", "deepseek-chat");
+        var settings = Settings("https://api.deepseek.com/v1", "secret", "deepseek-v4-pro");
         settings.EnableThinking = true;
         using var service = new OpenAITranslationService(settings, handler);
         var request = service.CreateAnalysisFollowUpRequest(
@@ -136,6 +156,108 @@ public sealed class OpenAITranslationServiceFollowUpTests
         await service.ExecuteAnalysisFollowUpStreamingAsync(request, _ => { }, CancellationToken.None);
 
         Assert.Equal("enabled", handler.ThinkingType);
+        Assert.False(handler.HasTemperature);
+    }
+
+    [Fact]
+    public async Task ExecuteStreaming_MapsOpenAIThinkingToReasoningEffort()
+    {
+        var handler = new RecordingHandler(_ => SseResponse("ok"));
+        var settings = Settings("https://api.openai.com/v1", "secret", "gpt-5.4");
+        settings.EnableThinking = true;
+        using var service = new OpenAITranslationService(settings, handler);
+        var request = service.CreateAnalysisFollowUpRequest(
+            "source",
+            "root",
+            new AnalysisSemanticSnapshot("prompt", "简体中文"),
+            [],
+            "question",
+            1);
+
+        await service.ExecuteAnalysisFollowUpStreamingAsync(request, _ => { }, CancellationToken.None);
+
+        Assert.Equal("medium", handler.ReasoningEffort);
+        Assert.False(handler.HasTemperature);
+    }
+
+    [Fact]
+    public async Task ExecuteStreaming_OmitsSiliconFlowThinkingField()
+    {
+        var handler = new RecordingHandler(_ => SseResponse("ok"));
+        var settings = Settings("https://api.siliconflow.cn/v1", "secret", "tencent/Hunyuan-MT-7B");
+        settings.EnableThinking = true;
+        using var service = new OpenAITranslationService(settings, handler);
+        var request = service.CreateAnalysisFollowUpRequest(
+            "source",
+            "root",
+            new AnalysisSemanticSnapshot("prompt", "简体中文"),
+            [],
+            "question",
+            1);
+
+        await service.ExecuteAnalysisFollowUpStreamingAsync(request, _ => { }, CancellationToken.None);
+
+        Assert.False(handler.HasEnableThinking);
+    }
+
+    [Fact]
+    public async Task ExecuteStreaming_SendsThinkingFieldForSiliconFlowQwen3()
+    {
+        var handler = new RecordingHandler(_ => SseResponse("ok"));
+        var settings = Settings("https://api.siliconflow.cn/v1", "secret", "Qwen/Qwen3-8B");
+        settings.EnableThinking = true;
+        using var service = new OpenAITranslationService(settings, handler);
+        var request = service.CreateAnalysisFollowUpRequest(
+            "source",
+            "root",
+            new AnalysisSemanticSnapshot("prompt", "简体中文"),
+            [],
+            "question",
+            1);
+
+        await service.ExecuteAnalysisFollowUpStreamingAsync(request, _ => { }, CancellationToken.None);
+
+        Assert.True(handler.HasEnableThinking);
+    }
+
+    [Fact]
+    public async Task ExecuteStreaming_OmitsThinkingFieldForUnknownSiliconFlowModel()
+    {
+        var handler = new RecordingHandler(_ => SseResponse("ok"));
+        var settings = Settings("https://api.siliconflow.cn/v1", "secret", "unknown-model");
+        settings.EnableThinking = true;
+        using var service = new OpenAITranslationService(settings, handler);
+        var request = service.CreateAnalysisFollowUpRequest(
+            "source",
+            "root",
+            new AnalysisSemanticSnapshot("prompt", "简体中文"),
+            [],
+            "question",
+            1);
+
+        await service.ExecuteAnalysisFollowUpStreamingAsync(request, _ => { }, CancellationToken.None);
+
+        Assert.False(handler.HasEnableThinking);
+    }
+
+    [Fact]
+    public async Task ExecuteStreaming_OmitsThinkingFieldForUnlistedSiliconFlowQwenModel()
+    {
+        var handler = new RecordingHandler(_ => SseResponse("ok"));
+        var settings = Settings("https://api.siliconflow.cn/v1", "secret", "Qwen/Qwen3-4B");
+        settings.EnableThinking = true;
+        using var service = new OpenAITranslationService(settings, handler);
+        var request = service.CreateAnalysisFollowUpRequest(
+            "source",
+            "root",
+            new AnalysisSemanticSnapshot("prompt", "简体中文"),
+            [],
+            "question",
+            1);
+
+        await service.ExecuteAnalysisFollowUpStreamingAsync(request, _ => { }, CancellationToken.None);
+
+        Assert.False(handler.HasEnableThinking);
     }
 
     [Fact]
@@ -227,6 +349,9 @@ public sealed class OpenAITranslationServiceFollowUpTests
         public string? Authorization { get; private set; }
         public string? Model { get; private set; }
         public string? ThinkingType { get; private set; }
+        public string? ReasoningEffort { get; private set; }
+        public bool HasEnableThinking { get; private set; }
+        public bool HasTemperature { get; private set; }
         public List<ChatCompletionMessage> Messages { get; } = [];
 
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -241,6 +366,11 @@ public sealed class OpenAITranslationServiceFollowUpTests
             Model = json.RootElement.GetProperty("model").GetString();
             if (json.RootElement.TryGetProperty("thinking", out var thinking))
                 ThinkingType = thinking.GetProperty("type").GetString();
+            ReasoningEffort = json.RootElement.TryGetProperty("reasoning_effort", out var reasoningEffort)
+                ? reasoningEffort.GetString()
+                : null;
+            HasEnableThinking = json.RootElement.TryGetProperty("enable_thinking", out _);
+            HasTemperature = json.RootElement.TryGetProperty("temperature", out _);
             Messages.Clear();
             Messages.AddRange(json.RootElement.GetProperty("messages").EnumerateArray().Select(message =>
                 new ChatCompletionMessage(

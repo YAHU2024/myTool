@@ -53,7 +53,7 @@ Local dictionary hits stay offline by default. Settings and history remain on yo
 | Translation History | SQLite local persistence · search & filter by time / language · paginated browsing · double-click to copy · Anki-format export |
 | System Integration | Two independent global hotkey sets (select-to-translate / quick lookup) · lookup hotkey has on/off toggle disabled by default · single-click tray lookup · restore latest translation from the context menu · launch on startup · in-browser trigger · single-instance guard |
 | Deep Analysis | 4 built-in presets (general / language-learning / literary / business) · custom profile create / duplicate / edit / delete · multi-turn profile management |
-| Model Access | Custom OpenAI-compatible Base URL and Model · saved configurations grouped by domain · thinking mode disabled by default · explicit thinking control for Zhipu / DeepSeek / SiliconFlow |
+| Model Access | Four built-in provider presets · custom OpenAI-compatible Base URL and Model · saved configurations grouped by domain · thinking mode disabled by default · explicit thinking control for Zhipu / DeepSeek / SiliconFlow / verified OpenAI GPT-5.2/5.4/5.5/5.6 models |
 | Performance | LRU + TTL semantic cache · latest-request-wins conflict protection · request snapshot isolation · live setting changes don't affect in-flight requests |
 | Auto Update | GitHub Release delivery · silent check on startup · system-proxy compatible · Inno Setup dual installer · SHA256 verification |
 | Privacy & Security | Zero-pollution clipboard access · desensitized logs (no original text / API key / prompt body) · local config never uploaded |
@@ -168,7 +168,9 @@ Right-click the tray icon and open the settings window:
 | API Key | Your key | `sk-xxxxxxxxxxxxxxxx` |
 | Model | Model name | `Qwen/Qwen3-8B` |
 
-The model dropdown groups saved configurations by domain and auto-fills URL and Key on selection. Thinking mode is disabled by default. When enabled, Zhipu and DeepSeek use `thinking.type`, while SiliconFlow uses `enable_thinking`; unrecognized providers do not receive an assumed thinking parameter.
+The model dropdown groups saved configurations by domain and auto-fills URL and Key on selection. Thinking mode is disabled by default. Zhipu and DeepSeek use `thinking.type`, SiliconFlow uses `enable_thinking`, and verified OpenAI GPT-5.2/5.4/5.5/5.6 models use `reasoning_effort`. Unsupported or unverified models do not receive an assumed thinking parameter.
+
+On first launch, Settings opens automatically with SiliconFlow `Qwen/Qwen3-8B` selected. The model dropdown includes credential-free presets for SiliconFlow, Zhipu, DeepSeek, and OpenAI; you must still enter your own API key. Existing settings load unchanged. If the settings file cannot be read, QuickTranslate preserves it, loads safe defaults, and asks you to review the configuration before saving.
 
 Quick Lookup shares the translation Base URL, API Key, and Model settings. Local dictionary hits do not require an API key or network; only local misses send the query to the configured provider. AI-generated definitions are learning aids rather than authoritative dictionary data, and uncertain optional fields such as phonetics may be omitted.
 
@@ -181,8 +183,8 @@ Quick Lookup shares the translation Base URL, API Key, and Model settings. Local
 |:-------|:---------|:------|
 | SiliconFlow (free recommended) | `https://api.siliconflow.cn/v1` | `Qwen/Qwen3-8B` |
 | Zhipu GLM | `https://open.bigmodel.cn/api/paas/v4` | `glm-4.7-flash` |
-| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
-| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-v4-flash` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-5.4` |
 
 </details>
 
@@ -222,6 +224,15 @@ QuickTranslate/
 ├── Services/                          # Business services
 │   ├── ITranslationService.cs         # Translation service interface
 │   ├── OpenAITranslationService.cs    # OpenAI-compatible SSE streaming
+│   ├── ProviderKind.cs                # Official API host and provider resolution
+│   ├── ProviderModelCapabilities.cs   # Shared model capability descriptor
+│   ├── ProviderRequestPolicy.cs       # Provider request parameter policy
+│   ├── ProviderHttpError.cs           # Safe provider HTTP error extraction
+│   ├── BigModelModelCapabilities.cs   # Zhipu thinking capabilities
+│   ├── DeepSeekModelCapabilities.cs   # DeepSeek thinking capabilities
+│   ├── SiliconFlowModelCapabilities.cs # SiliconFlow thinking capabilities
+│   ├── OpenAIModelCapabilities.cs     # OpenAI reasoning capabilities
+│   ├── PromptInputContract.cs         # Model input safety and length contract
 │   ├── TranslationCacheService.cs      # Semantic cache (LRU + 30min TTL)
 │   ├── TranslationMetrics.cs          # Metrics (P50/P95/P99)
 │   ├── HistoryExporter.cs             # History export (Anki/CSV)
@@ -233,13 +244,16 @@ QuickTranslate/
 │   ├── TtsTextSelector.cs             # TTS text selector
 │   ├── TtsSpeakException.cs           # TTS exception class
 │   ├── IWordLookupService.cs          # Word lookup service interface
+│   ├── IWordLookupEnrichmentService.cs # AI lookup enrichment interface
 │   ├── OpenAIWordLookupService.cs     # OpenAI-compatible word lookup
 │   ├── LocalDictionaryWordLookupService.cs # ECDICT + OEWN local lookup
 │   ├── CompositeWordLookupService.cs   # Local dictionary first, AI fallback
-│   └── WordLookupPromptBuilder.cs     # Word lookup prompt builder
+│   ├── WordLookupPromptBuilder.cs     # Word lookup prompt builder
+│   └── WordPartOfSpeechNormalizer.cs  # Part-of-speech label normalization
 │
 ├── Models/                            # Data models
 │   ├── AppSettings.cs                 # Settings (multi-model / hotkeys / profiles / update)
+│   ├── ProviderPreset.cs              # Credential-free provider preset catalog
 │   ├── TranslationRequest.cs          # Immutable request snapshot
 │   ├── FloatingResultSession.cs       # Multi-mode session state
 │   ├── AnalysisPromptProfile.cs       # Custom analysis profile

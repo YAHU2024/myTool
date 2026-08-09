@@ -316,8 +316,10 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new HttpRequestException(
-                $"translation request failed ({(int)response.StatusCode})");
+            throw await ProviderHttpError.CreateExceptionAsync(
+                "translation",
+                response,
+                cancellationToken).ConfigureAwait(false);
         }
 
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -403,11 +405,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             ["stream"] = stream
         };
 
-        if (apiBaseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase) ||
-            apiBaseUrl.Contains("deepseek.com", StringComparison.OrdinalIgnoreCase))
-            body["thinking"] = new { type = enableThinking ? "enabled" : "disabled" };
-        else if (apiBaseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
-            body["enable_thinking"] = enableThinking;
+        ProviderRequestPolicy.Apply(body, apiBaseUrl, modelName, enableThinking);
 
         return body;
     }
@@ -430,10 +428,10 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new HttpRequestException(
-                $"{operation} request failed ({(int)response.StatusCode})",
-                inner: null,
-                response.StatusCode);
+            throw await ProviderHttpError.CreateExceptionAsync(
+                operation,
+                response,
+                cancellationToken).ConfigureAwait(false);
         }
 
         var fullResult = new StringBuilder();

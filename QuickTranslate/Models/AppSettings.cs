@@ -36,7 +36,7 @@ namespace QuickTranslate.Models
         /// <summary>
         /// OpenAI 兼容接口的 Base URL
         /// </summary>
-        public string ApiBaseUrl { get; set; } = "https://open.bigmodel.cn/api/paas/v4";
+        public string ApiBaseUrl { get; set; } = ProviderPresetCatalog.Default.ApiBaseUrl;
 
         /// <summary>
         /// API Key
@@ -46,7 +46,7 @@ namespace QuickTranslate.Models
         /// <summary>
         /// 模型名称
         /// </summary>
-        public string ModelName { get; set; } = "glm-4.7-flash";
+        public string ModelName { get; set; } = ProviderPresetCatalog.Default.ModelName;
 
         /// <summary>
         /// 目标翻译语言

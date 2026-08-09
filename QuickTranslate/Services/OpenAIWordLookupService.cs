@@ -173,11 +173,11 @@ public sealed class OpenAIWordLookupService :
         };
         if (SupportsStructuredOutput(settings.ApiBaseUrl, settings.ModelName))
             body["response_format"] = BuildResponseFormat(providerId, userContent);
-        if (baseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase) ||
-            baseUrl.Contains("deepseek.com", StringComparison.OrdinalIgnoreCase))
-            body["thinking"] = new { type = settings.EnableThinking ? "enabled" : "disabled" };
-        else if (baseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
-            body["enable_thinking"] = settings.EnableThinking;
+        ProviderRequestPolicy.Apply(
+            body,
+            baseUrl,
+            settings.ModelName,
+            settings.EnableThinking);
 
         var inputScalars = userContent.EnumerateRunes().Count();
         if (providerId.EndsWith("-enrichment", StringComparison.Ordinal))
@@ -213,7 +213,10 @@ public sealed class OpenAIWordLookupService :
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"Word lookup request failed ({(int)response.StatusCode}).");
+            throw await ProviderHttpError.CreateExceptionAsync(
+                "word lookup",
+                response,
+                cancellationToken).ConfigureAwait(false);
 
         var responseBody = await ReadLimitedAsync(
             response.Content,
@@ -238,11 +241,8 @@ public sealed class OpenAIWordLookupService :
 
     internal static bool SupportsStructuredOutput(string apiBaseUrl, string modelName)
     {
-        if (!Uri.TryCreate(apiBaseUrl, UriKind.Absolute, out var uri) ||
-            !string.Equals(uri.Host, "api.openai.com", StringComparison.OrdinalIgnoreCase))
-        {
+        if (ProviderEndpointResolver.Resolve(apiBaseUrl) != ProviderKind.OpenAI)
             return false;
-        }
 
         return StructuredOutputModelPrefixes.Any(prefix =>
             modelName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));

@@ -133,12 +133,49 @@ public sealed class OpenAIWordLookupServiceTests
         var handler = new RecordingHandler(_ => JsonResponse(FoundEnvelope("run")));
         using var service = new OpenAIWordLookupService(
             new WordLookupProviderSettings(
-                "https://api.siliconflow.cn/v1", "secret", "model-a", "简体中文", EnableThinking: true),
+                "https://api.siliconflow.cn/v1", "secret", "Qwen/Qwen3-8B", "简体中文", EnableThinking: true),
             handler);
 
         await service.LookupAsync(new WordLookupRequest("run", ""), CancellationToken.None);
 
         Assert.True(handler.EnableThinking);
+    }
+
+    [Fact]
+    public async Task LookupAsync_OmitsThinkingForSiliconFlowHunyuanMt()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(FoundEnvelope("run")));
+        using var service = new OpenAIWordLookupService(
+            new WordLookupProviderSettings(
+                "https://api.siliconflow.cn/v1", "secret", "tencent/Hunyuan-MT-7B", "简体中文", EnableThinking: true),
+            handler);
+
+        await service.LookupAsync(new WordLookupRequest("run", ""), CancellationToken.None);
+
+        Assert.Null(handler.EnableThinking);
+    }
+
+    [Theory]
+    [InlineData("glm-5.2", true, "enabled")]
+    [InlineData("glm-4-flash", true, null)]
+    public async Task LookupAsync_UsesBigModelThinkingCapabilities(
+        string modelName,
+        bool enableThinking,
+        string? expectedType)
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(FoundEnvelope("run")));
+        using var service = new OpenAIWordLookupService(
+            new WordLookupProviderSettings(
+                "https://open.bigmodel.cn/api/paas/v4",
+                "secret",
+                modelName,
+                "简体中文",
+                enableThinking),
+            handler);
+
+        await service.LookupAsync(new WordLookupRequest("run", ""), CancellationToken.None);
+
+        Assert.Equal(expectedType, handler.ThinkingType);
     }
 
     [Theory]
@@ -149,12 +186,32 @@ public sealed class OpenAIWordLookupServiceTests
         var handler = new RecordingHandler(_ => JsonResponse(FoundEnvelope("run")));
         using var service = new OpenAIWordLookupService(
             new WordLookupProviderSettings(
-                "https://api.deepseek.com/v1", "secret", "deepseek-chat", "简体中文", enableThinking),
+                "https://api.deepseek.com/v1", "secret", "deepseek-v4-flash", "简体中文", enableThinking),
             handler);
 
         await service.LookupAsync(new WordLookupRequest("run", ""), CancellationToken.None);
 
         Assert.Equal(expectedType, handler.ThinkingType);
+    }
+
+    [Theory]
+    [InlineData(false, "none", true)]
+    [InlineData(true, "medium", false)]
+    public async Task LookupAsync_UsesOpenAIReasoningCapabilities(
+        bool enableThinking,
+        string expectedEffort,
+        bool expectedTemperature)
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(FoundEnvelope("run")));
+        using var service = new OpenAIWordLookupService(
+            new WordLookupProviderSettings(
+                "https://api.openai.com/v1", "secret", "gpt-5.4", "简体中文", enableThinking),
+            handler);
+
+        await service.LookupAsync(new WordLookupRequest("run", ""), CancellationToken.None);
+
+        Assert.Equal(expectedEffort, handler.ReasoningEffort);
+        Assert.Equal(expectedTemperature, handler.HasTemperature);
     }
 
     [Fact]
@@ -335,6 +392,8 @@ public sealed class OpenAIWordLookupServiceTests
         public string? ResponseFormatType { get; private set; }
         public bool? EnableThinking { get; private set; }
         public string? ThinkingType { get; private set; }
+        public string? ReasoningEffort { get; private set; }
+        public bool HasTemperature { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -356,6 +415,10 @@ public sealed class OpenAIWordLookupServiceTests
             ThinkingType = json.RootElement.TryGetProperty("thinking", out var thinking)
                 ? thinking.GetProperty("type").GetString()
                 : null;
+            ReasoningEffort = json.RootElement.TryGetProperty("reasoning_effort", out var reasoningEffort)
+                ? reasoningEffort.GetString()
+                : null;
+            HasTemperature = json.RootElement.TryGetProperty("temperature", out _);
             return await _response(new RecordedRequest(cancellationToken));
         }
     }

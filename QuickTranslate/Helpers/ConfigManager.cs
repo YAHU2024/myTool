@@ -6,6 +6,13 @@ using QuickTranslate.Services;
 
 namespace QuickTranslate.Helpers
 {
+    public enum ConfigLoadStatus
+    {
+        Loaded,
+        FirstLaunch,
+        Corrupted
+    }
+
     /// <summary>
     /// Configuration manager with atomic saves, corruption recovery,
     /// and injectable paths for testing.
@@ -39,6 +46,11 @@ namespace QuickTranslate.Helpers
         /// Error category from the most recent Load(), or null on success.
         /// </summary>
         public static string? LastLoadError { get; private set; }
+
+        /// <summary>
+        /// Outcome of the most recent Load() operation.
+        /// </summary>
+        public static ConfigLoadStatus LastLoadStatus { get; private set; } = ConfigLoadStatus.Loaded;
 
         /// <summary>
         /// Load configuration. On first launch or corruption, returns defaults
@@ -78,10 +90,12 @@ namespace QuickTranslate.Helpers
         {
             LastLoadHadCorruption = false;
             LastLoadError = null;
+            LastLoadStatus = ConfigLoadStatus.Loaded;
 
             if (!File.Exists(_configFilePath))
             {
                 // First launch — return defaults; do not persist until first Save().
+                LastLoadStatus = ConfigLoadStatus.FirstLaunch;
                 return new AppSettings();
             }
 
@@ -94,6 +108,7 @@ namespace QuickTranslate.Helpers
             {
                 LastLoadHadCorruption = true;
                 LastLoadError = "access_denied";
+                LastLoadStatus = ConfigLoadStatus.Corrupted;
                 Logger.Error("ConfigManager", "config.load_access_denied",
                     new { error_type = "UnauthorizedAccessException" });
                 return new AppSettings();
@@ -102,6 +117,7 @@ namespace QuickTranslate.Helpers
             {
                 LastLoadHadCorruption = true;
                 LastLoadError = "io_error";
+                LastLoadStatus = ConfigLoadStatus.Corrupted;
                 Logger.Error("ConfigManager", "config.load_io_error",
                     new { error_type = ex.GetType().Name });
                 return new AppSettings();
@@ -117,6 +133,7 @@ namespace QuickTranslate.Helpers
                 // Corrupted JSON — preserve original file, load defaults.
                 LastLoadHadCorruption = true;
                 LastLoadError = "json_corrupt";
+                LastLoadStatus = ConfigLoadStatus.Corrupted;
                 Logger.Error("ConfigManager", "config.json_corrupt",
                     new { error_type = "JsonException" });
                 return new AppSettings();
@@ -127,6 +144,7 @@ namespace QuickTranslate.Helpers
                 // Valid JSON but deserialized to null.
                 LastLoadHadCorruption = true;
                 LastLoadError = "json_null";
+                LastLoadStatus = ConfigLoadStatus.Corrupted;
                 Logger.Error("ConfigManager", "config.deserialize_null",
                     new { error_type = "NullResult" });
                 return new AppSettings();

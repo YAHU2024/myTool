@@ -78,6 +78,7 @@ public partial class App : Application
 
         // 加载配置
         _settings = ConfigManager.Load();
+        var configLoadStatus = ConfigManager.LastLoadStatus;
 
         // 初始化日志系统
 #if DEBUG
@@ -284,6 +285,13 @@ public partial class App : Application
             Visibility = Visibility.Hidden
         };
         _hiddenWindow.Show();
+
+        if (configLoadStatus != ConfigLoadStatus.Loaded)
+        {
+            Dispatcher.BeginInvoke(
+                DispatcherPriority.ApplicationIdle,
+                new Action(() => ShowStartupConfiguration(configLoadStatus)));
+        }
 
         // 启动时延迟检查更新（不阻塞初始化）
         // 将 Authenticode 验证策略注入 UpdateService
@@ -1233,6 +1241,26 @@ public partial class App : Application
             _settingsWindow.Closed += (s, e) => _settingsWindow = null;
             _settingsWindow.Show();
         });
+    }
+
+    private void ShowStartupConfiguration(ConfigLoadStatus status)
+    {
+        OnSettingsRequested();
+        if (_settingsWindow is null)
+            return;
+
+        if (status == ConfigLoadStatus.FirstLaunch)
+        {
+            _settingsWindow.ShowConfigurationNotice(
+                "首次使用，请确认供应商和模型并填写 API Key。",
+                isWarning: false);
+        }
+        else if (status == ConfigLoadStatus.Corrupted)
+        {
+            _settingsWindow.ShowConfigurationNotice(
+                "原配置无法读取，已加载安全默认值；原文件仍保留，请确认后重新保存。",
+                isWarning: true);
+        }
     }
 
     /// <summary>

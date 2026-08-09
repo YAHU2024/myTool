@@ -45,9 +45,11 @@ public class ConfigManagerTests : IDisposable
         var settings = mgr.LoadInternal();
 
         Assert.NotNull(settings);
-        Assert.Equal("https://open.bigmodel.cn/api/paas/v4", settings.ApiBaseUrl);
+        Assert.Equal("https://api.siliconflow.cn/v1", settings.ApiBaseUrl);
+        Assert.Equal("Qwen/Qwen3-8B", settings.ModelName);
         Assert.False(File.Exists(ConfigPath));
         Assert.False(ConfigManager.LastLoadHadCorruption);
+        Assert.Equal(ConfigLoadStatus.FirstLaunch, ConfigManager.LastLoadStatus);
     }
 
     [Fact]
@@ -60,6 +62,25 @@ public class ConfigManagerTests : IDisposable
         Assert.True(File.Exists(ConfigPath));
         var json = File.ReadAllText(ConfigPath);
         Assert.Contains("test-key", json);
+    }
+
+    [Fact]
+    public void Load_PreservesExistingProviderConfiguration()
+    {
+        var mgr = CreateManager();
+        mgr.SaveInternal(new AppSettings
+        {
+            ApiBaseUrl = "https://open.bigmodel.cn/api/paas/v4",
+            ApiKey = "existing-key",
+            ModelName = "glm-4.7-flash"
+        });
+
+        var settings = mgr.LoadInternal();
+
+        Assert.Equal("https://open.bigmodel.cn/api/paas/v4", settings.ApiBaseUrl);
+        Assert.Equal("existing-key", settings.ApiKey);
+        Assert.Equal("glm-4.7-flash", settings.ModelName);
+        Assert.Equal(ConfigLoadStatus.Loaded, ConfigManager.LastLoadStatus);
     }
 
     // =========================================================================
@@ -187,11 +208,12 @@ public class ConfigManagerTests : IDisposable
 
         // Load should return defaults.
         Assert.NotNull(settings);
-        Assert.Equal("https://open.bigmodel.cn/api/paas/v4", settings.ApiBaseUrl);
+        Assert.Equal("https://api.siliconflow.cn/v1", settings.ApiBaseUrl);
 
         // Corruption flag must be set.
         Assert.True(ConfigManager.LastLoadHadCorruption);
         Assert.Equal("json_corrupt", ConfigManager.LastLoadError);
+        Assert.Equal(ConfigLoadStatus.Corrupted, ConfigManager.LastLoadStatus);
     }
 
     [Fact]
@@ -214,6 +236,7 @@ public class ConfigManagerTests : IDisposable
         Assert.True(string.IsNullOrEmpty(settings.ApiKey));
 
         Assert.True(ConfigManager.LastLoadHadCorruption);
+        Assert.Equal(ConfigLoadStatus.Corrupted, ConfigManager.LastLoadStatus);
     }
 
     [Fact]
@@ -228,6 +251,7 @@ public class ConfigManagerTests : IDisposable
         Assert.True(File.Exists(ConfigPath));
         Assert.NotNull(settings);
         Assert.True(ConfigManager.LastLoadHadCorruption);
+        Assert.Equal(ConfigLoadStatus.Corrupted, ConfigManager.LastLoadStatus);
     }
 
     [Fact]
@@ -243,6 +267,7 @@ public class ConfigManagerTests : IDisposable
         Assert.NotNull(settings);
         Assert.True(ConfigManager.LastLoadHadCorruption);
         Assert.Equal("json_null", ConfigManager.LastLoadError);
+        Assert.Equal(ConfigLoadStatus.Corrupted, ConfigManager.LastLoadStatus);
     }
 
     // =========================================================================
@@ -258,6 +283,7 @@ public class ConfigManagerTests : IDisposable
 
         Assert.False(ConfigManager.LastLoadHadCorruption);
         Assert.Null(ConfigManager.LastLoadError);
+        Assert.Equal(ConfigLoadStatus.FirstLaunch, ConfigManager.LastLoadStatus);
     }
 
     [Fact]
@@ -271,6 +297,7 @@ public class ConfigManagerTests : IDisposable
 
         Assert.True(ConfigManager.LastLoadHadCorruption);
         Assert.Equal("json_corrupt", ConfigManager.LastLoadError);
+        Assert.Equal(ConfigLoadStatus.Corrupted, ConfigManager.LastLoadStatus);
     }
 
     [Fact]

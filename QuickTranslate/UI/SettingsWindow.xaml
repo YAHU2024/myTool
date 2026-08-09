@@ -351,7 +351,7 @@
                             <TextBlock Grid.Row="2" Text="模型" Style="{StaticResource LabelStyle}"/>
                             <ComboBox x:Name="ModelComboBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource DarkComboBox}" IsEditable="True" SelectionChanged="ModelComboBox_SelectionChanged" LostFocus="Input_LostFocus"/>
                             <Button x:Name="DeleteConfigButton" Grid.Row="2" Grid.Column="2" Content="删除" Style="{StaticResource DangerButton}" Padding="10,6" Margin="8,2,0,2" IsEnabled="False" Click="DeleteConfigButton_Click" ToolTip="删除当前已保存的模型配置"/>
-                            <TextBlock x:Name="ModelFeedbackText" Grid.Row="3" Grid.Column="1" Foreground="#6DD6A5" FontSize="11" Margin="0,2,0,0" Visibility="Collapsed"/>
+                            <TextBlock x:Name="ModelFeedbackText" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Foreground="#6DD6A5" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
                         </Grid>
                     </StackPanel>
                 </Border>
