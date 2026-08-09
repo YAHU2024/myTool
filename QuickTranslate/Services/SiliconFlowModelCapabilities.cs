@@ -1,9 +1,5 @@
 namespace QuickTranslate.Services;
 
-internal sealed record SiliconFlowModelCapabilities(
-    bool SupportsThinking,
-    string ThinkingParameterName = "enable_thinking");
-
 internal static class SiliconFlowModelCapabilitiesResolver
 {
     private static readonly HashSet<string> ThinkingModels = new(StringComparer.OrdinalIgnoreCase)
@@ -29,18 +25,19 @@ internal static class SiliconFlowModelCapabilitiesResolver
         "Qwen/Qwen3.5-4B"
     };
 
-    private static readonly SiliconFlowModelCapabilities ThinkingModel = new(true);
-    private static readonly SiliconFlowModelCapabilities NoThinkingModel = new(false);
+    private static readonly ProviderModelCapabilities ThinkingModel = new(
+        ThinkingParameterStyle.EnableThinkingBoolean,
+        []);
 
-    public static SiliconFlowModelCapabilities Resolve(string modelName)
+    public static ProviderModelCapabilities Resolve(string modelName)
     {
         if (string.IsNullOrWhiteSpace(modelName))
-            return NoThinkingModel;
+            return ProviderModelCapabilities.None;
 
         var model = modelName.Trim();
         if (ThinkingModels.Contains(model))
             return ThinkingModel;
 
-        return NoThinkingModel;
+        return ProviderModelCapabilities.None;
     }
 }

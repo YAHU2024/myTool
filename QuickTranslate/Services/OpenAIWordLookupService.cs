@@ -173,20 +173,11 @@ public sealed class OpenAIWordLookupService :
         };
         if (SupportsStructuredOutput(settings.ApiBaseUrl, settings.ModelName))
             body["response_format"] = BuildResponseFormat(providerId, userContent);
-        if (baseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase))
-        {
-            var capabilities = BigModelModelCapabilitiesResolver.Resolve(settings.ModelName);
-            if (capabilities.SupportsThinking)
-                body["thinking"] = new { type = settings.EnableThinking ? "enabled" : "disabled" };
-        }
-        else if (baseUrl.Contains("deepseek.com", StringComparison.OrdinalIgnoreCase))
-            body["thinking"] = new { type = settings.EnableThinking ? "enabled" : "disabled" };
-        else if (baseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
-        {
-            var capabilities = SiliconFlowModelCapabilitiesResolver.Resolve(settings.ModelName);
-            if (capabilities.SupportsThinking)
-                body[capabilities.ThinkingParameterName] = settings.EnableThinking;
-        }
+        ProviderRequestPolicy.Apply(
+            body,
+            baseUrl,
+            settings.ModelName,
+            settings.EnableThinking);
 
         var inputScalars = userContent.EnumerateRunes().Count();
         if (providerId.EndsWith("-enrichment", StringComparison.Ordinal))
@@ -222,7 +213,10 @@ public sealed class OpenAIWordLookupService :
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"Word lookup request failed ({(int)response.StatusCode}).");
+            throw await ProviderHttpError.CreateExceptionAsync(
+                "word lookup",
+                response,
+                cancellationToken).ConfigureAwait(false);
 
         var responseBody = await ReadLimitedAsync(
             response.Content,

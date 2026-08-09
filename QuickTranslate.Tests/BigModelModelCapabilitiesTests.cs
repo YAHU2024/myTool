@@ -22,6 +22,6 @@ public sealed class BigModelModelCapabilitiesTests
         var capabilities = BigModelModelCapabilitiesResolver.Resolve(modelName);
 
         Assert.Equal(supportsThinking, capabilities.SupportsThinking);
-        Assert.Equal(supportsReasoningEffort, capabilities.SupportsReasoningEffort);
+        Assert.Equal(supportsReasoningEffort, capabilities.SupportedReasoningEfforts.Count > 0);
     }
 }

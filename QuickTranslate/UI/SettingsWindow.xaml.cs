@@ -64,6 +64,7 @@ namespace QuickTranslate.UI
             // 智能内容识别
             SmartContentTypeCheckBox.IsChecked = _settings.SmartContentType;
             ThinkingModeCheckBox.IsChecked = _settings.EnableThinking;
+            RefreshThinkingModeAvailability();
 
             // 自定义翻译提示词
             CustomTranslationPromptTextBox.Text = _settings.CustomTranslationPrompt;
@@ -308,6 +309,19 @@ namespace QuickTranslate.UI
                 };
                 timer.Start();
             }
+
+            RefreshThinkingModeAvailability();
+        }
+
+        private void RefreshThinkingModeAvailability()
+        {
+            var capabilities = ProviderRequestPolicy.ResolveCapabilities(
+                ApiBaseUrlTextBox.Text?.Trim() ?? string.Empty,
+                ModelComboBox.Text?.Trim() ?? string.Empty);
+            ThinkingModeCheckBox.IsEnabled = capabilities.SupportsThinking;
+            ThinkingModeCheckBox.ToolTip = capabilities.SupportsThinking
+                ? "控制当前模型的思考模式"
+                : "当前供应商或模型未声明支持思考模式";
         }
 
         /// <summary>
@@ -495,6 +509,8 @@ namespace QuickTranslate.UI
         {
             if (_isInitializing) return;
             _isDirty = true;
+            if (ReferenceEquals(sender, ApiBaseUrlTextBox) || ReferenceEquals(sender, ModelComboBox))
+                RefreshThinkingModeAvailability();
         }
 
         // ==================== 保存/取消/关闭 ====================

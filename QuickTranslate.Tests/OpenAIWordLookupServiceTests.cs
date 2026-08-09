@@ -186,7 +186,7 @@ public sealed class OpenAIWordLookupServiceTests
         var handler = new RecordingHandler(_ => JsonResponse(FoundEnvelope("run")));
         using var service = new OpenAIWordLookupService(
             new WordLookupProviderSettings(
-                "https://api.deepseek.com/v1", "secret", "deepseek-chat", "简体中文", enableThinking),
+                "https://api.deepseek.com/v1", "secret", "deepseek-v4-flash", "简体中文", enableThinking),
             handler);
 
         await service.LookupAsync(new WordLookupRequest("run", ""), CancellationToken.None);

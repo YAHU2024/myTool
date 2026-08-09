@@ -142,7 +142,7 @@ public sealed class OpenAITranslationServiceFollowUpTests
     public async Task ExecuteStreaming_EnablesThinkingWhenConfigured()
     {
         var handler = new RecordingHandler(_ => SseResponse("ok"));
-        var settings = Settings("https://api.deepseek.com/v1", "secret", "deepseek-chat");
+        var settings = Settings("https://api.deepseek.com/v1", "secret", "deepseek-v4-pro");
         settings.EnableThinking = true;
         using var service = new OpenAITranslationService(settings, handler);
         var request = service.CreateAnalysisFollowUpRequest(
@@ -156,6 +156,7 @@ public sealed class OpenAITranslationServiceFollowUpTests
         await service.ExecuteAnalysisFollowUpStreamingAsync(request, _ => { }, CancellationToken.None);
 
         Assert.Equal("enabled", handler.ThinkingType);
+        Assert.False(handler.HasTemperature);
     }
 
     [Fact]
@@ -328,6 +329,7 @@ public sealed class OpenAITranslationServiceFollowUpTests
         public string? Model { get; private set; }
         public string? ThinkingType { get; private set; }
         public bool HasEnableThinking { get; private set; }
+        public bool HasTemperature { get; private set; }
         public List<ChatCompletionMessage> Messages { get; } = [];
 
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -343,6 +345,7 @@ public sealed class OpenAITranslationServiceFollowUpTests
             if (json.RootElement.TryGetProperty("thinking", out var thinking))
                 ThinkingType = thinking.GetProperty("type").GetString();
             HasEnableThinking = json.RootElement.TryGetProperty("enable_thinking", out _);
+            HasTemperature = json.RootElement.TryGetProperty("temperature", out _);
             Messages.Clear();
             Messages.AddRange(json.RootElement.GetProperty("messages").EnumerateArray().Select(message =>
                 new ChatCompletionMessage(

@@ -1,9 +1,5 @@
 namespace QuickTranslate.Services;
 
-internal sealed record BigModelModelCapabilities(
-    bool SupportsThinking,
-    bool SupportsReasoningEffort);
-
 internal static class BigModelModelCapabilitiesResolver
 {
     private static readonly string[] ThinkingModelFamilies =
@@ -20,20 +16,26 @@ internal static class BigModelModelCapabilitiesResolver
         "glm-4.5"
     ];
 
-    private static readonly BigModelModelCapabilities NoThinkingModel = new(false, false);
+    private static readonly ProviderModelCapabilities ThinkingModel = new(
+        ThinkingParameterStyle.ThinkingObject,
+        []);
 
-    public static BigModelModelCapabilities Resolve(string modelName)
+    private static readonly ProviderModelCapabilities ReasoningEffortModel = new(
+        ThinkingParameterStyle.ThinkingObject,
+        ["max", "xhigh", "high", "medium", "low", "minimal", "none"]);
+
+    public static ProviderModelCapabilities Resolve(string modelName)
     {
         if (string.IsNullOrWhiteSpace(modelName))
-            return NoThinkingModel;
+            return ProviderModelCapabilities.None;
 
         var model = modelName.Trim();
         if (!ThinkingModelFamilies.Any(family => IsFamily(model, family)))
-            return NoThinkingModel;
+            return ProviderModelCapabilities.None;
 
-        return new BigModelModelCapabilities(
-            SupportsThinking: true,
-            SupportsReasoningEffort: IsFamily(model, "glm-5.2"));
+        return IsFamily(model, "glm-5.2")
+            ? ReasoningEffortModel
+            : ThinkingModel;
     }
 
     private static bool IsFamily(string modelName, string family) =>
