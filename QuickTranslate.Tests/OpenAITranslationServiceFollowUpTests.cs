@@ -160,6 +160,27 @@ public sealed class OpenAITranslationServiceFollowUpTests
     }
 
     [Fact]
+    public async Task ExecuteStreaming_MapsOpenAIThinkingToReasoningEffort()
+    {
+        var handler = new RecordingHandler(_ => SseResponse("ok"));
+        var settings = Settings("https://api.openai.com/v1", "secret", "gpt-5.4");
+        settings.EnableThinking = true;
+        using var service = new OpenAITranslationService(settings, handler);
+        var request = service.CreateAnalysisFollowUpRequest(
+            "source",
+            "root",
+            new AnalysisSemanticSnapshot("prompt", "简体中文"),
+            [],
+            "question",
+            1);
+
+        await service.ExecuteAnalysisFollowUpStreamingAsync(request, _ => { }, CancellationToken.None);
+
+        Assert.Equal("medium", handler.ReasoningEffort);
+        Assert.False(handler.HasTemperature);
+    }
+
+    [Fact]
     public async Task ExecuteStreaming_OmitsSiliconFlowThinkingField()
     {
         var handler = new RecordingHandler(_ => SseResponse("ok"));
@@ -328,6 +349,7 @@ public sealed class OpenAITranslationServiceFollowUpTests
         public string? Authorization { get; private set; }
         public string? Model { get; private set; }
         public string? ThinkingType { get; private set; }
+        public string? ReasoningEffort { get; private set; }
         public bool HasEnableThinking { get; private set; }
         public bool HasTemperature { get; private set; }
         public List<ChatCompletionMessage> Messages { get; } = [];
@@ -344,6 +366,9 @@ public sealed class OpenAITranslationServiceFollowUpTests
             Model = json.RootElement.GetProperty("model").GetString();
             if (json.RootElement.TryGetProperty("thinking", out var thinking))
                 ThinkingType = thinking.GetProperty("type").GetString();
+            ReasoningEffort = json.RootElement.TryGetProperty("reasoning_effort", out var reasoningEffort)
+                ? reasoningEffort.GetString()
+                : null;
             HasEnableThinking = json.RootElement.TryGetProperty("enable_thinking", out _);
             HasTemperature = json.RootElement.TryGetProperty("temperature", out _);
             Messages.Clear();

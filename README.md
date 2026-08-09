@@ -145,7 +145,7 @@ SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支
 | 翻译历史 | SQLite 本地持久化 · 按时间/语言搜索筛选 · 分页浏览 · 双击复制 · Anki 格式导出 |
 | 系统集成 | 两套独立全局快捷键（划词翻译 / 快速查词）· 查词快捷键带开关默认关闭 · 托盘单击快速查词 · 右键恢复最近翻译 · 开机自启 · 浏览器内触发 · 单实例保护 |
 | 深度解析 | 4 种内置预设（通用/语言学习/文学赏析/商务） · 自定义方案新建/复制/编辑/删除 · 多轮方案管理 |
-| 模型接入 | 自定义 OpenAI 兼容 Base URL 与 Model · 已保存配置按域名分组 · 思考模式开关默认关闭 · 智谱/DeepSeek/SiliconFlow 显式启停思考 |
+| 模型接入 | 自定义 OpenAI 兼容 Base URL 与 Model · 已保存配置按域名分组 · 思考模式开关默认关闭 · 智谱/DeepSeek/SiliconFlow/OpenAI 显式启停思考 |
 | 性能优化 | LRU+TTL 语义缓存 · latest-request-wins 请求冲突防护 · 请求快照隔离 · 设置修改不影响运行中请求 |
 | 自动更新 | GitHub Release 分发 · 启动时静默检查 · 系统代理兼容 · Inno Setup 双版本安装包 · SHA256 校验 |
 | 隐私安全 | 零污染剪贴板获取 · 日志脱敏（不记录原文/API Key/Prompt 正文） · 本地配置不上传 |
@@ -200,7 +200,7 @@ dotnet run
 | API Key | 你的密钥 | `sk-xxxxxxxxxxxxxxxx` |
 | Model | 模型名称 | `Qwen/Qwen3-8B` |
 
-模型下拉框按域名分组展示已保存配置，选中自动填充 URL 和 Key。思考模式默认关闭；开启后，智谱与 DeepSeek 使用 `thinking.type`，SiliconFlow 使用 `enable_thinking`。其他 Provider 不会自动附加未经适配的思考参数。
+模型下拉框按域名分组展示已保存配置，选中自动填充 URL 和 Key。思考模式默认关闭；智谱与 DeepSeek 使用 `thinking.type`，SiliconFlow 使用 `enable_thinking`，已适配的 OpenAI GPT-5.2/5.4/5.5/5.6 系列使用 `reasoning_effort`。不支持或未经验证的模型不会自动附加思考参数。
 
 快速查词与翻译使用同一组 Base URL、API Key 和 Model 配置。本地词典命中时不需要 API Key 或网络；本地未命中，或用户主动点击“AI 补全中文”时，相关查词内容才会发送到所配置的 Provider。AI 生成或翻译的内容用于辅助理解，不代表权威词典数据；音标等不确定字段可能省略。
 
@@ -213,8 +213,8 @@ dotnet run
 |:-------|:---------|:------|
 | 硅基流动（推荐） | `https://api.siliconflow.cn/v1` | `Qwen/Qwen3-8B` |
 | 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` | `glm-4.7-flash` |
-| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
-| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-v4-flash` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-5.4` |
 
 </details>
 
@@ -254,6 +254,15 @@ QuickTranslate/
 ├── Services/                          # 业务服务
 │   ├── ITranslationService.cs         # 翻译服务接口
 │   ├── OpenAITranslationService.cs    # OpenAI 兼容 SSE 流式翻译
+│   ├── ProviderKind.cs                # 官方 API Host 与供应商类型解析
+│   ├── ProviderModelCapabilities.cs   # 公共模型能力描述
+│   ├── ProviderRequestPolicy.cs       # 供应商请求参数策略
+│   ├── ProviderHttpError.cs           # 安全的供应商 HTTP 错误提取
+│   ├── BigModelModelCapabilities.cs   # 智谱模型思考能力
+│   ├── DeepSeekModelCapabilities.cs   # DeepSeek 模型思考能力
+│   ├── SiliconFlowModelCapabilities.cs # SiliconFlow 模型思考能力
+│   ├── OpenAIModelCapabilities.cs     # OpenAI 模型推理能力
+│   ├── PromptInputContract.cs         # 模型输入安全与长度契约
 │   ├── TranslationCacheService.cs     # 语义缓存（LRU + 30min TTL）
 │   ├── TranslationMetrics.cs          # 指标统计（P50/P95/P99）
 │   ├── HistoryExporter.cs             # 翻译历史导出（Anki/CSV）
@@ -265,10 +274,12 @@ QuickTranslate/
 │   ├── TtsTextSelector.cs             # TTS 文本选择器
 │   ├── TtsSpeakException.cs           # TTS 异常类
 │   ├── IWordLookupService.cs          # 查词服务接口
+│   ├── IWordLookupEnrichmentService.cs # AI 查词增强接口
 │   ├── OpenAIWordLookupService.cs     # OpenAI 兼容查词服务
 │   ├── LocalDictionaryWordLookupService.cs # ECDICT + OEWN 本地查词
 │   ├── CompositeWordLookupService.cs   # 本地词典优先，AI 兜底
-│   └── WordLookupPromptBuilder.cs     # 查词 Prompt 构建器
+│   ├── WordLookupPromptBuilder.cs     # 查词 Prompt 构建器
+│   └── WordPartOfSpeechNormalizer.cs  # 词性标签标准化
 │
 ├── Models/                            # 数据模型
 │   ├── AppSettings.cs                 # 配置模型（多模型/快捷键/解析预设/更新设置）

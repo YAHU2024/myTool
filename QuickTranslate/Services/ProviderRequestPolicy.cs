@@ -12,14 +12,14 @@ internal static class ProviderRequestPolicy
 
     public static ProviderModelCapabilities ResolveCapabilities(string apiBaseUrl, string modelName)
     {
-        if (apiBaseUrl.Contains("bigmodel.cn", StringComparison.OrdinalIgnoreCase))
-            return BigModelModelCapabilitiesResolver.Resolve(modelName);
-        if (apiBaseUrl.Contains("deepseek.com", StringComparison.OrdinalIgnoreCase))
-            return DeepSeekModelCapabilitiesResolver.Resolve(modelName);
-        if (apiBaseUrl.Contains("siliconflow", StringComparison.OrdinalIgnoreCase))
-            return SiliconFlowModelCapabilitiesResolver.Resolve(modelName);
-
-        return ProviderModelCapabilities.None;
+        return ProviderEndpointResolver.Resolve(apiBaseUrl) switch
+        {
+            ProviderKind.BigModel => BigModelModelCapabilitiesResolver.Resolve(modelName),
+            ProviderKind.DeepSeek => DeepSeekModelCapabilitiesResolver.Resolve(modelName),
+            ProviderKind.SiliconFlow => SiliconFlowModelCapabilitiesResolver.Resolve(modelName),
+            ProviderKind.OpenAI => OpenAIModelCapabilitiesResolver.Resolve(modelName),
+            _ => ProviderModelCapabilities.None
+        };
     }
 
     public static ProviderModelCapabilities Apply(
@@ -40,6 +40,13 @@ internal static class ProviderRequestPolicy
                 break;
             case ThinkingParameterStyle.EnableThinkingBoolean:
                 body["enable_thinking"] = enableThinking;
+                break;
+            case ThinkingParameterStyle.ReasoningEffort:
+                var effort = enableThinking
+                    ? capabilities.EnabledReasoningEffort
+                    : capabilities.DisabledReasoningEffort;
+                if (!string.IsNullOrWhiteSpace(effort))
+                    body["reasoning_effort"] = effort;
                 break;
         }
 

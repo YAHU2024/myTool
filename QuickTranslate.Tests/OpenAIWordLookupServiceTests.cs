@@ -194,6 +194,26 @@ public sealed class OpenAIWordLookupServiceTests
         Assert.Equal(expectedType, handler.ThinkingType);
     }
 
+    [Theory]
+    [InlineData(false, "none", true)]
+    [InlineData(true, "medium", false)]
+    public async Task LookupAsync_UsesOpenAIReasoningCapabilities(
+        bool enableThinking,
+        string expectedEffort,
+        bool expectedTemperature)
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(FoundEnvelope("run")));
+        using var service = new OpenAIWordLookupService(
+            new WordLookupProviderSettings(
+                "https://api.openai.com/v1", "secret", "gpt-5.4", "简体中文", enableThinking),
+            handler);
+
+        await service.LookupAsync(new WordLookupRequest("run", ""), CancellationToken.None);
+
+        Assert.Equal(expectedEffort, handler.ReasoningEffort);
+        Assert.Equal(expectedTemperature, handler.HasTemperature);
+    }
+
     [Fact]
     public async Task LookupAsync_UsesOneSettingsSnapshotPerRequest()
     {
@@ -372,6 +392,8 @@ public sealed class OpenAIWordLookupServiceTests
         public string? ResponseFormatType { get; private set; }
         public bool? EnableThinking { get; private set; }
         public string? ThinkingType { get; private set; }
+        public string? ReasoningEffort { get; private set; }
+        public bool HasTemperature { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -393,6 +415,10 @@ public sealed class OpenAIWordLookupServiceTests
             ThinkingType = json.RootElement.TryGetProperty("thinking", out var thinking)
                 ? thinking.GetProperty("type").GetString()
                 : null;
+            ReasoningEffort = json.RootElement.TryGetProperty("reasoning_effort", out var reasoningEffort)
+                ? reasoningEffort.GetString()
+                : null;
+            HasTemperature = json.RootElement.TryGetProperty("temperature", out _);
             return await _response(new RecordedRequest(cancellationToken));
         }
     }

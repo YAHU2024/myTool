@@ -5,6 +5,19 @@ namespace QuickTranslate.Tests;
 
 public sealed class ProviderRequestPolicyTests
 {
+    [Theory]
+    [InlineData("https://open.bigmodel.cn/api/paas/v4", "BigModel")]
+    [InlineData("https://api.deepseek.com/v1", "DeepSeek")]
+    [InlineData("https://api.siliconflow.cn/v1", "SiliconFlow")]
+    [InlineData("https://api.openai.com/v1", "OpenAI")]
+    [InlineData("https://api.openai.com.evil.example/v1", "Unknown")]
+    [InlineData("https://chat.openai.com/v1", "Unknown")]
+    [InlineData("not-a-url", "Unknown")]
+    public void ResolveProvider_UsesNormalizedHost(string apiBaseUrl, string expected)
+    {
+        Assert.Equal(expected, ProviderEndpointResolver.Resolve(apiBaseUrl).ToString());
+    }
+
     [Fact]
     public void ResolveCapabilities_DescribesDeepSeekThinkingContract()
     {
@@ -65,6 +78,87 @@ public sealed class ProviderRequestPolicyTests
             enableThinking: false);
 
         Assert.Equal("disabled", GetThinkingType(body));
+        Assert.Contains("temperature", body.Keys);
+    }
+
+    [Fact]
+    public void ResolveCapabilities_DescribesCurrentOpenAIReasoningModels()
+    {
+        var capabilities = ProviderRequestPolicy.ResolveCapabilities(
+            "https://api.openai.com/v1",
+            "gpt-5.6");
+
+        Assert.Equal(ThinkingParameterStyle.ReasoningEffort, capabilities.ThinkingStyle);
+        Assert.Equal(["none", "low", "medium", "high", "xhigh", "max"], capabilities.SupportedReasoningEfforts);
+        Assert.Equal("medium", capabilities.EnabledReasoningEffort);
+        Assert.Equal("none", capabilities.DisabledReasoningEffort);
+        Assert.True(capabilities.OmitSamplingParametersWhenThinking);
+    }
+
+    [Theory]
+    [InlineData("gpt-5.2")]
+    [InlineData("gpt-5.4-mini")]
+    [InlineData("gpt-5.5")]
+    public void ResolveCapabilities_SupportsVerifiedOpenAIReasoningFamilies(string modelName)
+    {
+        var capabilities = ProviderRequestPolicy.ResolveCapabilities(
+            "https://api.openai.com/v1",
+            modelName);
+
+        Assert.True(capabilities.SupportsThinking);
+        Assert.DoesNotContain("max", capabilities.SupportedReasoningEfforts);
+    }
+
+    [Theory]
+    [InlineData("gpt-4o-mini")]
+    [InlineData("o3")]
+    [InlineData("unknown-model")]
+    public void ResolveCapabilities_UsesConservativeFallbackForUnverifiedOpenAIModel(string modelName)
+    {
+        var capabilities = ProviderRequestPolicy.ResolveCapabilities(
+            "https://api.openai.com/v1",
+            modelName);
+
+        Assert.False(capabilities.SupportsThinking);
+    }
+
+    [Theory]
+    [InlineData(true, "medium", false)]
+    [InlineData(false, "none", true)]
+    public void Apply_MapsOpenAIThinkingAndSamplingParameters(
+        bool enableThinking,
+        string expectedEffort,
+        bool expectedTemperature)
+    {
+        var body = new Dictionary<string, object>
+        {
+            ["temperature"] = 0.3,
+            ["top_p"] = 0.8
+        };
+
+        ProviderRequestPolicy.Apply(
+            body,
+            "https://api.openai.com/v1",
+            "gpt-5.4",
+            enableThinking);
+
+        Assert.Equal(expectedEffort, body["reasoning_effort"]);
+        Assert.Equal(expectedTemperature, body.ContainsKey("temperature"));
+        Assert.Equal(expectedTemperature, body.ContainsKey("top_p"));
+    }
+
+    [Fact]
+    public void Apply_DoesNotTrustModelNameOnUnknownEndpoint()
+    {
+        var body = new Dictionary<string, object> { ["temperature"] = 0.3 };
+
+        ProviderRequestPolicy.Apply(
+            body,
+            "https://api.openai.com.evil.example/v1",
+            "gpt-5.6",
+            enableThinking: true);
+
+        Assert.DoesNotContain("reasoning_effort", body.Keys);
         Assert.Contains("temperature", body.Keys);
     }
 

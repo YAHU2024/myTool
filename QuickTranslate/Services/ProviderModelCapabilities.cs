@@ -4,7 +4,8 @@ internal enum ThinkingParameterStyle
 {
     None,
     ThinkingObject,
-    EnableThinkingBoolean
+    EnableThinkingBoolean,
+    ReasoningEffort
 }
 
 internal sealed record ProviderModelCapabilities(
@@ -12,7 +13,9 @@ internal sealed record ProviderModelCapabilities(
     IReadOnlyList<string> SupportedReasoningEfforts,
     bool OmitSamplingParametersWhenThinking = false,
     bool ReturnsReasoningContent = false,
-    bool RequiresReasoningContentForToolContinuation = false)
+    bool RequiresReasoningContentForToolContinuation = false,
+    string? EnabledReasoningEffort = null,
+    string? DisabledReasoningEffort = null)
 {
     public static ProviderModelCapabilities None { get; } = new(
         ThinkingParameterStyle.None,

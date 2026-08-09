@@ -241,11 +241,8 @@ public sealed class OpenAIWordLookupService :
 
     internal static bool SupportsStructuredOutput(string apiBaseUrl, string modelName)
     {
-        if (!Uri.TryCreate(apiBaseUrl, UriKind.Absolute, out var uri) ||
-            !string.Equals(uri.Host, "api.openai.com", StringComparison.OrdinalIgnoreCase))
-        {
+        if (ProviderEndpointResolver.Resolve(apiBaseUrl) != ProviderKind.OpenAI)
             return false;
-        }
 
         return StructuredOutputModelPrefixes.Any(prefix =>
             modelName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
