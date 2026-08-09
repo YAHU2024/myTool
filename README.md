@@ -145,7 +145,7 @@ SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支
 | 翻译历史 | SQLite 本地持久化 · 按时间/语言搜索筛选 · 分页浏览 · 双击复制 · Anki 格式导出 |
 | 系统集成 | 两套独立全局快捷键（划词翻译 / 快速查词）· 查词快捷键带开关默认关闭 · 托盘单击快速查词 · 右键恢复最近翻译 · 开机自启 · 浏览器内触发 · 单实例保护 |
 | 深度解析 | 4 种内置预设（通用/语言学习/文学赏析/商务） · 自定义方案新建/复制/编辑/删除 · 多轮方案管理 |
-| 模型接入 | 自定义 OpenAI 兼容 Base URL 与 Model · 已保存配置按域名分组 · 思考模式开关默认关闭 · 智谱/DeepSeek/SiliconFlow/OpenAI 显式启停思考 |
+| 模型接入 | 内置四家供应商预置 · 自定义 OpenAI 兼容 Base URL 与 Model · 已保存配置按域名分组 · 思考模式默认关闭 · 智谱/DeepSeek/SiliconFlow/OpenAI 显式启停思考 |
 | 性能优化 | LRU+TTL 语义缓存 · latest-request-wins 请求冲突防护 · 请求快照隔离 · 设置修改不影响运行中请求 |
 | 自动更新 | GitHub Release 分发 · 启动时静默检查 · 系统代理兼容 · Inno Setup 双版本安装包 · SHA256 校验 |
 | 隐私安全 | 零污染剪贴板获取 · 日志脱敏（不记录原文/API Key/Prompt 正文） · 本地配置不上传 |
@@ -201,6 +201,8 @@ dotnet run
 | Model | 模型名称 | `Qwen/Qwen3-8B` |
 
 模型下拉框按域名分组展示已保存配置，选中自动填充 URL 和 Key。思考模式默认关闭；智谱与 DeepSeek 使用 `thinking.type`，SiliconFlow 使用 `enable_thinking`，已适配的 OpenAI GPT-5.2/5.4/5.5/5.6 系列使用 `reasoning_effort`。不支持或未经验证的模型不会自动附加思考参数。
+
+首次运行会自动打开设置窗口并预选 SiliconFlow `Qwen/Qwen3-8B`。模型下拉框内置 SiliconFlow、智谱、DeepSeek 和 OpenAI 四组无密钥预置；选择预置后仍需填写自己的 API Key。已有配置会原样加载，不会被新的默认值替换；配置文件无法读取时会保留原文件、加载安全默认值并提示重新确认。
 
 快速查词与翻译使用同一组 Base URL、API Key 和 Model 配置。本地词典命中时不需要 API Key 或网络；本地未命中，或用户主动点击“AI 补全中文”时，相关查词内容才会发送到所配置的 Provider。AI 生成或翻译的内容用于辅助理解，不代表权威词典数据；音标等不确定字段可能省略。
 
@@ -283,6 +285,7 @@ QuickTranslate/
 │
 ├── Models/                            # 数据模型
 │   ├── AppSettings.cs                 # 配置模型（多模型/快捷键/解析预设/更新设置）
+│   ├── ProviderPreset.cs              # 无密钥供应商预置目录
 │   ├── TranslationRequest.cs          # 不可变请求快照
 │   ├── FloatingResultSession.cs       # 多模式会话状态
 │   ├── AnalysisPromptProfile.cs       # 自定义解析方案

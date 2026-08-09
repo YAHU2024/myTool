@@ -205,21 +205,23 @@ namespace QuickTranslate.UI
         {
             ModelComboBox.Items.Clear();
 
+            AddModelGroupHeader("供应商预置");
+            foreach (var preset in ProviderPresetCatalog.All)
+            {
+                ModelComboBox.Items.Add(new ComboBoxItem
+                {
+                    Content = $"{preset.ModelName} · {preset.DisplayName}",
+                    Tag = preset
+                });
+            }
+
             var groups = _settings.SavedConfigs
                 .GroupBy(c => ExtractDomainShortName(c.ApiBaseUrl))
                 .OrderBy(g => g.Key);
 
             foreach (var group in groups)
             {
-                var separator = new ComboBoxItem
-                {
-                    Content = $"── {group.Key} ──",
-                    IsEnabled = false,
-                    Foreground = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(0x88, 0x88, 0x99)),
-                    FontSize = 11
-                };
-                ModelComboBox.Items.Add(separator);
+                AddModelGroupHeader(group.Key);
 
                 foreach (var config in group)
                 {
@@ -233,6 +235,18 @@ namespace QuickTranslate.UI
             }
 
             ModelComboBox.Text = _settings.ModelName;
+        }
+
+        private void AddModelGroupHeader(string title)
+        {
+            ModelComboBox.Items.Add(new ComboBoxItem
+            {
+                Content = $"── {title} ──",
+                IsEnabled = false,
+                Foreground = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(0x88, 0x88, 0x99)),
+                FontSize = 11
+            });
         }
 
         private static string ExtractDomainShortName(string baseUrl)
@@ -285,19 +299,49 @@ namespace QuickTranslate.UI
 
             if (_isInitializing || _settings == null) return;
 
-            if (ModelComboBox.SelectedItem is ComboBoxItem cbi2 && cbi2.Tag is SavedConfig config)
+            if (ModelComboBox.SelectedItem is ComboBoxItem cbi2 && cbi2.Tag is ProviderPreset preset)
+            {
+                ApiBaseUrlTextBox.Text = preset.ApiBaseUrl;
+                ApiKeyPasswordBox.Password = string.Empty;
+                ApiKeyVisibleTextBox.Text = string.Empty;
+                ModelComboBox.Text = preset.ModelName;
+                ShowModelFeedback($"已选择 {preset.DisplayName}，请填写 API Key", autoHide: false);
+                _isDirty = true;
+            }
+            else if (ModelComboBox.SelectedItem is ComboBoxItem cbi3 && cbi3.Tag is SavedConfig config)
             {
                 ApiBaseUrlTextBox.Text = config.ApiBaseUrl;
                 ApiKeyPasswordBox.Password = config.ApiKey;
                 ApiKeyVisibleTextBox.Text = config.ApiKey;
 
-                // 显示绿色反馈
                 var domain = ExtractDomainShortName(config.ApiBaseUrl);
-                ModelFeedbackText.Text = $"已切换到 {config.ModelName}（{domain}）";
-                ModelFeedbackText.Visibility = Visibility.Visible;
+                ShowModelFeedback($"已切换到 {config.ModelName}（{domain}）", autoHide: true);
                 _isDirty = true;
+            }
 
-                // 3秒后隐藏反馈
+            RefreshThinkingModeAvailability();
+        }
+
+        public void ShowConfigurationNotice(string message, bool isWarning)
+        {
+            ModelFeedbackText.Text = message;
+            ModelFeedbackText.Foreground = new System.Windows.Media.SolidColorBrush(
+                isWarning
+                    ? System.Windows.Media.Color.FromRgb(0xF2, 0xC6, 0x6D)
+                    : System.Windows.Media.Color.FromRgb(0x6D, 0xD6, 0xA5));
+            ModelFeedbackText.Visibility = Visibility.Visible;
+            ApiKeyPasswordBox.Focus();
+        }
+
+        private void ShowModelFeedback(string message, bool autoHide)
+        {
+            ModelFeedbackText.Text = message;
+            ModelFeedbackText.Foreground = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0x6D, 0xD6, 0xA5));
+            ModelFeedbackText.Visibility = Visibility.Visible;
+
+            if (autoHide)
+            {
                 var timer = new System.Windows.Threading.DispatcherTimer
                 {
                     Interval = TimeSpan.FromSeconds(3)
@@ -309,8 +353,6 @@ namespace QuickTranslate.UI
                 };
                 timer.Start();
             }
-
-            RefreshThinkingModeAvailability();
         }
 
         private void RefreshThinkingModeAvailability()
