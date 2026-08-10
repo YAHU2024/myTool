@@ -138,6 +138,29 @@ public sealed class UpdateServiceTests : IDisposable
         Assert.DoesNotContain("skipifsilent", runEntry, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("QuickTranslate-setup.iss")]
+    [InlineData("QuickTranslate-setup-full.iss")]
+    public void InstallerScript_IncludesSharedWebView2RuntimePrerequisite(string scriptName)
+    {
+        var script = File.ReadAllText(FindRepositoryFile("installer", scriptName));
+
+        Assert.Contains("#include \"WebView2Runtime.iss\"", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WebView2RuntimePrerequisite_UsesOfficialEvergreenBootstrapperContract()
+    {
+        var script = File.ReadAllText(FindRepositoryFile("installer", "WebView2Runtime.iss"));
+
+        Assert.Contains("{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}", script, StringComparison.Ordinal);
+        Assert.Contains("https://go.microsoft.com/fwlink/p/?LinkId=2124703", script, StringComparison.Ordinal);
+        Assert.Contains("DownloadTemporaryFile", script, StringComparison.Ordinal);
+        Assert.Contains("/silent /install", script, StringComparison.Ordinal);
+        Assert.Contains("IsWebView2RuntimeInstalled", script, StringComparison.Ordinal);
+        Assert.Contains("WizardSilent", script, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// 校验和缺失或写成占位符会导致所有用户更新失败（AutoUpdater 报 "Checksum differs"），
     /// 因此这里同时断言格式，防止 TODO/示例值被发布出去。

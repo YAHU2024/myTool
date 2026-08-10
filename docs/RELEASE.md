@@ -127,6 +127,16 @@ Compress-Archive -Path publish\source\v$ver-full\* `
 
 ### 3.2 编译安装程序
 
+两个安装器都会在安装前检查 Microsoft Edge WebView2 Evergreen Runtime。
+如果 Runtime 缺失，安装器会从微软官方 HTTPS 地址下载架构自适应的
+Evergreen Bootstrapper，并使用 `/silent /install` 安装。Bootstrapper 不进入
+仓库或发布源，避免提交和长期分发过期的第三方二进制文件。
+
+交互安装中，如果下载或安装失败，用户可选择继续；应用会保留用系统浏览器
+查看更新说明的降级路径。静默自动更新不会因 WebView2 安装失败而中断，失败
+详情写入安装日志。发布验收必须分别覆盖 Runtime 已安装、缺失后安装成功、
+断网失败三种环境。
+
 ```powershell
 # 标准版（轻量，需用户已有 .NET 8）
 ISCC installer\QuickTranslate-setup.iss

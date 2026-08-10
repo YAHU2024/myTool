@@ -82,6 +82,8 @@ Filename: "{app}\{#MyAppExeName}"; Description: "运行 QuickTranslate(&R)"; Fla
 Filename: "{cmd}"; Parameters: "/c taskkill /f /im {#MyAppExeName}"; Flags: runhidden
 
 [Code]
+#include "WebView2Runtime.iss"
+
 const
   Net8Key = 'SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.NETCore.App\8.0.0';
   Net8KeyWOW = 'SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.NETCore.App\8.0.0';
