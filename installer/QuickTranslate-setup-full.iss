@@ -81,6 +81,8 @@ Filename: "{app}\{#MyAppExeName}"; Description: "运行 QuickTranslate(&R)"; Fla
 Filename: "{cmd}"; Parameters: "/c taskkill /f /im {#MyAppExeName}"; Flags: runhidden
 
 [Code]
+#include "WebView2Runtime.iss"
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
