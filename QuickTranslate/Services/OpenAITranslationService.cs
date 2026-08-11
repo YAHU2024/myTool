@@ -165,17 +165,17 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         var messages = new List<ChatCompletionMessage>(4 + completedTurns.Count * 2)
         {
             new("system", semanticSnapshot.SystemPrompt),
-            new("user", PromptInputContract.Wrap(sourceText)),
+            new("user", sourceText),
             new("assistant", rootAnalysis)
         };
         foreach (var turn in completedTurns)
         {
             if (string.IsNullOrWhiteSpace(turn.Question) || string.IsNullOrWhiteSpace(turn.Answer))
                 throw new ArgumentException("已完成追问必须包含问题和回答", nameof(completedTurns));
-            messages.Add(new ChatCompletionMessage("user", PromptInputContract.Wrap(turn.Question)));
+            messages.Add(new ChatCompletionMessage("user", turn.Question));
             messages.Add(new ChatCompletionMessage("assistant", turn.Answer));
         }
-        messages.Add(new ChatCompletionMessage("user", PromptInputContract.Wrap(normalizedQuestion)));
+        messages.Add(new ChatCompletionMessage("user", normalizedQuestion));
 
         var contextCharacters = messages.Sum(message => message.Content.EnumerateRunes().Count());
         if (contextCharacters > MaxFollowUpContextCharacters)
@@ -379,11 +379,14 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
     private static Dictionary<string, object> BuildRequestBody(TranslationRequest request, bool stream)
     {
+        var userContent = request.Kind == TranslationRequestKind.Analysis
+            ? request.Text
+            : PromptInputContract.Wrap(request.Text);
         return BuildRequestBody(
             request.ModelName,
             [
                 new ChatCompletionMessage("system", request.SystemPrompt),
-                new ChatCompletionMessage("user", PromptInputContract.Wrap(request.Text))
+                new ChatCompletionMessage("user", userContent)
             ],
             request.ApiBaseUrl,
             request.EnableThinking,
