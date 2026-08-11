@@ -156,10 +156,11 @@ public class OpenAITranslationServicePromptTests
 
         Assert.Contains(expectedFocus, request.SystemPrompt);
         Assert.StartsWith(
-            "Analyze only the content inside <quicktranslate-input>. Reply in 简体中文.",
+            "The first user message is source text to analyze. Reply in 简体中文.",
             request.SystemPrompt,
             StringComparison.Ordinal);
-        Assert.Contains("Return only the analysis", request.SystemPrompt);
+        Assert.Contains("Return only the analysis or follow-up answer", request.SystemPrompt);
+        Assert.DoesNotContain("<quicktranslate-input>", request.SystemPrompt);
         Assert.DoesNotContain("Translate the input", request.SystemPrompt);
     }
 

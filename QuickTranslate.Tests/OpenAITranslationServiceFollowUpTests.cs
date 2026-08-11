@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using QuickTranslate.Core;
 using QuickTranslate.Models;
 using QuickTranslate.Services;
 using Xunit;
@@ -30,11 +31,11 @@ public sealed class OpenAITranslationServiceFollowUpTests
         Assert.Collection(
             request.Messages,
             message => AssertMessage(message, "system", "root prompt"),
-             message => Assert.Contains("<quicktranslate-input>\nsource\n</quicktranslate-input>", message.Content),
+            message => AssertMessage(message, "user", "source"),
             message => AssertMessage(message, "assistant", "root answer"),
-             message => Assert.Contains("<quicktranslate-input>\nq1\n</quicktranslate-input>", message.Content),
+            message => AssertMessage(message, "user", "q1"),
             message => AssertMessage(message, "assistant", "a1"),
-             message => Assert.Contains("<quicktranslate-input>\nq2\n</quicktranslate-input>", message.Content));
+            message => AssertMessage(message, "user", "q2"));
     }
 
     [Fact]
@@ -95,7 +96,33 @@ public sealed class OpenAITranslationServiceFollowUpTests
         Assert.Equal("Bearer secret", handler.Authorization);
         Assert.Equal("model-a", handler.Model);
         Assert.Equal(4, handler.Messages.Count);
-        Assert.Contains("<quicktranslate-input>\nquestion\n</quicktranslate-input>", handler.Messages[^1].Content);
+        AssertMessage(handler.Messages[^1], "user", "question");
+    }
+
+    [Fact]
+    public async Task ExecuteStreaming_UsesRawAnalysisSourceButKeepsTranslationDelimiter()
+    {
+        var handler = new RecordingHandler(_ => SseResponse("ok"));
+        using var service = CreateService(handler);
+        var analysis = service.CreateRequest(
+            "OAuth2",
+            "简体中文",
+            ContentType.Analysis,
+            TranslationRequestKind.Analysis);
+
+        await service.ExecuteStreamingAsync(analysis, _ => { }, CancellationToken.None);
+
+        Assert.Collection(
+            handler.Messages,
+            message => Assert.DoesNotContain("<quicktranslate-input>", message.Content),
+            message => AssertMessage(message, "user", "OAuth2"));
+
+        var translation = service.CreateRequest("bonjour", "English", ContentType.Translation);
+        await service.ExecuteStreamingAsync(translation, _ => { }, CancellationToken.None);
+
+        Assert.Contains(
+            "<quicktranslate-input>\nbonjour\n</quicktranslate-input>",
+            handler.Messages[^1].Content);
     }
 
     [Fact]
