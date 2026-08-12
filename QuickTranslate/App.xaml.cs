@@ -381,11 +381,16 @@ public partial class App : Application
             var evidence = location is { IsValid: true }
                 ? SelectionEvidenceKind.UiaTextSelectionBounds
                 : SelectionEvidenceKind.None;
+            var intent = new SelectionIntent(
+                SelectionGestureKind.HotKey,
+                default,
+                default,
+                DateTimeOffset.UtcNow);
             var plan = SelectionCapturePlanner.Create(
                 sourceWindow,
                 _settings,
                 evidence,
-                SelectionGestureKind.HotKey);
+                intent);
             TerminalDetector.LogDecision(sourceWindow, _settings, plan.Decision);
             if (!plan.IsAllowed)
             {
@@ -538,7 +543,7 @@ public partial class App : Application
                     sourceWindow,
                     _settings,
                     evidence,
-                    intent.GestureKind);
+                    intent);
                 TerminalDetector.LogDecision(sourceWindow, _settings, plan.Decision);
                 if (!plan.IsAllowed)
                 {
@@ -618,7 +623,7 @@ public partial class App : Application
                 pendingCapture.SourceWindow,
                 _settings,
                 pendingCapture.Evidence,
-                pendingCapture.Intent.GestureKind);
+                pendingCapture.Intent);
             TerminalDetector.LogDecision(pendingCapture.SourceWindow, _settings, plan.Decision);
             if (!plan.IsAllowed)
             {

@@ -21,8 +21,7 @@ internal enum CopyDecisionReason
     CompatibleTerminalShortcut,
     TerminalCaptureDisabled,
     TerminalShortcutNotConfigured,
-    ForegroundUnavailable,
-    PotentialInterruptShortcutRejected
+    ForegroundUnavailable
 }
 
 internal sealed record ForegroundWindowInfo(
@@ -234,25 +233,6 @@ internal static class TerminalDetector
         return decision.Reason == CopyDecisionReason.TerminalCaptureDisabled;
     }
 
-    internal static bool TryCreateCopyRequest(
-        ForegroundWindowInfo? target,
-        AppSettings settings,
-        out CopyRequest? request,
-        out string? rejectionMessage)
-    {
-        var plan = SelectionCapturePlanner.Create(
-            target,
-            settings,
-            SelectionEvidenceKind.None,
-            SelectionGestureKind.HotKey);
-        var decision = plan.Decision;
-        LogDecision(target, settings, decision);
-
-        request = plan.Request;
-        rejectionMessage = plan.RejectionMessage;
-        return plan.IsAllowed;
-    }
-
     private static TerminalRiskKind Classify(ForegroundWindowInfo target, bool hasMapping)
     {
         if (hasMapping || KnownTerminalProcesses.Contains(NormalizeProcessName(target.ProcessName)))
@@ -350,7 +330,7 @@ internal static class TerminalDetector
         TerminalRiskKind risk,
         CopyDecisionReason reason,
         string rejectionMessage) =>
-        new(false, risk, reason, null, false, CopyActionRisk.PotentialInterrupt, rejectionMessage);
+        new(false, risk, reason, null, false, CopyActionRisk.NotApplicable, rejectionMessage);
 
     internal static void LogDecision(
         ForegroundWindowInfo? target,

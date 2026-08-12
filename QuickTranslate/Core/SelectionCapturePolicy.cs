@@ -30,6 +30,7 @@ internal enum SelectionEvidenceKind
 
 internal enum CopyActionRisk
 {
+    NotApplicable,
     OrdinaryCopy,
     NonInterruptingTerminalCopy,
     PotentialInterrupt
@@ -47,7 +48,7 @@ internal static class SelectionCapturePlanner
         ForegroundWindowInfo? target,
         AppSettings settings,
         SelectionEvidenceKind evidence,
-        SelectionGestureKind gestureKind)
+        SelectionIntent intent)
     {
         var decision = TerminalDetector.EvaluateCopyPolicy(target, settings);
         if (!decision.IsAllowed || target == null || decision.Shortcut == null)
@@ -64,15 +65,17 @@ internal static class SelectionCapturePlanner
 
         if (decision.Risk != TerminalRiskKind.NonTerminal &&
             evidence != SelectionEvidenceKind.UiaTextSelectionBounds &&
-            gestureKind != SelectionGestureKind.Drag)
+            !intent.HasMeaningfulDrag)
         {
             return new(
                 false,
                 null,
                 decision,
-                gestureKind == SelectionGestureKind.HotKey
+                intent.GestureKind == SelectionGestureKind.HotKey
                     ? "无法确认终端文本选区，已取消快捷键取词"
-                    : "无法确认终端多击产生了文本选区，已取消取词");
+                    : intent.GestureKind == SelectionGestureKind.MultiClick
+                        ? "无法确认终端多击产生了文本选区，已取消取词"
+                        : "终端拖选距离不足且无法确认文本选区，已取消取词");
         }
 
         var request = new CopyRequest(

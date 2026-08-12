@@ -219,6 +219,8 @@ namespace QuickTranslate.Models
         /// <summary>
         /// Per-process terminal copy shortcuts, for example:
         /// WindowsTerminal=Ctrl+Shift+C;conhost=Ctrl+Shift+C
+        /// Only Ctrl+Shift+C is currently treated as a verified non-interrupting
+        /// terminal copy action. Other mappings are intentionally rejected.
         /// </summary>
         public string TerminalCopyMappings { get; set; } = string.Empty;
 

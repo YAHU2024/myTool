@@ -228,19 +228,6 @@ public sealed class TerminalDetectorTests
     }
 
     [Fact]
-    public void TryCreateCopyRequest_RejectsTerminalWithoutGestureEvidence()
-    {
-        var settings = CreateSettings("Smart");
-        var target = CreateWindow("WindowsTerminal");
-
-        var allowed = TerminalDetector.TryCreateCopyRequest(target, settings, out var request, out var rejection);
-
-        Assert.False(allowed);
-        Assert.Null(request);
-        Assert.Contains("快捷键", rejection, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task ClipboardHelper_UnverifiedTerminalRequestReturnsWithoutInjection()
     {
         var request = new CopyRequest(
@@ -277,7 +264,7 @@ public sealed class TerminalDetectorTests
             CreateWindow("WindowsTerminal"),
             CreateSettings("Smart"),
             SelectionEvidenceKind.GestureIntent,
-            SelectionGestureKind.Drag);
+            CreateIntent(SelectionGestureKind.Drag, endX: 20));
 
         Assert.True(plan.IsAllowed);
         Assert.NotNull(plan.Request);
@@ -291,7 +278,7 @@ public sealed class TerminalDetectorTests
             CreateWindow("CustomTerminal"),
             CreateSettings("Smart", "CustomTerminal=Ctrl+C"),
             SelectionEvidenceKind.UiaTextSelectionBounds,
-            SelectionGestureKind.MultiClick);
+            CreateIntent(SelectionGestureKind.MultiClick));
 
         Assert.False(plan.IsAllowed);
         Assert.Equal(CopyActionRisk.PotentialInterrupt, plan.Decision.ActionRisk);
@@ -305,7 +292,7 @@ public sealed class TerminalDetectorTests
             CreateWindow("CustomTerminal"),
             CreateSettings("Smart", "CustomTerminal=Alt+C"),
             SelectionEvidenceKind.GestureIntent,
-            SelectionGestureKind.Drag);
+            CreateIntent(SelectionGestureKind.Drag, endX: 20));
 
         Assert.False(plan.IsAllowed);
         Assert.Equal(CopyActionRisk.PotentialInterrupt, plan.Decision.ActionRisk);
@@ -318,7 +305,7 @@ public sealed class TerminalDetectorTests
             CreateWindow("WindowsTerminal"),
             CreateSettings("Smart"),
             SelectionEvidenceKind.GestureIntent,
-            SelectionGestureKind.MultiClick);
+            CreateIntent(SelectionGestureKind.MultiClick));
 
         Assert.False(plan.IsAllowed);
         Assert.Null(plan.Request);
@@ -332,7 +319,7 @@ public sealed class TerminalDetectorTests
             CreateWindow("WindowsTerminal"),
             CreateSettings("Smart"),
             SelectionEvidenceKind.None,
-            SelectionGestureKind.HotKey);
+            CreateIntent(SelectionGestureKind.HotKey));
 
         Assert.False(plan.IsAllowed);
         Assert.Null(plan.Request);
@@ -346,10 +333,33 @@ public sealed class TerminalDetectorTests
             CreateWindow("WindowsTerminal"),
             CreateSettings("Smart"),
             SelectionEvidenceKind.UiaTextSelectionBounds,
-            SelectionGestureKind.MultiClick);
+            CreateIntent(SelectionGestureKind.MultiClick));
 
         Assert.True(plan.IsAllowed);
         Assert.NotNull(plan.Request);
+    }
+
+    [Fact]
+    public void SelectionCapturePlanner_RejectsTerminalDragWithoutMeaningfulFinalDistance()
+    {
+        var plan = SelectionCapturePlanner.Create(
+            CreateWindow("WindowsTerminal"),
+            CreateSettings("Smart"),
+            SelectionEvidenceKind.GestureIntent,
+            CreateIntent(SelectionGestureKind.Drag, endX: 5));
+
+        Assert.False(plan.IsAllowed);
+        Assert.Null(plan.Request);
+        Assert.Contains("距离不足", plan.RejectionMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EvaluateCopyPolicy_RejectionWithoutShortcutHasNoActionRisk()
+    {
+        var decision = Evaluate("pwsh", mode: "Disabled");
+
+        Assert.False(decision.IsAllowed);
+        Assert.Equal(CopyActionRisk.NotApplicable, decision.ActionRisk);
     }
 
     [Fact]
@@ -449,4 +459,11 @@ public sealed class TerminalDetectorTests
         TerminalCopyMode = mode,
         TerminalCopyMappings = mappings
     };
+
+    private static SelectionIntent CreateIntent(SelectionGestureKind gestureKind, double endX = 0) =>
+        new(
+            gestureKind,
+            new System.Windows.Point(0, 0),
+            new System.Windows.Point(endX, 0),
+            DateTimeOffset.UtcNow);
 }
