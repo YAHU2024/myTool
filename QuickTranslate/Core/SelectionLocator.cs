@@ -7,6 +7,12 @@ using QuickTranslate.Helpers;
 
 namespace QuickTranslate.Core
 {
+    internal sealed record FocusedAutomationContext(
+        int ProcessId,
+        string AutomationId,
+        string ClassName,
+        string ControlType);
+
     /// <summary>
     /// 选中文本位置信息
     /// </summary>
@@ -56,6 +62,16 @@ namespace QuickTranslate.Core
                 return Task.FromResult<SelectionLocation?>(null);
             }
             return RunOnSTAThread(() => TryGetSelectionBounds(), timeoutMs, cancellationToken);
+        }
+
+        internal static Task<FocusedAutomationContext?> TryGetFocusedAutomationContextAsync(
+            int timeoutMs = 350,
+            CancellationToken cancellationToken = default)
+        {
+            if (_uiaDisabled)
+                return Task.FromResult<FocusedAutomationContext?>(null);
+
+            return RunOnSTAThread(TryGetFocusedAutomationContext, timeoutMs, cancellationToken);
         }
 
         /// <summary>
@@ -111,6 +127,30 @@ namespace QuickTranslate.Core
         // ⚠️ TryGetSelectedText 已弃用 —— TextPatternRange.GetText(-1) 在部分应用中
         // 触发 AccessViolationException(0xc0000005) 导致进程不可恢复崩溃。
         // 文本获取已改为纯剪贴板方案（ClipboardHelper）。
+
+        private static FocusedAutomationContext? TryGetFocusedAutomationContext()
+        {
+            try
+            {
+                var focusedElement = AutomationElement.FocusedElement;
+                if (focusedElement == null)
+                    return null;
+
+                return new FocusedAutomationContext(
+                    focusedElement.Current.ProcessId,
+                    focusedElement.Current.AutomationId ?? string.Empty,
+                    focusedElement.Current.ClassName ?? string.Empty,
+                    focusedElement.Current.ControlType?.ProgrammaticName ?? string.Empty);
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug("SelectionLocator", "uia.focus_context_failed", new
+                {
+                    error_type = ex.GetType().Name
+                });
+                return null;
+            }
+        }
 
         /// <summary>
         /// 尝试通过 UI Automation 获取选中文本的精确屏幕坐标。

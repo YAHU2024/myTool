@@ -360,7 +360,7 @@ public partial class App : Application
 
         FloatingWindowAnchor? floatingAnchor = null;
 
-        var sourceWindow = TerminalDetector.CaptureForegroundWindow();
+        var sourceWindow = await TerminalDetector.CaptureForegroundWindowWithFocusAsync();
 
         // 浏览器中禁用翻译：避免与浏览器翻译插件冲突
         if (!_settings.EnableInBrowser && BrowserDetector.IsForegroundBrowser(_settings.CustomBrowserProcesses))
@@ -490,8 +490,18 @@ public partial class App : Application
                 return;
             }
 
-            var sourceWindow = TerminalDetector.CaptureForegroundWindow();
+            var sourceWindow = await TerminalDetector.CaptureForegroundWindowWithFocusAsync(cancellationToken: token);
             if (sourceWindow == null) return;
+
+            if (_settings != null && TerminalDetector.ShouldSuppressSelection(sourceWindow, _settings))
+            {
+                Logger.Debug("App", "selection.terminal_capture_suppressed", new
+                {
+                    process_name = sourceWindow.ProcessName,
+                    window_class = sourceWindow.WindowClassName
+                });
+                return;
+            }
 
             // 尝试 UIA 异步精确定位（不阻塞 UI 线程）
             var location = await SelectionLocator.TryGetSelectionBoundsAsync(2000, token);
@@ -543,7 +553,7 @@ public partial class App : Application
         _selectionDetector!.IsRedDotVisible = false;
         _redDotWindow?.Hide();
 
-        var sourceWindow = _pendingSelection;
+        var pendingSourceWindow = _pendingSelection;
         _pendingSelection = null;
         var floatingAnchor = _pendingFloatingAnchor;
         _pendingFloatingAnchor = null;
@@ -552,6 +562,10 @@ public partial class App : Application
 
         try
         {
+            var sourceWindow = await TerminalDetector.CaptureForegroundWindowWithFocusAsync();
+            if (sourceWindow == null || sourceWindow.Handle != pendingSourceWindow.Handle)
+                return;
+
             if (!TerminalDetector.TryCreateCopyRequest(sourceWindow, _settings, out var copyRequest, out var rejectionMessage))
             {
                 await ShowMessageWithoutReplacingSessionAsync(

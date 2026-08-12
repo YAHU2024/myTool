@@ -57,8 +57,9 @@
 划词、剪贴板或 UIA 异常：
 
 - 搜索模块 `ClipboardHelper`、`SelectionDetector` 或 `SelectionLocator`。
+- 终端取词决策可搜索 `TerminalDetector` 或事件 `terminal.copy_decision`。该事件只记录进程名、窗口类、焦点控件的 AutomationId/类名/控件类型、模式、风险类型、决策原因和快捷键类型。
 - `Warn` 一般表示本次操作失败但应用仍可继续运行。
-- 日志只记录稳定事件名和异常类型，不记录剪贴板文本或选中文本。
+- 日志只记录稳定事件名和异常类型，不记录窗口标题、命令行、剪贴板文本或选中文本。
 
 ## 2. 日志配置
 

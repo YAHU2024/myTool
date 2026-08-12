@@ -27,17 +27,9 @@ namespace QuickTranslate.Core
         private static readonly SemaphoreSlim _clipboardLock = new(1, 1);
 
         /// <summary>
-        /// 获取当前选中的文本。
-        /// 全局互斥：如果已有操作进行中，直接返回 null（不排队等待）。
-        /// 通过序列号检测 Ctrl+C 是否生效，不写任何内容到剪贴板。
+        /// 获取当前选中的文本。请求必须先通过终端复制策略审查。
         /// </summary>
-        public static Task<string?> GetSelectedTextAsync()
-        {
-            var target = Win32Api.GetForegroundWindow();
-            return GetSelectedTextAsync(new CopyRequest(target, CopyShortcut.CtrlC, RestoreClipboard: true));
-        }
-
-        public static async Task<string?> GetSelectedTextAsync(CopyRequest request)
+        internal static async Task<string?> GetSelectedTextAsync(CopyRequest request)
         {
             // ★ 防并发：如果已有剪贴板操作进行中，直接放弃
             if (!_clipboardLock.Wait(0))
@@ -63,6 +55,18 @@ namespace QuickTranslate.Core
         /// </summary>
         private static async Task<string?> TryGetTextViaClipboardAsync(CopyRequest request)
         {
+            if (request.TerminalRisk != TerminalRiskKind.NonTerminal &&
+                request.Shortcut == CopyShortcut.CtrlC &&
+                request.DecisionReason != CopyDecisionReason.ExplicitTerminalMapping)
+            {
+                Logger.Warn("ClipboardHelper", "clipboard.unsafe_terminal_request_rejected", new
+                {
+                    terminal_risk = request.TerminalRisk.ToString(),
+                    decision = request.DecisionReason.ToString()
+                });
+                return null;
+            }
+
             var tcs = new TaskCompletionSource<string?>();
             var opStart = DateTime.UtcNow;
 
