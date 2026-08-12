@@ -16,6 +16,13 @@ public sealed class TerminalDetectorTests
     [InlineData("cmd")]
     [InlineData("powershell")]
     [InlineData("pwsh")]
+    [InlineData("wezterm-gui")]
+    [InlineData("alacritty")]
+    [InlineData("mintty")]
+    [InlineData("ConEmu64")]
+    [InlineData("Hyper")]
+    [InlineData("Tabby")]
+    [InlineData("FluentTerminal")]
     public void EvaluateCopyPolicy_DisabledRejectsKnownTerminal(string processName)
     {
         var decision = Evaluate(processName, mode: "Disabled");
@@ -29,6 +36,8 @@ public sealed class TerminalDetectorTests
     [Theory]
     [InlineData("ConsoleWindowClass")]
     [InlineData("CASCADIA_HOSTING_WINDOW_CLASS")]
+    [InlineData("mintty")]
+    [InlineData("VirtualConsoleClass")]
     public void EvaluateCopyPolicy_DisabledRejectsTerminalWindowClass(string windowClass)
     {
         var decision = Evaluate("UnknownHost", mode: "Disabled", windowClass: windowClass);
@@ -229,6 +238,23 @@ public sealed class TerminalDetectorTests
         Assert.NotNull(request);
         Assert.Equal(TerminalRiskKind.KnownTerminal, request.TerminalRisk);
         Assert.Equal(CopyDecisionReason.WindowsTerminalSafeDefault, request.DecisionReason);
+        Assert.False(request.HasVerifiedSelection);
+    }
+
+    [Fact]
+    public async Task ClipboardHelper_UnverifiedTerminalRequestReturnsWithoutInjection()
+    {
+        var request = new CopyRequest(
+            ExpectedForegroundWindow: new IntPtr(42),
+            Shortcut: CopyShortcut.CtrlC,
+            RestoreClipboard: false,
+            TerminalRisk: TerminalRiskKind.KnownTerminal,
+            DecisionReason: CopyDecisionReason.ExplicitTerminalMapping,
+            HasVerifiedSelection: false);
+
+        var result = await ClipboardHelper.GetSelectedTextAsync(request);
+
+        Assert.Null(result);
     }
 
     [Fact]
@@ -242,6 +268,32 @@ public sealed class TerminalDetectorTests
         settings.TerminalCopyMode = "Disabled";
 
         Assert.True(TerminalDetector.ShouldSuppressSelection(target, settings));
+    }
+
+    [Fact]
+    public void RequiresVerifiedSelection_ReturnsTrueForTerminal()
+    {
+        var target = CreateWindow("WindowsTerminal");
+
+        Assert.True(TerminalDetector.RequiresVerifiedSelection(target, CreateSettings("Smart")));
+    }
+
+    [Fact]
+    public void RequiresVerifiedSelection_ReturnsTrueForExplicitTerminalMapping()
+    {
+        var target = CreateWindow("CustomTerminal");
+
+        Assert.True(TerminalDetector.RequiresVerifiedSelection(
+            target,
+            CreateSettings("Smart", "CustomTerminal=Ctrl+Shift+C")));
+    }
+
+    [Fact]
+    public void RequiresVerifiedSelection_ReturnsFalseForOrdinaryApplication()
+    {
+        var target = CreateWindow("notepad");
+
+        Assert.False(TerminalDetector.RequiresVerifiedSelection(target, CreateSettings("Smart")));
     }
 
     [Fact]

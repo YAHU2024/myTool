@@ -380,9 +380,28 @@ public partial class App : Application
                 return;
             }
 
-            // Copy before the optional UIA lookup so focus cannot change during an async operation.
+            SelectionLocation? verifiedTerminalLocation = null;
+            if (copyRequest!.TerminalRisk != TerminalRiskKind.NonTerminal)
+            {
+                verifiedTerminalLocation = await SelectionLocator.TryGetSelectionBoundsAsync(750);
+                if (verifiedTerminalLocation == null || !verifiedTerminalLocation.IsValid ||
+                    Win32Api.GetForegroundWindow() != sourceWindow!.Handle)
+                {
+                    floatingAnchor = CreateFloatingAnchor(await GetSelectionLocationAsync());
+                    await ShowMessageWithoutReplacingSessionAsync(
+                        "未检测到终端文本选区，已取消取词",
+                        floatingAnchor.Value);
+                    return;
+                }
+
+                copyRequest = copyRequest with { HasVerifiedSelection = true };
+            }
+
+            // Ordinary applications can probe selection through copy. Terminals require
+            // positive UIA selection evidence first because copy shortcuts may interrupt commands.
             var selectedText = await ClipboardHelper.GetSelectedTextAsync(copyRequest!);
-            floatingAnchor = CreateFloatingAnchor(await GetSelectionLocationAsync());
+            floatingAnchor = CreateFloatingAnchor(
+                verifiedTerminalLocation ?? await GetSelectionLocationAsync());
 
             if (string.IsNullOrWhiteSpace(selectedText))
             {
@@ -508,6 +527,16 @@ public partial class App : Application
             token.ThrowIfCancellationRequested();
             if (generation != Volatile.Read(ref _selectionGeneration)) return;
             if (Win32Api.GetForegroundWindow() != sourceWindow.Handle) return;
+            if ((location == null || !location.IsValid) && _settings != null &&
+                TerminalDetector.RequiresVerifiedSelection(sourceWindow, _settings))
+            {
+                Logger.Debug("App", "selection.terminal_unverified_suppressed", new
+                {
+                    process_name = sourceWindow.ProcessName,
+                    window_class = sourceWindow.WindowClassName
+                });
+                return;
+            }
             if (location == null || !location.IsValid)
             {
                 // Fallback: physical drag end point, same coordinate contract as UIA.
@@ -572,6 +601,23 @@ public partial class App : Application
                     rejectionMessage ?? "无法安全获取选中文本",
                     floatingAnchor.Value);
                 return;
+            }
+
+            if (copyRequest!.TerminalRisk != TerminalRiskKind.NonTerminal)
+            {
+                var verifiedLocation = await SelectionLocator.TryGetSelectionBoundsAsync(750);
+                if (verifiedLocation == null || !verifiedLocation.IsValid ||
+                    Win32Api.GetForegroundWindow() != sourceWindow.Handle)
+                {
+                    Logger.Debug("App", "selection.terminal_verification_failed_before_copy", new
+                    {
+                        process_name = sourceWindow.ProcessName,
+                        window_class = sourceWindow.WindowClassName
+                    });
+                    return;
+                }
+
+                copyRequest = copyRequest with { HasVerifiedSelection = true };
             }
 
             var textToTranslate = await ClipboardHelper.GetSelectedTextAsync(copyRequest!);

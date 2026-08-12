@@ -39,7 +39,8 @@ internal sealed record CopyRequest(
     CopyShortcut Shortcut,
     bool RestoreClipboard,
     TerminalRiskKind TerminalRisk,
-    CopyDecisionReason DecisionReason);
+    CopyDecisionReason DecisionReason,
+    bool HasVerifiedSelection = false);
 
 internal sealed record TerminalCopyDecision(
     bool IsAllowed,
@@ -58,13 +59,24 @@ internal static class TerminalDetector
         "conhost",
         "cmd",
         "powershell",
-        "pwsh"
+        "pwsh",
+        "wezterm",
+        "wezterm-gui",
+        "alacritty",
+        "mintty",
+        "ConEmu",
+        "ConEmu64",
+        "Hyper",
+        "Tabby",
+        "FluentTerminal"
     };
 
     private static readonly HashSet<string> KnownTerminalWindowClasses = new(StringComparer.OrdinalIgnoreCase)
     {
         "ConsoleWindowClass",
-        "CASCADIA_HOSTING_WINDOW_CLASS"
+        "CASCADIA_HOSTING_WINDOW_CLASS",
+        "mintty",
+        "VirtualConsoleClass"
     };
 
     private static readonly HashSet<string> EmbeddedTerminalHostProcesses = new(StringComparer.OrdinalIgnoreCase)
@@ -212,6 +224,9 @@ internal static class TerminalDetector
         var decision = EvaluateCopyPolicy(target, settings);
         return decision.Reason == CopyDecisionReason.TerminalCaptureDisabled;
     }
+
+    internal static bool RequiresVerifiedSelection(ForegroundWindowInfo target, AppSettings settings) =>
+        EvaluateCopyPolicy(target, settings).Risk != TerminalRiskKind.NonTerminal;
 
     internal static bool TryCreateCopyRequest(
         ForegroundWindowInfo? target,

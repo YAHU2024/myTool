@@ -55,6 +55,16 @@ namespace QuickTranslate.Core
         /// </summary>
         private static async Task<string?> TryGetTextViaClipboardAsync(CopyRequest request)
         {
+            if (request.TerminalRisk != TerminalRiskKind.NonTerminal && !request.HasVerifiedSelection)
+            {
+                Logger.Warn("ClipboardHelper", "clipboard.unverified_terminal_selection_rejected", new
+                {
+                    terminal_risk = request.TerminalRisk.ToString(),
+                    decision = request.DecisionReason.ToString()
+                });
+                return null;
+            }
+
             if (request.TerminalRisk != TerminalRiskKind.NonTerminal &&
                 request.Shortcut == CopyShortcut.CtrlC &&
                 request.DecisionReason != CopyDecisionReason.ExplicitTerminalMapping)
