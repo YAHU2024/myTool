@@ -218,7 +218,7 @@ namespace QuickTranslate.Models
 
         /// <summary>
         /// Per-process terminal copy shortcuts, for example:
-        /// WindowsTerminal=Ctrl+Shift+C;conhost=Ctrl+C
+        /// WindowsTerminal=Ctrl+Shift+C;conhost=Ctrl+Shift+C
         /// </summary>
         public string TerminalCopyMappings { get; set; } = string.Empty;
 

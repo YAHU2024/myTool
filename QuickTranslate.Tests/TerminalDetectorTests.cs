@@ -114,7 +114,7 @@ public sealed class TerminalDetectorTests
         var target = CreateWindow(
             "Code",
             focusedClassName: "Chrome_RenderWidgetHostHWND",
-            focusedControlType: "ControlType.Document",
+            focusedControlType: "ControlType.Pane",
             focusMetadataAvailable: true);
 
         var decision = TerminalDetector.EvaluateCopyPolicy(target, CreateSettings("Smart"));
@@ -185,6 +185,7 @@ public sealed class TerminalDetectorTests
         Assert.Equal(CopyDecisionReason.WindowsTerminalSafeDefault, decision.Reason);
         Assert.Equal(CopyShortcut.CtrlShiftC, decision.Shortcut);
         Assert.False(decision.RestoreClipboard);
+        Assert.Equal(CopyActionRisk.NonInterruptingTerminalCopy, decision.ActionRisk);
     }
 
     [Theory]
@@ -213,6 +214,7 @@ public sealed class TerminalDetectorTests
         Assert.Equal(CopyDecisionReason.ExplicitTerminalMapping, decision.Reason);
         Assert.Equal(CopyShortcut.CtrlShiftC, decision.Shortcut);
         Assert.False(decision.RestoreClipboard);
+        Assert.Equal(CopyActionRisk.NonInterruptingTerminalCopy, decision.ActionRisk);
     }
 
     [Fact]
@@ -226,19 +228,16 @@ public sealed class TerminalDetectorTests
     }
 
     [Fact]
-    public void TryCreateCopyRequest_PreservesAuditedDecision()
+    public void TryCreateCopyRequest_RejectsTerminalWithoutGestureEvidence()
     {
         var settings = CreateSettings("Smart");
         var target = CreateWindow("WindowsTerminal");
 
         var allowed = TerminalDetector.TryCreateCopyRequest(target, settings, out var request, out var rejection);
 
-        Assert.True(allowed);
-        Assert.Null(rejection);
-        Assert.NotNull(request);
-        Assert.Equal(TerminalRiskKind.KnownTerminal, request.TerminalRisk);
-        Assert.Equal(CopyDecisionReason.WindowsTerminalSafeDefault, request.DecisionReason);
-        Assert.False(request.HasVerifiedSelection);
+        Assert.False(allowed);
+        Assert.Null(request);
+        Assert.Contains("快捷键", rejection, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -250,7 +249,8 @@ public sealed class TerminalDetectorTests
             RestoreClipboard: false,
             TerminalRisk: TerminalRiskKind.KnownTerminal,
             DecisionReason: CopyDecisionReason.ExplicitTerminalMapping,
-            HasVerifiedSelection: false);
+            ActionRisk: CopyActionRisk.PotentialInterrupt,
+            SelectionEvidence: SelectionEvidenceKind.GestureIntent);
 
         var result = await ClipboardHelper.GetSelectedTextAsync(request);
 
@@ -271,29 +271,119 @@ public sealed class TerminalDetectorTests
     }
 
     [Fact]
-    public void RequiresVerifiedSelection_ReturnsTrueForTerminal()
+    public void SelectionCapturePlanner_AllowsSafeTerminalWithoutUiaBounds()
     {
-        var target = CreateWindow("WindowsTerminal");
+        var plan = SelectionCapturePlanner.Create(
+            CreateWindow("WindowsTerminal"),
+            CreateSettings("Smart"),
+            SelectionEvidenceKind.GestureIntent,
+            SelectionGestureKind.Drag);
 
-        Assert.True(TerminalDetector.RequiresVerifiedSelection(target, CreateSettings("Smart")));
+        Assert.True(plan.IsAllowed);
+        Assert.NotNull(plan.Request);
+        Assert.Equal(CopyActionRisk.NonInterruptingTerminalCopy, plan.Request!.ActionRisk);
     }
 
     [Fact]
-    public void RequiresVerifiedSelection_ReturnsTrueForExplicitTerminalMapping()
+    public void SelectionCapturePlanner_RejectsPotentialInterruptEvenWithUiaEvidence()
     {
-        var target = CreateWindow("CustomTerminal");
+        var plan = SelectionCapturePlanner.Create(
+            CreateWindow("CustomTerminal"),
+            CreateSettings("Smart", "CustomTerminal=Ctrl+C"),
+            SelectionEvidenceKind.UiaTextSelectionBounds,
+            SelectionGestureKind.MultiClick);
 
-        Assert.True(TerminalDetector.RequiresVerifiedSelection(
-            target,
-            CreateSettings("Smart", "CustomTerminal=Ctrl+Shift+C")));
+        Assert.False(plan.IsAllowed);
+        Assert.Equal(CopyActionRisk.PotentialInterrupt, plan.Decision.ActionRisk);
+        Assert.Contains("中断", plan.RejectionMessage, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void RequiresVerifiedSelection_ReturnsFalseForOrdinaryApplication()
+    public void SelectionCapturePlanner_RejectsUnverifiedCustomShortcut()
     {
-        var target = CreateWindow("notepad");
+        var plan = SelectionCapturePlanner.Create(
+            CreateWindow("CustomTerminal"),
+            CreateSettings("Smart", "CustomTerminal=Alt+C"),
+            SelectionEvidenceKind.GestureIntent,
+            SelectionGestureKind.Drag);
 
-        Assert.False(TerminalDetector.RequiresVerifiedSelection(target, CreateSettings("Smart")));
+        Assert.False(plan.IsAllowed);
+        Assert.Equal(CopyActionRisk.PotentialInterrupt, plan.Decision.ActionRisk);
+    }
+
+    [Fact]
+    public void SelectionCapturePlanner_RejectsTerminalMultiClickWithoutUiaEvidence()
+    {
+        var plan = SelectionCapturePlanner.Create(
+            CreateWindow("WindowsTerminal"),
+            CreateSettings("Smart"),
+            SelectionEvidenceKind.GestureIntent,
+            SelectionGestureKind.MultiClick);
+
+        Assert.False(plan.IsAllowed);
+        Assert.Null(plan.Request);
+        Assert.Contains("多击", plan.RejectionMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SelectionCapturePlanner_RejectsTerminalHotKeyWithoutUiaEvidence()
+    {
+        var plan = SelectionCapturePlanner.Create(
+            CreateWindow("WindowsTerminal"),
+            CreateSettings("Smart"),
+            SelectionEvidenceKind.None,
+            SelectionGestureKind.HotKey);
+
+        Assert.False(plan.IsAllowed);
+        Assert.Null(plan.Request);
+        Assert.Contains("快捷键", plan.RejectionMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SelectionCapturePlanner_AllowsTerminalMultiClickWithUiaEvidence()
+    {
+        var plan = SelectionCapturePlanner.Create(
+            CreateWindow("WindowsTerminal"),
+            CreateSettings("Smart"),
+            SelectionEvidenceKind.UiaTextSelectionBounds,
+            SelectionGestureKind.MultiClick);
+
+        Assert.True(plan.IsAllowed);
+        Assert.NotNull(plan.Request);
+    }
+
+    [Fact]
+    public void EvaluateCopyPolicy_GenericDocumentSurfaceRemainsConservative()
+    {
+        var decision = TerminalDetector.EvaluateCopyPolicy(
+            CreateWindow(
+                "Code",
+                focusedClassName: "Chrome_RenderWidgetHostHWND",
+                focusedControlType: "ControlType.Document",
+                focusMetadataAvailable: true),
+            CreateSettings("Smart"));
+
+        Assert.False(decision.IsAllowed);
+        Assert.Equal(TerminalRiskKind.SuspectedTerminal, decision.Risk);
+    }
+
+    [Fact]
+    public void EvaluateCopyPolicy_MismatchedFocusProcessIsConservative()
+    {
+        var target = CreateWindow(
+            "Code",
+            focusedAutomationId: "editor",
+            focusedClassName: "monaco-editor",
+            focusedControlType: "ControlType.Document",
+            focusMetadataAvailable: true) with
+        {
+            FocusedProcessId = 99
+        };
+
+        var decision = TerminalDetector.EvaluateCopyPolicy(target, CreateSettings("Smart"));
+
+        Assert.False(decision.IsAllowed);
+        Assert.Equal(TerminalRiskKind.SuspectedTerminal, decision.Risk);
     }
 
     [Fact]
@@ -351,7 +441,8 @@ public sealed class TerminalDetectorTests
             focusedAutomationId,
             focusedClassName,
             focusedControlType,
-            focusMetadataAvailable);
+            FocusedProcessId: focusMetadataAvailable ? 7 : 0,
+            FocusMetadataAvailable: focusMetadataAvailable);
 
     private static AppSettings CreateSettings(string mode, string mappings = "") => new()
     {

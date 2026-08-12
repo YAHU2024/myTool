@@ -21,7 +21,8 @@ internal enum CopyDecisionReason
     CompatibleTerminalShortcut,
     TerminalCaptureDisabled,
     TerminalShortcutNotConfigured,
-    ForegroundUnavailable
+    ForegroundUnavailable,
+    PotentialInterruptShortcutRejected
 }
 
 internal sealed record ForegroundWindowInfo(
@@ -32,6 +33,7 @@ internal sealed record ForegroundWindowInfo(
     string FocusedAutomationId = "",
     string FocusedClassName = "",
     string FocusedControlType = "",
+    int FocusedProcessId = 0,
     bool FocusMetadataAvailable = false);
 
 internal sealed record CopyRequest(
@@ -40,7 +42,8 @@ internal sealed record CopyRequest(
     bool RestoreClipboard,
     TerminalRiskKind TerminalRisk,
     CopyDecisionReason DecisionReason,
-    bool HasVerifiedSelection = false);
+    CopyActionRisk ActionRisk,
+    SelectionEvidenceKind SelectionEvidence);
 
 internal sealed record TerminalCopyDecision(
     bool IsAllowed,
@@ -48,6 +51,7 @@ internal sealed record TerminalCopyDecision(
     CopyDecisionReason Reason,
     CopyShortcut? Shortcut,
     bool RestoreClipboard,
+    CopyActionRisk ActionRisk,
     string? RejectionMessage);
 
 internal static class TerminalDetector
@@ -142,7 +146,7 @@ internal static class TerminalDetector
         if (Win32Api.GetForegroundWindow() != target.Handle)
             return null;
 
-        if (focus == null)
+        if (focus == null || focus.ProcessId != target.ProcessId)
             return target;
 
         return target with
@@ -150,6 +154,7 @@ internal static class TerminalDetector
             FocusedAutomationId = focus.AutomationId,
             FocusedClassName = focus.ClassName,
             FocusedControlType = focus.ControlType,
+            FocusedProcessId = focus.ProcessId,
             FocusMetadataAvailable = true
         };
     }
@@ -173,7 +178,8 @@ internal static class TerminalDetector
                 risk,
                 CopyDecisionReason.OrdinaryApplication,
                 CopyShortcut.CtrlC,
-                restoreClipboard: true);
+                restoreClipboard: true,
+                CopyActionRisk.OrdinaryCopy);
         }
 
         var mode = NormalizeMode(settings.TerminalCopyMode);
@@ -191,7 +197,8 @@ internal static class TerminalDetector
                 risk,
                 CopyDecisionReason.ExplicitTerminalMapping,
                 mappedShortcut!,
-                restoreClipboard: false);
+                restoreClipboard: false,
+                ClassifyTerminalShortcutRisk(mappedShortcut!));
         }
 
         if (NormalizeProcessName(target.ProcessName).Equals("WindowsTerminal", StringComparison.OrdinalIgnoreCase) ||
@@ -201,7 +208,8 @@ internal static class TerminalDetector
                 risk,
                 CopyDecisionReason.WindowsTerminalSafeDefault,
                 CopyShortcut.CtrlShiftC,
-                restoreClipboard: false);
+                restoreClipboard: false,
+                CopyActionRisk.NonInterruptingTerminalCopy);
         }
 
         if (mode == "Compatible" && risk == TerminalRiskKind.KnownTerminal)
@@ -210,7 +218,8 @@ internal static class TerminalDetector
                 risk,
                 CopyDecisionReason.CompatibleTerminalShortcut,
                 CopyShortcut.CtrlShiftC,
-                restoreClipboard: false);
+                restoreClipboard: false,
+                CopyActionRisk.NonInterruptingTerminalCopy);
         }
 
         return Reject(
@@ -225,30 +234,23 @@ internal static class TerminalDetector
         return decision.Reason == CopyDecisionReason.TerminalCaptureDisabled;
     }
 
-    internal static bool RequiresVerifiedSelection(ForegroundWindowInfo target, AppSettings settings) =>
-        EvaluateCopyPolicy(target, settings).Risk != TerminalRiskKind.NonTerminal;
-
     internal static bool TryCreateCopyRequest(
         ForegroundWindowInfo? target,
         AppSettings settings,
         out CopyRequest? request,
         out string? rejectionMessage)
     {
-        var decision = EvaluateCopyPolicy(target, settings);
+        var plan = SelectionCapturePlanner.Create(
+            target,
+            settings,
+            SelectionEvidenceKind.None,
+            SelectionGestureKind.HotKey);
+        var decision = plan.Decision;
         LogDecision(target, settings, decision);
 
-        request = null;
-        rejectionMessage = decision.RejectionMessage;
-        if (!decision.IsAllowed || target == null || decision.Shortcut == null)
-            return false;
-
-        request = new CopyRequest(
-            target.Handle,
-            decision.Shortcut,
-            decision.RestoreClipboard,
-            decision.Risk,
-            decision.Reason);
-        return true;
+        request = plan.Request;
+        rejectionMessage = plan.RejectionMessage;
+        return plan.IsAllowed;
     }
 
     private static TerminalRiskKind Classify(ForegroundWindowInfo target, bool hasMapping)
@@ -262,6 +264,9 @@ internal static class TerminalDetector
         if (EmbeddedTerminalHostProcesses.Contains(NormalizeProcessName(target.ProcessName)))
         {
             if (!target.FocusMetadataAvailable)
+                return TerminalRiskKind.SuspectedTerminal;
+
+            if (target.FocusedProcessId != 0 && target.FocusedProcessId != target.ProcessId)
                 return TerminalRiskKind.SuspectedTerminal;
 
             if (ContainsTerminalMarker(target.FocusedAutomationId) ||
@@ -288,6 +293,11 @@ internal static class TerminalDetector
 
     private static bool ContainsEditorMarker(string value) =>
         EditorFocusMarkers.Any(marker => value.Contains(marker, StringComparison.OrdinalIgnoreCase));
+
+    private static CopyActionRisk ClassifyTerminalShortcutRisk(CopyShortcut shortcut) =>
+        shortcut == CopyShortcut.CtrlShiftC
+            ? CopyActionRisk.NonInterruptingTerminalCopy
+            : CopyActionRisk.PotentialInterrupt;
 
     private static Dictionary<string, CopyShortcut> ParseMappings(string? raw)
     {
@@ -332,16 +342,17 @@ internal static class TerminalDetector
         TerminalRiskKind risk,
         CopyDecisionReason reason,
         CopyShortcut shortcut,
-        bool restoreClipboard) =>
-        new(true, risk, reason, shortcut, restoreClipboard, null);
+        bool restoreClipboard,
+        CopyActionRisk actionRisk) =>
+        new(true, risk, reason, shortcut, restoreClipboard, actionRisk, null);
 
     private static TerminalCopyDecision Reject(
         TerminalRiskKind risk,
         CopyDecisionReason reason,
         string rejectionMessage) =>
-        new(false, risk, reason, null, false, rejectionMessage);
+        new(false, risk, reason, null, false, CopyActionRisk.PotentialInterrupt, rejectionMessage);
 
-    private static void LogDecision(
+    internal static void LogDecision(
         ForegroundWindowInfo? target,
         AppSettings settings,
         TerminalCopyDecision decision)
@@ -364,8 +375,11 @@ internal static class TerminalDetector
             ["focused_automation_id"] = target?.FocusedAutomationId ?? string.Empty,
             ["focused_class"] = target?.FocusedClassName ?? string.Empty,
             ["focused_control_type"] = target?.FocusedControlType ?? string.Empty,
+            ["focused_process_matches"] = target is not null &&
+                target.FocusedProcessId != 0 && target.FocusedProcessId == target.ProcessId,
             ["mode"] = NormalizeMode(settings.TerminalCopyMode),
             ["terminal_risk"] = decision.Risk.ToString(),
+            ["action_risk"] = decision.ActionRisk.ToString(),
             ["decision"] = decision.Reason.ToString(),
             ["shortcut"] = decision.Shortcut?.ToString() ?? string.Empty
         };

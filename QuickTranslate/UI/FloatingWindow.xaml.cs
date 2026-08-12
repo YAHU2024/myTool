@@ -1629,6 +1629,9 @@ public partial class FloatingWindow : Window
     internal void ShowAnalysisFollowUpFeedback(string message) =>
         ShowTransientStatus(message, FloatingStatusKind.Warning);
 
+    internal void ShowSelectionCaptureFeedback(string message) =>
+        ShowTransientStatus(message, FloatingStatusKind.Warning);
+
     private void ClearAllStatusMessages()
     {
         _statusMessageTimer?.Stop();

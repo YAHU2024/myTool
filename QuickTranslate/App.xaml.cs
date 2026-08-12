@@ -20,6 +20,13 @@ namespace QuickTranslate;
 /// </summary>
 public partial class App : Application
 {
+    private sealed record PendingSelectionCapture(
+        ForegroundWindowInfo SourceWindow,
+        SelectionIntent Intent,
+        SelectionEvidenceKind Evidence,
+        FloatingWindowAnchor Anchor,
+        long Generation);
+
     private GlobalKeyboardHook? _keyboardHook;
     private GlobalKeyboardHook? _quickLookupHook;
     private SelectionDetector? _selectionDetector;
@@ -53,8 +60,7 @@ public partial class App : Application
     };
     private long _selectionGeneration;
     private CancellationTokenSource? _selectionCts;
-    private ForegroundWindowInfo? _pendingSelection;
-    private FloatingWindowAnchor? _pendingFloatingAnchor;
+    private PendingSelectionCapture? _pendingSelection;
     private Mutex? _singleInstanceMutex;
     private Window? _hiddenWindow; // 隐藏主窗口，稳定 WPF Application 生命周期
     private Timer? _watchdogTimer; // 看门狗线程，定期写入状态文件
@@ -371,37 +377,28 @@ public partial class App : Application
 
         try
         {
-            if (!TerminalDetector.TryCreateCopyRequest(sourceWindow, _settings, out var copyRequest, out var rejectionMessage))
+            var location = await SelectionLocator.TryGetSelectionBoundsAsync(750);
+            var evidence = location is { IsValid: true }
+                ? SelectionEvidenceKind.UiaTextSelectionBounds
+                : SelectionEvidenceKind.None;
+            var plan = SelectionCapturePlanner.Create(
+                sourceWindow,
+                _settings,
+                evidence,
+                SelectionGestureKind.HotKey);
+            TerminalDetector.LogDecision(sourceWindow, _settings, plan.Decision);
+            if (!plan.IsAllowed)
             {
                 floatingAnchor = CreateFloatingAnchor(await GetSelectionLocationAsync());
                 await ShowMessageWithoutReplacingSessionAsync(
-                    rejectionMessage ?? "无法安全获取选中文本",
+                    plan.RejectionMessage ?? "无法安全获取选中文本",
                     floatingAnchor.Value);
                 return;
             }
 
-            SelectionLocation? verifiedTerminalLocation = null;
-            if (copyRequest!.TerminalRisk != TerminalRiskKind.NonTerminal)
-            {
-                verifiedTerminalLocation = await SelectionLocator.TryGetSelectionBoundsAsync(750);
-                if (verifiedTerminalLocation == null || !verifiedTerminalLocation.IsValid ||
-                    Win32Api.GetForegroundWindow() != sourceWindow!.Handle)
-                {
-                    floatingAnchor = CreateFloatingAnchor(await GetSelectionLocationAsync());
-                    await ShowMessageWithoutReplacingSessionAsync(
-                        "未检测到终端文本选区，已取消取词",
-                        floatingAnchor.Value);
-                    return;
-                }
-
-                copyRequest = copyRequest with { HasVerifiedSelection = true };
-            }
-
-            // Ordinary applications can probe selection through copy. Terminals require
-            // positive UIA selection evidence first because copy shortcuts may interrupt commands.
-            var selectedText = await ClipboardHelper.GetSelectedTextAsync(copyRequest!);
+            var selectedText = await ClipboardHelper.GetSelectedTextAsync(plan.Request!);
             floatingAnchor = CreateFloatingAnchor(
-                verifiedTerminalLocation ?? await GetSelectionLocationAsync());
+                location is { IsValid: true } ? location : await GetSelectionLocationAsync());
 
             if (string.IsNullOrWhiteSpace(selectedText))
             {
@@ -488,7 +485,10 @@ public partial class App : Application
     /// 文本选择完成事件处理 - 显示红点。
     /// 防重入：如果上一次操作尚未完成，直接丢弃新触发。
     /// </summary>
-    private async void OnSelectionCompleted(System.Windows.Point startPos, System.Windows.Point endPos)
+    private async void OnSelectionCompleted(
+        SelectionGestureKind gestureKind,
+        System.Windows.Point startPos,
+        System.Windows.Point endPos)
     {
         var generation = Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
@@ -512,6 +512,8 @@ public partial class App : Application
             var sourceWindow = await TerminalDetector.CaptureForegroundWindowWithFocusAsync(cancellationToken: token);
             if (sourceWindow == null) return;
 
+            var intent = new SelectionIntent(gestureKind, startPos, endPos, DateTimeOffset.UtcNow);
+
             if (_settings != null && TerminalDetector.ShouldSuppressSelection(sourceWindow, _settings))
             {
                 Logger.Debug("App", "selection.terminal_capture_suppressed", new
@@ -527,15 +529,30 @@ public partial class App : Application
             token.ThrowIfCancellationRequested();
             if (generation != Volatile.Read(ref _selectionGeneration)) return;
             if (Win32Api.GetForegroundWindow() != sourceWindow.Handle) return;
-            if ((location == null || !location.IsValid) && _settings != null &&
-                TerminalDetector.RequiresVerifiedSelection(sourceWindow, _settings))
+            var evidence = location is { IsValid: true }
+                ? SelectionEvidenceKind.UiaTextSelectionBounds
+                : SelectionEvidenceKind.GestureIntent;
+            if (_settings != null)
             {
-                Logger.Debug("App", "selection.terminal_unverified_suppressed", new
+                var plan = SelectionCapturePlanner.Create(
+                    sourceWindow,
+                    _settings,
+                    evidence,
+                    intent.GestureKind);
+                TerminalDetector.LogDecision(sourceWindow, _settings, plan.Decision);
+                if (!plan.IsAllowed)
                 {
-                    process_name = sourceWindow.ProcessName,
-                    window_class = sourceWindow.WindowClassName
-                });
-                return;
+                    Logger.Debug("App", "selection.capture_plan_rejected", new
+                    {
+                        process_name = sourceWindow.ProcessName,
+                        window_class = sourceWindow.WindowClassName,
+                        gesture = intent.GestureKind.ToString(),
+                        evidence = evidence.ToString(),
+                        decision = plan.Decision.Reason.ToString(),
+                        action_risk = plan.Decision.ActionRisk.ToString()
+                    });
+                    return;
+                }
             }
             if (location == null || !location.IsValid)
             {
@@ -549,12 +566,17 @@ public partial class App : Application
             }
 
             // Defer clipboard access until the user deliberately hovers the red dot.
-            _pendingSelection = sourceWindow;
             // 显示红点
             _redDotWindow.ShowAt(location);
-            _pendingFloatingAnchor = CreateFloatingAnchor(
+            var floatingAnchor = CreateFloatingAnchor(
                 location,
                 _redDotWindow.DotScreenPosition);
+            _pendingSelection = new PendingSelectionCapture(
+                sourceWindow,
+                intent,
+                evidence,
+                floatingAnchor,
+                generation);
             _selectionDetector!.IsRedDotVisible = true;
         }
         catch (OperationCanceledException)
@@ -582,45 +604,31 @@ public partial class App : Application
         _selectionDetector!.IsRedDotVisible = false;
         _redDotWindow?.Hide();
 
-        var pendingSourceWindow = _pendingSelection;
+        var pendingCapture = _pendingSelection;
         _pendingSelection = null;
-        var floatingAnchor = _pendingFloatingAnchor;
-        _pendingFloatingAnchor = null;
-        if (floatingAnchor == null)
-            return;
+        var floatingAnchor = pendingCapture.Anchor;
 
         try
         {
-            var sourceWindow = await TerminalDetector.CaptureForegroundWindowWithFocusAsync();
-            if (sourceWindow == null || sourceWindow.Handle != pendingSourceWindow.Handle)
+            if (Win32Api.GetForegroundWindow() != pendingCapture.SourceWindow.Handle ||
+                pendingCapture.Generation != Volatile.Read(ref _selectionGeneration))
                 return;
 
-            if (!TerminalDetector.TryCreateCopyRequest(sourceWindow, _settings, out var copyRequest, out var rejectionMessage))
+            var plan = SelectionCapturePlanner.Create(
+                pendingCapture.SourceWindow,
+                _settings,
+                pendingCapture.Evidence,
+                pendingCapture.Intent.GestureKind);
+            TerminalDetector.LogDecision(pendingCapture.SourceWindow, _settings, plan.Decision);
+            if (!plan.IsAllowed)
             {
                 await ShowMessageWithoutReplacingSessionAsync(
-                    rejectionMessage ?? "无法安全获取选中文本",
-                    floatingAnchor.Value);
+                    plan.RejectionMessage ?? "无法安全获取选中文本",
+                    floatingAnchor);
                 return;
             }
 
-            if (copyRequest!.TerminalRisk != TerminalRiskKind.NonTerminal)
-            {
-                var verifiedLocation = await SelectionLocator.TryGetSelectionBoundsAsync(750);
-                if (verifiedLocation == null || !verifiedLocation.IsValid ||
-                    Win32Api.GetForegroundWindow() != sourceWindow.Handle)
-                {
-                    Logger.Debug("App", "selection.terminal_verification_failed_before_copy", new
-                    {
-                        process_name = sourceWindow.ProcessName,
-                        window_class = sourceWindow.WindowClassName
-                    });
-                    return;
-                }
-
-                copyRequest = copyRequest with { HasVerifiedSelection = true };
-            }
-
-            var textToTranslate = await ClipboardHelper.GetSelectedTextAsync(copyRequest!);
+            var textToTranslate = await ClipboardHelper.GetSelectedTextAsync(plan.Request!);
             if (string.IsNullOrWhiteSpace(textToTranslate))
             {
                 // A red dot can be created by a double-click on empty space. Keep
@@ -637,7 +645,7 @@ public partial class App : Application
             await StartSessionRequestAsync(
                 textToTranslate,
                 contentType,
-                floatingAnchor.Value,
+                floatingAnchor,
                 "红点翻译",
                 detection);
         }
@@ -646,7 +654,7 @@ public partial class App : Application
             Logger.Error("App", "红点翻译出错", ex);
             await ShowMessageWithoutReplacingSessionAsync(
                 $"翻译失败: {ex.Message}",
-                floatingAnchor.Value);
+                floatingAnchor);
         }
     }
 
@@ -1163,8 +1171,15 @@ public partial class App : Application
         string message,
         FloatingWindowAnchor anchor)
     {
-        if (_floatingWindow is null || _resultSessions.CurrentSession is not null)
+        if (_floatingWindow is null)
             return;
+
+        if (_resultSessions.CurrentSession is not null)
+        {
+            _floatingWindow.ShowExistingResult();
+            _floatingWindow.ShowSelectionCaptureFeedback(message);
+            return;
+        }
 
         var presentationId = _floatingWindow.BeginReplacement();
         await _floatingWindow.ShowTranslationAsync(
@@ -1279,7 +1294,6 @@ public partial class App : Application
         _selectionDetector!.IsRedDotVisible = false;
         _redDotWindow?.Hide();
         _pendingSelection = null;
-        _pendingFloatingAnchor = null;
     }
 
     // ==================== 第三期：托盘 + 设置 ====================
