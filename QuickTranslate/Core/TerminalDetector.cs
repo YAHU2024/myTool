@@ -1,73 +1,366 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
+using System.Text;
 using QuickTranslate.Helpers;
 using QuickTranslate.Models;
 
-namespace QuickTranslate.Core
+namespace QuickTranslate.Core;
+
+internal enum TerminalRiskKind
 {
-    public sealed record ForegroundWindowInfo(IntPtr Handle, uint ProcessId, string ProcessName);
-    public sealed record CopyRequest(IntPtr ExpectedForegroundWindow, CopyShortcut Shortcut, bool RestoreClipboard);
+    NonTerminal,
+    KnownTerminal,
+    EmbeddedTerminal,
+    SuspectedTerminal
+}
 
-    public static class TerminalDetector
+internal enum CopyDecisionReason
+{
+    OrdinaryApplication,
+    ExplicitTerminalMapping,
+    WindowsTerminalSafeDefault,
+    CompatibleTerminalShortcut,
+    TerminalCaptureDisabled,
+    TerminalShortcutNotConfigured,
+    ForegroundUnavailable
+}
+
+internal sealed record ForegroundWindowInfo(
+    IntPtr Handle,
+    uint ProcessId,
+    string ProcessName,
+    string WindowClassName = "",
+    string FocusedAutomationId = "",
+    string FocusedClassName = "",
+    string FocusedControlType = "",
+    int FocusedProcessId = 0,
+    bool FocusMetadataAvailable = false);
+
+internal sealed record CopyRequest(
+    IntPtr ExpectedForegroundWindow,
+    CopyShortcut Shortcut,
+    bool RestoreClipboard,
+    TerminalRiskKind TerminalRisk,
+    CopyDecisionReason DecisionReason,
+    CopyActionRisk ActionRisk,
+    SelectionEvidenceKind SelectionEvidence);
+
+internal sealed record TerminalCopyDecision(
+    bool IsAllowed,
+    TerminalRiskKind Risk,
+    CopyDecisionReason Reason,
+    CopyShortcut? Shortcut,
+    bool RestoreClipboard,
+    CopyActionRisk ActionRisk,
+    string? RejectionMessage);
+
+internal static class TerminalDetector
+{
+    private static readonly HashSet<string> KnownTerminalProcesses = new(StringComparer.OrdinalIgnoreCase)
     {
-        private static readonly HashSet<string> KnownTerminalProcesses = new(StringComparer.OrdinalIgnoreCase)
-        { "WindowsTerminal", "conhost", "cmd", "powershell", "pwsh" };
+        "WindowsTerminal",
+        "OpenConsole",
+        "conhost",
+        "cmd",
+        "powershell",
+        "pwsh",
+        "wezterm",
+        "wezterm-gui",
+        "alacritty",
+        "mintty",
+        "ConEmu",
+        "ConEmu64",
+        "Hyper",
+        "Tabby",
+        "FluentTerminal"
+    };
 
-        public static ForegroundWindowInfo? CaptureForegroundWindow()
+    private static readonly HashSet<string> KnownTerminalWindowClasses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ConsoleWindowClass",
+        "CASCADIA_HOSTING_WINDOW_CLASS",
+        "mintty",
+        "VirtualConsoleClass"
+    };
+
+    private static readonly HashSet<string> EmbeddedTerminalHostProcesses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Code",
+        "Code - Insiders",
+        "VSCodium",
+        "Cursor",
+        "Windsurf",
+        "Codex"
+    };
+
+    private static readonly string[] TerminalFocusMarkers =
+    {
+        "terminal",
+        "xterm",
+        "console"
+    };
+
+    private static readonly string[] EditorFocusMarkers =
+    {
+        "editor",
+        "monaco"
+    };
+
+    internal static ForegroundWindowInfo? CaptureForegroundWindow()
+    {
+        try
         {
-            try
-            {
-                var hwnd = Win32Api.GetForegroundWindow();
-                if (hwnd == IntPtr.Zero) return null;
-                Win32Api.GetWindowThreadProcessId(hwnd, out var processId);
-                if (processId == 0) return null;
-                return new ForegroundWindowInfo(hwnd, processId, Process.GetProcessById((int)processId).ProcessName);
-            }
-            catch (Exception ex)
-            {
-                Logger.Debug("TerminalDetector", "foreground.capture_failed", new { error_type = ex.GetType().Name });
+            var hwnd = Win32Api.GetForegroundWindow();
+            if (hwnd == IntPtr.Zero)
                 return null;
-            }
-        }
 
-        public static bool TryCreateCopyRequest(ForegroundWindowInfo? target, AppSettings settings, out CopyRequest? request, out string? rejectionMessage)
-        {
-            request = null; rejectionMessage = null;
-            if (target == null) { rejectionMessage = "无法确认选中文本所在的窗口"; return false; }
-            var mappings = ParseMappings(settings.TerminalCopyMappings);
-            var isTerminal = KnownTerminalProcesses.Contains(target.ProcessName);
-            var hasMapping = mappings.TryGetValue(target.ProcessName, out var shortcut);
-            if (!isTerminal && !hasMapping)
-            {
-                request = new CopyRequest(target.Handle, CopyShortcut.CtrlC, true);
-                return true;
-            }
-            var mode = settings.TerminalCopyMode ?? "Smart";
-            if (mode.Equals("Disabled", StringComparison.OrdinalIgnoreCase))
-            { rejectionMessage = "终端取词已在设置中关闭"; return false; }
-            if (hasMapping)
-            { request = new CopyRequest(target.Handle, shortcut!, false); return true; }
-            if (target.ProcessName.Equals("WindowsTerminal", StringComparison.OrdinalIgnoreCase))
-            { request = new CopyRequest(target.Handle, CopyShortcut.CtrlShiftC, false); return true; }
-            if (mode.Equals("Compatible", StringComparison.OrdinalIgnoreCase))
-            { request = new CopyRequest(target.Handle, CopyShortcut.CtrlShiftC, false); return true; }
-            rejectionMessage = $"未为 {target.ProcessName} 配置安全复制快捷键";
-            return false;
-        }
+            Win32Api.GetWindowThreadProcessId(hwnd, out var processId);
+            if (processId == 0)
+                return null;
 
-        private static Dictionary<string, CopyShortcut> ParseMappings(string? raw)
+            return new ForegroundWindowInfo(
+                hwnd,
+                processId,
+                Process.GetProcessById((int)processId).ProcessName,
+                GetWindowClassName(hwnd));
+        }
+        catch (Exception ex)
         {
-            var result = new Dictionary<string, CopyShortcut>(StringComparer.OrdinalIgnoreCase);
-            if (string.IsNullOrWhiteSpace(raw)) return result;
-            foreach (var entry in raw.Split(';', StringSplitOptions.RemoveEmptyEntries))
-            {
-                var pair = entry.Split('=', 2, StringSplitOptions.TrimEntries);
-                if (pair.Length != 2 || string.IsNullOrWhiteSpace(pair[0])) continue;
-                var processName = pair[0].Replace(".exe", "", StringComparison.OrdinalIgnoreCase);
-                if (CopyShortcut.TryParse(pair[1], out var parsed)) result[processName] = parsed;
-            }
-            return result;
+            Logger.Debug("TerminalDetector", "foreground.capture_failed", new { error_type = ex.GetType().Name });
+            return null;
         }
     }
+
+    internal static async Task<ForegroundWindowInfo?> CaptureForegroundWindowWithFocusAsync(
+        int timeoutMs = 350,
+        CancellationToken cancellationToken = default)
+    {
+        var target = CaptureForegroundWindow();
+        if (target == null)
+            return null;
+
+        if (!EmbeddedTerminalHostProcesses.Contains(NormalizeProcessName(target.ProcessName)))
+            return target;
+
+        var focus = await SelectionLocator.TryGetFocusedAutomationContextAsync(timeoutMs, cancellationToken);
+        if (Win32Api.GetForegroundWindow() != target.Handle)
+            return null;
+
+        if (focus == null || focus.ProcessId != target.ProcessId)
+            return target;
+
+        return target with
+        {
+            FocusedAutomationId = focus.AutomationId,
+            FocusedClassName = focus.ClassName,
+            FocusedControlType = focus.ControlType,
+            FocusedProcessId = focus.ProcessId,
+            FocusMetadataAvailable = true
+        };
+    }
+
+    internal static TerminalCopyDecision EvaluateCopyPolicy(ForegroundWindowInfo? target, AppSettings settings)
+    {
+        if (target == null)
+        {
+            return Reject(
+                TerminalRiskKind.SuspectedTerminal,
+                CopyDecisionReason.ForegroundUnavailable,
+                "无法确认选中文本所在的窗口");
+        }
+
+        var mappings = ParseMappings(settings.TerminalCopyMappings);
+        var hasMapping = mappings.TryGetValue(NormalizeProcessName(target.ProcessName), out var mappedShortcut);
+        var risk = Classify(target, hasMapping);
+        if (risk == TerminalRiskKind.NonTerminal)
+        {
+            return Allow(
+                risk,
+                CopyDecisionReason.OrdinaryApplication,
+                CopyShortcut.CtrlC,
+                restoreClipboard: true,
+                CopyActionRisk.OrdinaryCopy);
+        }
+
+        var mode = NormalizeMode(settings.TerminalCopyMode);
+        if (mode == "Disabled")
+        {
+            return Reject(
+                risk,
+                CopyDecisionReason.TerminalCaptureDisabled,
+                "终端取词已在设置中关闭");
+        }
+
+        if (hasMapping)
+        {
+            return Allow(
+                risk,
+                CopyDecisionReason.ExplicitTerminalMapping,
+                mappedShortcut!,
+                restoreClipboard: false,
+                ClassifyTerminalShortcutRisk(mappedShortcut!));
+        }
+
+        if (NormalizeProcessName(target.ProcessName).Equals("WindowsTerminal", StringComparison.OrdinalIgnoreCase) ||
+            target.WindowClassName.Equals("CASCADIA_HOSTING_WINDOW_CLASS", StringComparison.OrdinalIgnoreCase))
+        {
+            return Allow(
+                risk,
+                CopyDecisionReason.WindowsTerminalSafeDefault,
+                CopyShortcut.CtrlShiftC,
+                restoreClipboard: false,
+                CopyActionRisk.NonInterruptingTerminalCopy);
+        }
+
+        if (mode == "Compatible" && risk == TerminalRiskKind.KnownTerminal)
+        {
+            return Allow(
+                risk,
+                CopyDecisionReason.CompatibleTerminalShortcut,
+                CopyShortcut.CtrlShiftC,
+                restoreClipboard: false,
+                CopyActionRisk.NonInterruptingTerminalCopy);
+        }
+
+        return Reject(
+            risk,
+            CopyDecisionReason.TerminalShortcutNotConfigured,
+            $"未为 {target.ProcessName} 配置安全复制快捷键");
+    }
+
+    internal static bool ShouldSuppressSelection(ForegroundWindowInfo target, AppSettings settings)
+    {
+        var decision = EvaluateCopyPolicy(target, settings);
+        return decision.Reason == CopyDecisionReason.TerminalCaptureDisabled;
+    }
+
+    private static TerminalRiskKind Classify(ForegroundWindowInfo target, bool hasMapping)
+    {
+        if (hasMapping || KnownTerminalProcesses.Contains(NormalizeProcessName(target.ProcessName)))
+            return TerminalRiskKind.KnownTerminal;
+
+        if (KnownTerminalWindowClasses.Contains(target.WindowClassName))
+            return TerminalRiskKind.KnownTerminal;
+
+        if (EmbeddedTerminalHostProcesses.Contains(NormalizeProcessName(target.ProcessName)))
+        {
+            if (!target.FocusMetadataAvailable)
+                return TerminalRiskKind.SuspectedTerminal;
+
+            if (target.FocusedProcessId != 0 && target.FocusedProcessId != target.ProcessId)
+                return TerminalRiskKind.SuspectedTerminal;
+
+            if (ContainsTerminalMarker(target.FocusedAutomationId) ||
+                ContainsTerminalMarker(target.FocusedClassName) ||
+                ContainsTerminalMarker(target.FocusedControlType))
+            {
+                return TerminalRiskKind.EmbeddedTerminal;
+            }
+
+            if (ContainsEditorMarker(target.FocusedAutomationId) ||
+                ContainsEditorMarker(target.FocusedClassName))
+            {
+                return TerminalRiskKind.NonTerminal;
+            }
+
+            return TerminalRiskKind.SuspectedTerminal;
+        }
+
+        return TerminalRiskKind.NonTerminal;
+    }
+
+    private static bool ContainsTerminalMarker(string value) =>
+        TerminalFocusMarkers.Any(marker => value.Contains(marker, StringComparison.OrdinalIgnoreCase));
+
+    private static bool ContainsEditorMarker(string value) =>
+        EditorFocusMarkers.Any(marker => value.Contains(marker, StringComparison.OrdinalIgnoreCase));
+
+    private static CopyActionRisk ClassifyTerminalShortcutRisk(CopyShortcut shortcut) =>
+        shortcut == CopyShortcut.CtrlShiftC
+            ? CopyActionRisk.NonInterruptingTerminalCopy
+            : CopyActionRisk.PotentialInterrupt;
+
+    private static Dictionary<string, CopyShortcut> ParseMappings(string? raw)
+    {
+        var result = new Dictionary<string, CopyShortcut>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(raw))
+            return result;
+
+        foreach (var entry in raw.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pair = entry.Split('=', 2, StringSplitOptions.TrimEntries);
+            if (pair.Length != 2 || string.IsNullOrWhiteSpace(pair[0]))
+                continue;
+
+            if (CopyShortcut.TryParse(pair[1], out var parsed))
+                result[NormalizeProcessName(pair[0])] = parsed;
+        }
+
+        return result;
+    }
+
+    private static string NormalizeProcessName(string processName) =>
+        processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? processName[..^4]
+            : processName;
+
+    private static string NormalizeMode(string? mode) => mode?.Trim() switch
+    {
+        { } value when value.Equals("Disabled", StringComparison.OrdinalIgnoreCase) => "Disabled",
+        { } value when value.Equals("Compatible", StringComparison.OrdinalIgnoreCase) => "Compatible",
+        _ => "Smart"
+    };
+
+    private static string GetWindowClassName(IntPtr hwnd)
+    {
+        var className = new StringBuilder(256);
+        return Win32Api.GetClassName(hwnd, className, className.Capacity) > 0
+            ? className.ToString()
+            : string.Empty;
+    }
+
+    private static TerminalCopyDecision Allow(
+        TerminalRiskKind risk,
+        CopyDecisionReason reason,
+        CopyShortcut shortcut,
+        bool restoreClipboard,
+        CopyActionRisk actionRisk) =>
+        new(true, risk, reason, shortcut, restoreClipboard, actionRisk, null);
+
+    private static TerminalCopyDecision Reject(
+        TerminalRiskKind risk,
+        CopyDecisionReason reason,
+        string rejectionMessage) =>
+        new(false, risk, reason, null, false, CopyActionRisk.NotApplicable, rejectionMessage);
+
+    internal static void LogDecision(
+        ForegroundWindowInfo? target,
+        AppSettings settings,
+        TerminalCopyDecision decision)
+    {
+        Logger.Debug(
+            "TerminalDetector",
+            "terminal.copy_decision",
+            BuildDecisionLogContext(target, settings, decision));
+    }
+
+    internal static IReadOnlyDictionary<string, object?> BuildDecisionLogContext(
+        ForegroundWindowInfo? target,
+        AppSettings settings,
+        TerminalCopyDecision decision) =>
+        new Dictionary<string, object?>
+        {
+            ["process_name"] = target?.ProcessName ?? string.Empty,
+            ["window_class"] = target?.WindowClassName ?? string.Empty,
+            ["focus_metadata_available"] = target?.FocusMetadataAvailable ?? false,
+            ["focused_automation_id"] = target?.FocusedAutomationId ?? string.Empty,
+            ["focused_class"] = target?.FocusedClassName ?? string.Empty,
+            ["focused_control_type"] = target?.FocusedControlType ?? string.Empty,
+            ["focused_process_matches"] = target is not null &&
+                target.FocusedProcessId != 0 && target.FocusedProcessId == target.ProcessId,
+            ["mode"] = NormalizeMode(settings.TerminalCopyMode),
+            ["terminal_risk"] = decision.Risk.ToString(),
+            ["action_risk"] = decision.ActionRisk.ToString(),
+            ["decision"] = decision.Reason.ToString(),
+            ["shortcut"] = decision.Shortcut?.ToString() ?? string.Empty
+        };
 }

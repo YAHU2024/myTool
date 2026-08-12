@@ -44,7 +44,7 @@ namespace QuickTranslate.Core
         /// <summary>
         /// 检测到文本选择完成时触发（在 WPF UI 线程上调用）
         /// </summary>
-        public event Action<Point, Point>? SelectionCompleted;
+        public event Action<SelectionGestureKind, Point, Point>? SelectionCompleted;
 
         /// <summary>
         /// 红点可见时用户点击其他位置触发（在 WPF UI 线程上调用）
@@ -254,7 +254,7 @@ namespace QuickTranslate.Core
 
                     Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
                     {
-                        SelectionCompleted?.Invoke(startPos, endPos);
+                        SelectionCompleted?.Invoke(SelectionGestureKind.Drag, startPos, endPos);
                     }));
                 }
                 else if (timerId == _multiClickTimerId && _multiClickTimerId != IntPtr.Zero)
@@ -267,7 +267,7 @@ namespace QuickTranslate.Core
 
                     Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
                     {
-                        SelectionCompleted?.Invoke(clickPos, clickPos);
+                        SelectionCompleted?.Invoke(SelectionGestureKind.MultiClick, clickPos, clickPos);
                     }));
                     _clickCount = 0;
                 }

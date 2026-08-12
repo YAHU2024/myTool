@@ -44,6 +44,7 @@ AGENTS.md
 
 ## Local developer documentation (plans, validation notes, design drafts)
 /docs/internal/
+/plan/
 
 ## Build output
 .build-output/

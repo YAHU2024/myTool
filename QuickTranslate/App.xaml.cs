@@ -20,6 +20,13 @@ namespace QuickTranslate;
 /// </summary>
 public partial class App : Application
 {
+    private sealed record PendingSelectionCapture(
+        ForegroundWindowInfo SourceWindow,
+        SelectionIntent Intent,
+        SelectionEvidenceKind Evidence,
+        FloatingWindowAnchor Anchor,
+        long Generation);
+
     private GlobalKeyboardHook? _keyboardHook;
     private GlobalKeyboardHook? _quickLookupHook;
     private SelectionDetector? _selectionDetector;
@@ -53,8 +60,7 @@ public partial class App : Application
     };
     private long _selectionGeneration;
     private CancellationTokenSource? _selectionCts;
-    private ForegroundWindowInfo? _pendingSelection;
-    private FloatingWindowAnchor? _pendingFloatingAnchor;
+    private PendingSelectionCapture? _pendingSelection;
     private Mutex? _singleInstanceMutex;
     private Window? _hiddenWindow; // 隐藏主窗口，稳定 WPF Application 生命周期
     private Timer? _watchdogTimer; // 看门狗线程，定期写入状态文件
@@ -360,7 +366,7 @@ public partial class App : Application
 
         FloatingWindowAnchor? floatingAnchor = null;
 
-        var sourceWindow = TerminalDetector.CaptureForegroundWindow();
+        var sourceWindow = await TerminalDetector.CaptureForegroundWindowWithFocusAsync();
 
         // 浏览器中禁用翻译：避免与浏览器翻译插件冲突
         if (!_settings.EnableInBrowser && BrowserDetector.IsForegroundBrowser(_settings.CustomBrowserProcesses))
@@ -371,18 +377,33 @@ public partial class App : Application
 
         try
         {
-            if (!TerminalDetector.TryCreateCopyRequest(sourceWindow, _settings, out var copyRequest, out var rejectionMessage))
+            var location = await SelectionLocator.TryGetSelectionBoundsAsync(750);
+            var evidence = location is { IsValid: true }
+                ? SelectionEvidenceKind.UiaTextSelectionBounds
+                : SelectionEvidenceKind.None;
+            var intent = new SelectionIntent(
+                SelectionGestureKind.HotKey,
+                default,
+                default,
+                DateTimeOffset.UtcNow);
+            var plan = SelectionCapturePlanner.Create(
+                sourceWindow,
+                _settings,
+                evidence,
+                intent);
+            TerminalDetector.LogDecision(sourceWindow, _settings, plan.Decision);
+            if (!plan.IsAllowed)
             {
                 floatingAnchor = CreateFloatingAnchor(await GetSelectionLocationAsync());
                 await ShowMessageWithoutReplacingSessionAsync(
-                    rejectionMessage ?? "无法安全获取选中文本",
+                    plan.RejectionMessage ?? "无法安全获取选中文本",
                     floatingAnchor.Value);
                 return;
             }
 
-            // Copy before the optional UIA lookup so focus cannot change during an async operation.
-            var selectedText = await ClipboardHelper.GetSelectedTextAsync(copyRequest!);
-            floatingAnchor = CreateFloatingAnchor(await GetSelectionLocationAsync());
+            var selectedText = await ClipboardHelper.GetSelectedTextAsync(plan.Request!);
+            floatingAnchor = CreateFloatingAnchor(
+                location is { IsValid: true } ? location : await GetSelectionLocationAsync());
 
             if (string.IsNullOrWhiteSpace(selectedText))
             {
@@ -469,7 +490,10 @@ public partial class App : Application
     /// 文本选择完成事件处理 - 显示红点。
     /// 防重入：如果上一次操作尚未完成，直接丢弃新触发。
     /// </summary>
-    private async void OnSelectionCompleted(System.Windows.Point startPos, System.Windows.Point endPos)
+    private async void OnSelectionCompleted(
+        SelectionGestureKind gestureKind,
+        System.Windows.Point startPos,
+        System.Windows.Point endPos)
     {
         var generation = Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
@@ -490,14 +514,51 @@ public partial class App : Application
                 return;
             }
 
-            var sourceWindow = TerminalDetector.CaptureForegroundWindow();
+            var sourceWindow = await TerminalDetector.CaptureForegroundWindowWithFocusAsync(cancellationToken: token);
             if (sourceWindow == null) return;
+
+            var intent = new SelectionIntent(gestureKind, startPos, endPos, DateTimeOffset.UtcNow);
+
+            if (_settings != null && TerminalDetector.ShouldSuppressSelection(sourceWindow, _settings))
+            {
+                Logger.Debug("App", "selection.terminal_capture_suppressed", new
+                {
+                    process_name = sourceWindow.ProcessName,
+                    window_class = sourceWindow.WindowClassName
+                });
+                return;
+            }
 
             // 尝试 UIA 异步精确定位（不阻塞 UI 线程）
             var location = await SelectionLocator.TryGetSelectionBoundsAsync(2000, token);
             token.ThrowIfCancellationRequested();
             if (generation != Volatile.Read(ref _selectionGeneration)) return;
             if (Win32Api.GetForegroundWindow() != sourceWindow.Handle) return;
+            var evidence = location is { IsValid: true }
+                ? SelectionEvidenceKind.UiaTextSelectionBounds
+                : SelectionEvidenceKind.GestureIntent;
+            if (_settings != null)
+            {
+                var plan = SelectionCapturePlanner.Create(
+                    sourceWindow,
+                    _settings,
+                    evidence,
+                    intent);
+                TerminalDetector.LogDecision(sourceWindow, _settings, plan.Decision);
+                if (!plan.IsAllowed)
+                {
+                    Logger.Debug("App", "selection.capture_plan_rejected", new
+                    {
+                        process_name = sourceWindow.ProcessName,
+                        window_class = sourceWindow.WindowClassName,
+                        gesture = intent.GestureKind.ToString(),
+                        evidence = evidence.ToString(),
+                        decision = plan.Decision.Reason.ToString(),
+                        action_risk = plan.Decision.ActionRisk.ToString()
+                    });
+                    return;
+                }
+            }
             if (location == null || !location.IsValid)
             {
                 // Fallback: physical drag end point, same coordinate contract as UIA.
@@ -510,12 +571,17 @@ public partial class App : Application
             }
 
             // Defer clipboard access until the user deliberately hovers the red dot.
-            _pendingSelection = sourceWindow;
             // 显示红点
             _redDotWindow.ShowAt(location);
-            _pendingFloatingAnchor = CreateFloatingAnchor(
+            var floatingAnchor = CreateFloatingAnchor(
                 location,
                 _redDotWindow.DotScreenPosition);
+            _pendingSelection = new PendingSelectionCapture(
+                sourceWindow,
+                intent,
+                evidence,
+                floatingAnchor,
+                generation);
             _selectionDetector!.IsRedDotVisible = true;
         }
         catch (OperationCanceledException)
@@ -543,24 +609,31 @@ public partial class App : Application
         _selectionDetector!.IsRedDotVisible = false;
         _redDotWindow?.Hide();
 
-        var sourceWindow = _pendingSelection;
+        var pendingCapture = _pendingSelection;
         _pendingSelection = null;
-        var floatingAnchor = _pendingFloatingAnchor;
-        _pendingFloatingAnchor = null;
-        if (floatingAnchor == null)
-            return;
+        var floatingAnchor = pendingCapture.Anchor;
 
         try
         {
-            if (!TerminalDetector.TryCreateCopyRequest(sourceWindow, _settings, out var copyRequest, out var rejectionMessage))
+            if (Win32Api.GetForegroundWindow() != pendingCapture.SourceWindow.Handle ||
+                pendingCapture.Generation != Volatile.Read(ref _selectionGeneration))
+                return;
+
+            var plan = SelectionCapturePlanner.Create(
+                pendingCapture.SourceWindow,
+                _settings,
+                pendingCapture.Evidence,
+                pendingCapture.Intent);
+            TerminalDetector.LogDecision(pendingCapture.SourceWindow, _settings, plan.Decision);
+            if (!plan.IsAllowed)
             {
                 await ShowMessageWithoutReplacingSessionAsync(
-                    rejectionMessage ?? "无法安全获取选中文本",
-                    floatingAnchor.Value);
+                    plan.RejectionMessage ?? "无法安全获取选中文本",
+                    floatingAnchor);
                 return;
             }
 
-            var textToTranslate = await ClipboardHelper.GetSelectedTextAsync(copyRequest!);
+            var textToTranslate = await ClipboardHelper.GetSelectedTextAsync(plan.Request!);
             if (string.IsNullOrWhiteSpace(textToTranslate))
             {
                 // A red dot can be created by a double-click on empty space. Keep
@@ -577,7 +650,7 @@ public partial class App : Application
             await StartSessionRequestAsync(
                 textToTranslate,
                 contentType,
-                floatingAnchor.Value,
+                floatingAnchor,
                 "红点翻译",
                 detection);
         }
@@ -586,7 +659,7 @@ public partial class App : Application
             Logger.Error("App", "红点翻译出错", ex);
             await ShowMessageWithoutReplacingSessionAsync(
                 $"翻译失败: {ex.Message}",
-                floatingAnchor.Value);
+                floatingAnchor);
         }
     }
 
@@ -1103,8 +1176,15 @@ public partial class App : Application
         string message,
         FloatingWindowAnchor anchor)
     {
-        if (_floatingWindow is null || _resultSessions.CurrentSession is not null)
+        if (_floatingWindow is null)
             return;
+
+        if (_resultSessions.CurrentSession is not null)
+        {
+            _floatingWindow.ShowExistingResult();
+            _floatingWindow.ShowSelectionCaptureFeedback(message);
+            return;
+        }
 
         var presentationId = _floatingWindow.BeginReplacement();
         await _floatingWindow.ShowTranslationAsync(
@@ -1219,7 +1299,6 @@ public partial class App : Application
         _selectionDetector!.IsRedDotVisible = false;
         _redDotWindow?.Hide();
         _pendingSelection = null;
-        _pendingFloatingAnchor = null;
     }
 
     // ==================== 第三期：托盘 + 设置 ====================
