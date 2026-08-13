@@ -91,6 +91,8 @@ public partial class FloatingWindow : Window
     private bool _hasPendingRootMarkdownRefresh;
     private bool _isImeComposing;
     private bool _suppressDraftEvent;
+    private bool _restoreFollowUpFocusAfterCompletion;
+    private bool _wasFollowUpBusy;
     private string _copyText = string.Empty;
     private string _speechText = string.Empty;
     private readonly List<ConversationNodeView> _conversationNodes = [];
@@ -163,6 +165,7 @@ public partial class FloatingWindow : Window
         };
         FollowUpTextBox.GotKeyboardFocus += (_, _) => _autoHideTimer.Stop();
         FollowUpTextBox.LostKeyboardFocus += (_, _) => ResetAutoHideTimer();
+        PreviewMouseDown += FloatingWindow_PreviewMouseDown;
 
         _scrollBarHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.2) };
         _scrollBarHideTimer.Tick += (_, _) =>
@@ -285,7 +288,11 @@ public partial class FloatingWindow : Window
         RaiseScrollStateChanged();
 
         if (_sessionId != sessionId || _activeMode != mode)
+        {
             _ = StopTtsAsync();
+            _restoreFollowUpFocusAfterCompletion = false;
+            _wasFollowUpBusy = false;
+        }
 
         _sessionId = sessionId;
         _activeMode = mode;
@@ -678,6 +685,8 @@ public partial class FloatingWindow : Window
 
         if (!canFollowUp)
         {
+            _restoreFollowUpFocusAfterCompletion = false;
+            _wasFollowUpBusy = false;
             _currentConversationNodeKey = null;
             _clickedConversationNodeKey = null;
             _copyText = _rawText;
@@ -730,6 +739,22 @@ public partial class FloatingWindow : Window
         {
             _suppressDraftEvent = false;
         }
+
+        if (_wasFollowUpBusy && !busy && _restoreFollowUpFocusAfterCompletion && !limitReached)
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (IsActive && FollowUpTextBox.IsEnabled && AnalysisFollowUpInput.IsVisible)
+                {
+                    FollowUpTextBox.Focus();
+                    Keyboard.Focus(FollowUpTextBox);
+                }
+            }, DispatcherPriority.Input);
+            // 有意在调度后立即消费标志：回调守卫（如窗口已不活动）失败时不重试，
+            // 避免标志残留到下一次渲染时被误触发。
+            _restoreFollowUpFocusAfterCompletion = false;
+        }
+        _wasFollowUpBusy = busy;
 
         _copyText = turns.Count == 0
             ? _rawText
@@ -824,7 +849,11 @@ public partial class FloatingWindow : Window
                 Margin = new Thickness(0, 6, 0, 0)
             };
             AutomationProperties.SetName(retry, $"重试 Q{turn.TurnNumber}");
-            retry.Click += (_, _) => AnalysisFollowUpRetryRequested?.Invoke();
+            retry.Click += (_, _) =>
+            {
+                _restoreFollowUpFocusAfterCompletion = true;
+                AnalysisFollowUpRetryRequested?.Invoke();
+            };
             container.Children.Add(retry);
         }
 
@@ -1866,6 +1895,25 @@ public partial class FloatingWindow : Window
 
     private void FollowUpSendButton_Click(object sender, RoutedEventArgs e) => SubmitFollowUp();
 
+    private void FloatingWindow_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!_wasFollowUpBusy || e.OriginalSource is not DependencyObject source)
+            return;
+
+        if (!IsDescendantOf(source, AnalysisFollowUpInput))
+            _restoreFollowUpFocusAfterCompletion = false;
+    }
+
+    private static bool IsDescendantOf(DependencyObject source, DependencyObject ancestor)
+    {
+        for (var current = source; current is not null; current = GetParent(current))
+        {
+            if (ReferenceEquals(current, ancestor))
+                return true;
+        }
+        return false;
+    }
+
     private void SubmitFollowUp()
     {
         if (!FollowUpTextBox.IsEnabled || !FollowUpSendButton.IsEnabled)
@@ -1874,6 +1922,7 @@ public partial class FloatingWindow : Window
         try
         {
             var question = AnalysisConversationFormatter.NormalizeQuestion(FollowUpTextBox.Text);
+            _restoreFollowUpFocusAfterCompletion = true;
             AnalysisFollowUpRequested?.Invoke(question);
         }
         catch (ArgumentException ex)
@@ -2107,6 +2156,9 @@ public partial class FloatingWindow : Window
     {
         if (child is Visual or System.Windows.Media.Media3D.Visual3D)
             return VisualTreeHelper.GetParent(child);
+        if (child is ContentElement content)
+            return ContentOperations.GetParent(content) ??
+                (content as FrameworkContentElement)?.Parent;
         return LogicalTreeHelper.GetParent(child);
     }
 
