@@ -160,7 +160,13 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Grid Grid.Column="0">
-                    <TextBox x:Name="FollowUpTextBox" MinHeight="32" MaxHeight="88" MaxLength="2000" Padding="9,5" FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#F0F0F0" Background="#28283A" BorderBrush="#4A4A62" BorderThickness="1" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" TextChanged="FollowUpTextBox_TextChanged" AutomationProperties.Name="解析追问输入"/>
+                    <TextBox x:Name="FollowUpTextBox" MinHeight="32" MaxHeight="88" MaxLength="2000" Padding="9,5" FontFamily="Microsoft YaHei UI" FontSize="13" Foreground="#F0F0F0" Background="#28283A" BorderBrush="#4A4A62" BorderThickness="1" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" TextChanged="FollowUpTextBox_TextChanged" AutomationProperties.Name="解析追问输入">
+                        <TextBox.Resources>
+                            <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource Win11VerticalScrollBar}">
+                                <Setter Property="Opacity" Value="1"/>
+                            </Style>
+                        </TextBox.Resources>
+                    </TextBox>
                     <TextBlock x:Name="FollowUpInputHint" Text="继续追问..." Margin="10,0,0,0" VerticalAlignment="Center" Foreground="#85859A" FontFamily="Microsoft YaHei UI" FontSize="13" IsHitTestVisible="False"/>
                 </Grid>
                 <Button x:Name="FollowUpSendButton" Grid.Column="1" Style="{StaticResource IconToolbarButton}" Width="32" Height="32" Margin="6,0,0,0" FontFamily="Segoe MDL2 Assets" Content="&#xE724;" ToolTip="发送追问" AutomationProperties.Name="发送追问" Click="FollowUpSendButton_Click"/>

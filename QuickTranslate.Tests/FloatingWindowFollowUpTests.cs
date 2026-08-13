@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -440,6 +441,54 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Equal(TextWrapping.Wrap, window.FollowUpTextBox.TextWrapping);
             Assert.Equal(ScrollBarVisibility.Auto, window.FollowUpTextBox.VerticalScrollBarVisibility);
             Assert.Equal(multilineQuestion, window.FollowUpTextBox.Text);
+            var inputScrollBarStyle = Assert.IsType<Style>(window.FollowUpTextBox.Resources[typeof(ScrollBar)]);
+            Assert.Same(window.FindResource("Win11VerticalScrollBar"), inputScrollBarStyle.BasedOn);
+            var opacitySetter = Assert.Single(
+                inputScrollBarStyle.Setters.OfType<Setter>(),
+                setter => setter.Property == UIElement.OpacityProperty);
+            Assert.Equal(1d, opacitySetter.Value);
+        });
+    }
+
+    [SkippableFact]
+    public void CompletedFollowUp_RestoresFocusToInput()
+    {
+        RunOnSta(window =>
+        {
+            var sessionId = Guid.NewGuid();
+            window.Show();
+            window.SetSessionView(
+                sessionId,
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation(turns: []));
+            window.FollowUpTextBox.Text = "continue";
+            window.FollowUpTextBox.Focus();
+            window.FollowUpSendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var loading = new AnalysisFollowUpTurnState(
+                1,
+                "continue",
+                string.Empty,
+                AnalysisFollowUpTurnStatus.Loading,
+                1);
+            window.SetSessionView(
+                sessionId,
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([loading]));
+
+            window.SetSessionView(
+                sessionId,
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([loading with
+                {
+                    AnswerRawText = "completed answer",
+                    Status = AnalysisFollowUpTurnStatus.Completed
+                }]));
+            PumpDispatcher();
+
+            Assert.True(window.FollowUpTextBox.IsKeyboardFocused);
         });
     }
 
