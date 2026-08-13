@@ -422,6 +422,27 @@ public sealed class FloatingWindowFollowUpTests
         });
     }
 
+    [SkippableFact]
+    public void FollowUpInput_PreservesMultilineText()
+    {
+        RunOnSta(window =>
+        {
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation(turns: []));
+            const string multilineQuestion = "first line\r\nsecond line\nthird line";
+
+            window.FollowUpTextBox.Text = multilineQuestion;
+
+            Assert.True(window.FollowUpTextBox.AcceptsReturn);
+            Assert.Equal(TextWrapping.Wrap, window.FollowUpTextBox.TextWrapping);
+            Assert.Equal(ScrollBarVisibility.Auto, window.FollowUpTextBox.VerticalScrollBarVisibility);
+            Assert.Equal(multilineQuestion, window.FollowUpTextBox.Text);
+        });
+    }
+
     private static void RunOnSta(Action<FloatingWindow> assertion)
     {
         Skip.If(IsRunningOnCI, "WPF window tests require a real message pump, unavailable on headless CI.");
