@@ -288,7 +288,11 @@ public partial class FloatingWindow : Window
         RaiseScrollStateChanged();
 
         if (_sessionId != sessionId || _activeMode != mode)
+        {
             _ = StopTtsAsync();
+            _restoreFollowUpFocusAfterCompletion = false;
+            _wasFollowUpBusy = false;
+        }
 
         _sessionId = sessionId;
         _activeMode = mode;
@@ -746,6 +750,8 @@ public partial class FloatingWindow : Window
                     Keyboard.Focus(FollowUpTextBox);
                 }
             }, DispatcherPriority.Input);
+            // 有意在调度后立即消费标志：回调守卫（如窗口已不活动）失败时不重试，
+            // 避免标志残留到下一次渲染时被误触发。
             _restoreFollowUpFocusAfterCompletion = false;
         }
         _wasFollowUpBusy = busy;
