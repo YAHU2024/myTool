@@ -65,7 +65,12 @@ public partial class ModelSelectorControl : UserControl
         }
 
         PopulateMenu();
-        SelectorPopup.HorizontalOffset = Math.Min(0, SelectorButton.ActualWidth - PopupSurface.Width);
+        SelectorPopup.HorizontalOffset = 0;
+        PopupAnchor.Margin = new Thickness(
+            0,
+            -1,
+            Math.Max(0, (SelectorButton.ActualWidth - PopupAnchor.Width) / 2),
+            0);
         SelectorPopup.IsOpen = true;
     }
 

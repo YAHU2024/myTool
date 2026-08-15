@@ -491,7 +491,7 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Equal(176d, window.ModelSelector.Width);
             Assert.Equal(176d, window.ModelSelector.MaxWidth);
             Assert.Equal("Qwen3-8B", window.ModelSelector.ModelNameText.Text);
-            Assert.Equal(340d, window.ModelSelector.PopupSurface.Width);
+            Assert.Equal(312d, window.ModelSelector.PopupContainer.Width);
             Assert.Equal(312d, window.ModelSelector.ProfileList.MaxHeight);
 
             window.Show();
@@ -499,6 +499,29 @@ public sealed class FloatingWindowFollowUpTests
             PumpDispatcher();
 
             Assert.True(window.ModelSelector.SelectorPopup.IsOpen);
+            Assert.Same(window.ModelSelector.SelectorButton, window.ModelSelector.SelectorPopup.PlacementTarget);
+            Assert.Equal(PlacementMode.Top, window.ModelSelector.SelectorPopup.Placement);
+            Assert.Equal(0d, window.ModelSelector.SelectorPopup.HorizontalOffset);
+            Assert.Equal(82d, window.ModelSelector.PopupAnchor.Margin.Right);
+            var modelListScrollBarStyle = Assert.IsType<Style>(
+                window.ModelSelector.ProfileList.Resources[typeof(ScrollBar)]);
+            var baseScrollBarStyle = Assert.IsType<Style>(window.ModelSelector.FindResource("Win11VerticalScrollBar"));
+            Assert.Same(baseScrollBarStyle, modelListScrollBarStyle.BasedOn);
+            Assert.Equal(
+                4d,
+                Assert.Single(
+                    baseScrollBarStyle.Setters.OfType<Setter>(),
+                    setter => setter.Property == FrameworkElement.WidthProperty).Value);
+            Assert.Equal(
+                4d,
+                Assert.Single(
+                    baseScrollBarStyle.Setters.OfType<Setter>(),
+                    setter => setter.Property == FrameworkElement.MinWidthProperty).Value);
+            Assert.Equal(
+                1d,
+                Assert.Single(
+                    modelListScrollBarStyle.Setters.OfType<Setter>(),
+                    setter => setter.Property == UIElement.OpacityProperty).Value);
             Assert.Single(window.ModelSelector.ProfileList.Items);
 
             window.SetModelProfiles([], null, enabled: false);
