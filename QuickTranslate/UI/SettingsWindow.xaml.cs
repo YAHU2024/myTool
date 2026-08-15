@@ -313,7 +313,6 @@ namespace QuickTranslate.UI
                 ApiBaseUrlTextBox.Text = preset.ApiBaseUrl;
                 ApiKeyPasswordBox.Password = string.Empty;
                 ApiKeyVisibleTextBox.Text = string.Empty;
-                ModelComboBox.Text = preset.ModelName;
                 ModelAliasTextBox.Text = string.Empty;
                 ShowModelFeedback($"已选择 {preset.DisplayName}，请填写 API Key", autoHide: false);
                 _isDirty = true;
@@ -323,7 +322,6 @@ namespace QuickTranslate.UI
                 ApiBaseUrlTextBox.Text = config.ApiBaseUrl;
                 ApiKeyPasswordBox.Password = config.ApiKey;
                 ApiKeyVisibleTextBox.Text = config.ApiKey;
-                ModelComboBox.Text = config.ModelName;
                 ModelAliasTextBox.Text = ModelProfileCatalog.ResolveLegacyAlias(config);
 
                 var domain = ExtractDomainShortName(config.ApiBaseUrl);
@@ -650,7 +648,17 @@ namespace QuickTranslate.UI
                 ? (ApiKeyVisibleTextBox.Text ?? _settings.ApiKey)
                 : (ApiKeyPasswordBox.Password ?? _settings.ApiKey);
 
-            var model = ModelComboBox.Text?.Trim();
+            var selectedItem = ModelComboBox.SelectedItem as ComboBoxItem;
+            var selectedModel = selectedItem?.Tag switch
+            {
+                ProviderPreset preset => preset.ModelName,
+                SavedConfig config => config.ModelName,
+                _ => string.Empty
+            };
+            var model = ResolveModelNameForSave(
+                ModelComboBox.Text,
+                selectedModel,
+                selectedItem?.Content?.ToString());
             if (!string.IsNullOrWhiteSpace(model))
                 _settings.ModelName = model;
 
@@ -745,6 +753,28 @@ namespace QuickTranslate.UI
                     _settings.SavedConfigs.RemoveAt(_settings.SavedConfigs.Count - 1);
             }
 
+        }
+
+        internal static string ResolveModelNameForSave(
+            string? editorText,
+            string? selectedModelName,
+            string? selectedDisplayName)
+        {
+            var normalizedEditorText = editorText?.Trim() ?? string.Empty;
+            var normalizedSelectedModel = selectedModelName?.Trim() ?? string.Empty;
+            var normalizedDisplayName = selectedDisplayName?.Trim() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(normalizedSelectedModel))
+                return normalizedEditorText;
+
+            if (string.IsNullOrWhiteSpace(normalizedEditorText) ||
+                string.Equals(normalizedEditorText, normalizedSelectedModel, StringComparison.Ordinal) ||
+                string.Equals(normalizedEditorText, normalizedDisplayName, StringComparison.Ordinal))
+            {
+                return normalizedSelectedModel;
+            }
+
+            return normalizedEditorText;
         }
 
         private void LoadTranslationTriggerModeComboBox()

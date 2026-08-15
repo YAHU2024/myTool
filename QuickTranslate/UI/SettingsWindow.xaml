@@ -349,7 +349,7 @@
                                 <Button x:Name="EyeButton" Grid.Column="1" Style="{StaticResource IconButton}" Content="&#xE890;" FontFamily="Segoe MDL2 Assets" ToolTip="显示 API 密钥" Click="EyeButton_Click" Margin="6,2,0,2"/>
                             </Grid>
                             <TextBlock Grid.Row="2" Text="模型" Style="{StaticResource LabelStyle}"/>
-                            <ComboBox x:Name="ModelComboBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource DarkComboBox}" IsEditable="True" SelectionChanged="ModelComboBox_SelectionChanged" LostFocus="Input_LostFocus"/>
+                            <ComboBox x:Name="ModelComboBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource DarkComboBox}" IsEditable="True" IsTextSearchEnabled="False" TextSearch.TextPath="Tag.ModelName" SelectionChanged="ModelComboBox_SelectionChanged" LostFocus="Input_LostFocus"/>
                             <Button x:Name="DeleteConfigButton" Grid.Row="2" Grid.Column="2" Content="删除" Style="{StaticResource DangerButton}" Padding="10,6" Margin="8,2,0,2" IsEnabled="False" Click="DeleteConfigButton_Click" ToolTip="删除当前已保存的模型配置"/>
                             <TextBlock Grid.Row="3" Text="备注名称" Style="{StaticResource LabelStyle}"/>
                             <TextBox x:Name="ModelAliasTextBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" MaxLength="32" Style="{StaticResource InputTextBox}" LostFocus="Input_LostFocus" ToolTip="仅用于模型菜单显示，留空时显示模型名和供应商"/>
