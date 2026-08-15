@@ -133,7 +133,7 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel x:Name="ConversationNodeRail" Grid.Column="0" Margin="0,2,4,0" Visibility="Collapsed"/>
                 <ScrollViewer x:Name="TranslationScroller" Grid.Column="1" Style="{StaticResource Win11ScrollViewer}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxWidth="870" MinHeight="40" ScrollChanged="TranslationScroller_ScrollChanged" PreviewMouseWheel="TranslationScroller_PreviewMouseWheel" PreviewKeyDown="TranslationScroller_PreviewKeyDown" PreviewMouseLeftButtonDown="TranslationScroller_PreviewMouseLeftButtonDown">
-                    <StackPanel x:Name="ConversationContentPanel" Margin="0,0,0,40">
+                    <StackPanel x:Name="ConversationContentPanel">
                         <TextBlock x:Name="AnalysisRootLabel" Text="解析" Foreground="#B7C5FF" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" Visibility="Collapsed" Focusable="True" AutomationProperties.Name="初始解析"/>
                         <Grid x:Name="RootResultHost">
                             <TextBox x:Name="TranslationTextBlock" Foreground="#F0F0F0" FontSize="16" FontFamily="Microsoft YaHei UI" TextWrapping="Wrap" Padding="0,0,6,0" Text="" IsReadOnly="True" IsReadOnlyCaretVisible="False" Focusable="True" IsTabStop="False" AcceptsReturn="True" BorderThickness="0" Background="Transparent" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" SelectionBrush="#4DB6AC" SelectionOpacity="0.45" Cursor="IBeam"/>

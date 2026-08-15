@@ -24,6 +24,7 @@ public partial class FloatingWindow : Window
 {
     private const double PlacementGapDip = 12;
     private const double DefaultWindowMinHeight = 120;
+    private const double ReturnToLatestContentReserveDip = 40;
     private static readonly TimeSpan StreamingScrollInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan StreamingPositionInterval = TimeSpan.FromMilliseconds(125);
     private readonly DispatcherTimer _autoHideTimer;
@@ -1690,15 +1691,34 @@ public partial class FloatingWindow : Window
 
     private void UpdateAutoScrollAffordance()
     {
-        ReturnToLatestButton.Visibility = ShouldShowReturnToLatest(
+        var currentMargin = ConversationContentPanel.Margin;
+        var shouldShow = ShouldShowReturnToLatest(
             _autoScroll.IsAutoScrollEnabled,
-            TranslationScroller.ScrollableHeight)
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+            TranslationScroller.ScrollableHeight,
+            currentMargin.Bottom);
+        ReturnToLatestButton.Visibility = shouldShow ? Visibility.Visible : Visibility.Collapsed;
+
+        var desiredBottomReserve = shouldShow ? ReturnToLatestContentReserveDip : 0;
+        if (Math.Abs(currentMargin.Bottom - desiredBottomReserve) > 0.5)
+        {
+            ConversationContentPanel.Margin = new Thickness(
+                currentMargin.Left,
+                currentMargin.Top,
+                currentMargin.Right,
+                desiredBottomReserve);
+        }
     }
 
-    internal static bool ShouldShowReturnToLatest(bool autoScrollEnabled, double scrollableHeight) =>
-        !autoScrollEnabled && scrollableHeight > 0.5;
+    internal static bool ShouldShowReturnToLatest(
+        bool autoScrollEnabled,
+        double scrollableHeight,
+        double currentBottomReserve)
+    {
+        var unreservedScrollableHeight = Math.Max(
+            0,
+            scrollableHeight - Math.Max(0, currentBottomReserve));
+        return !autoScrollEnabled && unreservedScrollableHeight > 0.5;
+    }
 
     private void ShowTransientStatus(string message, FloatingStatusKind kind, TimeSpan? duration = null)
     {

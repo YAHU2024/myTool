@@ -467,9 +467,60 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Equal(
                 FloatingStatusMessage.GetAccentColors(FloatingStatusKind.Success).Indicator,
                 ((SolidColorBrush)window.StatusIndicator.Fill).Color);
-            Assert.True(FloatingWindow.ShouldShowReturnToLatest(autoScrollEnabled: false, scrollableHeight: 1));
-            Assert.False(FloatingWindow.ShouldShowReturnToLatest(autoScrollEnabled: true, scrollableHeight: 1));
-            Assert.False(FloatingWindow.ShouldShowReturnToLatest(autoScrollEnabled: false, scrollableHeight: 0.5));
+            Assert.Equal(0d, window.ConversationContentPanel.Margin.Bottom);
+            Assert.True(FloatingWindow.ShouldShowReturnToLatest(
+                autoScrollEnabled: false,
+                scrollableHeight: 1,
+                currentBottomReserve: 0));
+            Assert.False(FloatingWindow.ShouldShowReturnToLatest(
+                autoScrollEnabled: true,
+                scrollableHeight: 1,
+                currentBottomReserve: 0));
+            Assert.False(FloatingWindow.ShouldShowReturnToLatest(
+                autoScrollEnabled: false,
+                scrollableHeight: 0.5,
+                currentBottomReserve: 0));
+            Assert.False(FloatingWindow.ShouldShowReturnToLatest(
+                autoScrollEnabled: false,
+                scrollableHeight: 40,
+                currentBottomReserve: 40));
+            Assert.True(FloatingWindow.ShouldShowReturnToLatest(
+                autoScrollEnabled: false,
+                scrollableHeight: 41,
+                currentBottomReserve: 40));
+        });
+    }
+
+    [SkippableFact]
+    public void ReturnToLatestReserve_IsRemovedWhenReplacementContentFitsViewport()
+    {
+        RunOnSta(window =>
+        {
+            window.SizeToContent = SizeToContent.Manual;
+            window.Height = 220;
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Translation,
+                Completed(string.Join("\n", Enumerable.Repeat("long result line", 80))) with
+                {
+                    AutoScrollEnabled = false
+                });
+            window.Show();
+            window.UpdateLayout();
+            PumpDispatcher();
+
+            Assert.Equal(Visibility.Visible, window.ReturnToLatestButton.Visibility);
+            Assert.Equal(40d, window.ConversationContentPanel.Margin.Bottom);
+
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Translation,
+                Completed("short result") with { AutoScrollEnabled = false });
+            window.UpdateLayout();
+            PumpDispatcher();
+
+            Assert.Equal(Visibility.Collapsed, window.ReturnToLatestButton.Visibility);
+            Assert.Equal(0d, window.ConversationContentPanel.Margin.Bottom);
         });
     }
 
