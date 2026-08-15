@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using QuickTranslate.Core;
 using QuickTranslate.Models;
 using QuickTranslate.Services;
 
@@ -161,6 +162,7 @@ namespace QuickTranslate.Helpers
             using var document = JsonDocument.Parse(json);
             var shouldSave = MigratePromptSettings(settings, document.RootElement);
             shouldSave |= MigrateTranslationTriggerMode(settings, document.RootElement);
+            shouldSave |= MigrateSavedConfigs(settings, document.RootElement);
 
             if (shouldSave)
             {
@@ -397,6 +399,47 @@ namespace QuickTranslate.Helpers
             {
                 settings.TranslationTriggerMode = finalMode;
                 changed = true;
+            }
+
+            return changed;
+        }
+
+        internal static bool MigrateSavedConfigs(AppSettings settings, JsonElement root)
+        {
+            var changed = false;
+            settings.SavedConfigs ??= new List<SavedConfig>();
+            var serializedConfigs = root.TryGetProperty("SavedConfigs", out var savedConfigsElement) &&
+                                    savedConfigsElement.ValueKind == JsonValueKind.Array
+                ? savedConfigsElement.EnumerateArray().ToArray()
+                : Array.Empty<JsonElement>();
+            var usedIds = new HashSet<string>(StringComparer.Ordinal);
+            for (var index = 0; index < settings.SavedConfigs.Count; index++)
+            {
+                var config = settings.SavedConfigs[index];
+                var serializedIdPresent = index < serializedConfigs.Length &&
+                                          serializedConfigs[index].TryGetProperty("Id", out var idElement) &&
+                                          idElement.ValueKind == JsonValueKind.String &&
+                                          !string.IsNullOrWhiteSpace(idElement.GetString());
+                if (string.IsNullOrWhiteSpace(config.Id) || !usedIds.Add(config.Id))
+                {
+                    config.Id = $"provider:{Guid.NewGuid():N}";
+                    usedIds.Add(config.Id);
+                    changed = true;
+                }
+                else if (!serializedIdPresent)
+                {
+                    changed = true;
+                }
+
+                var normalizedAlias = ModelProfileCatalog.ResolveLegacyAlias(config);
+                var serializedAliasPresent = index < serializedConfigs.Length &&
+                                             serializedConfigs[index].TryGetProperty("Alias", out _);
+                if (!string.Equals(config.Alias, normalizedAlias, StringComparison.Ordinal) ||
+                    !serializedAliasPresent)
+                {
+                    config.Alias = normalizedAlias;
+                    changed = true;
+                }
             }
 
             return changed;

@@ -16,6 +16,13 @@ internal enum ModeResultStatus
     Cancelled
 }
 
+internal enum ModeResultQuality
+{
+    Unassessed,
+    Normal,
+    EchoWarning
+}
+
 /// <summary>
 /// Immutable, read-only view of a single mode's result state.
 /// Instances are replaced by <see cref="FloatingResultSessionCoordinator"/> on transitions.
@@ -26,7 +33,8 @@ internal sealed record ModeResultState(
     string? ErrorMessage,
     long? LastRequestId,
     double ScrollOffset,
-    bool AutoScrollEnabled)
+    bool AutoScrollEnabled,
+    ModeResultQuality Quality = ModeResultQuality.Unassessed)
 {
     internal static ModeResultState NotStarted() =>
         new(ModeResultStatus.NotStarted, string.Empty, null, null, 0, true);

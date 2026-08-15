@@ -3,6 +3,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
+using QuickTranslate.Core;
 using QuickTranslate.Helpers;
 using QuickTranslate.Models;
 using QuickTranslate.Services;
@@ -225,9 +226,10 @@ namespace QuickTranslate.UI
 
                 foreach (var config in group)
                 {
+                    var profile = ModelProfileCatalog.Create(config);
                     var item = new ComboBoxItem
                     {
-                        Content = config.ModelName,
+                        Content = profile.DisplayName,
                         Tag = config
                     };
                     ModelComboBox.Items.Add(item);
@@ -235,6 +237,13 @@ namespace QuickTranslate.UI
             }
 
             ModelComboBox.Text = _settings.ModelName;
+            var current = _settings.SavedConfigs.FirstOrDefault(config =>
+                string.Equals(config.ModelName, _settings.ModelName, StringComparison.Ordinal) &&
+                string.Equals(config.ApiBaseUrl.TrimEnd('/'), _settings.ApiBaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(config.ApiKey, _settings.ApiKey, StringComparison.Ordinal));
+            ModelAliasTextBox.Text = current is null
+                ? string.Empty
+                : ModelProfileCatalog.ResolveLegacyAlias(current);
         }
 
         private void AddModelGroupHeader(string title)
@@ -305,6 +314,7 @@ namespace QuickTranslate.UI
                 ApiKeyPasswordBox.Password = string.Empty;
                 ApiKeyVisibleTextBox.Text = string.Empty;
                 ModelComboBox.Text = preset.ModelName;
+                ModelAliasTextBox.Text = string.Empty;
                 ShowModelFeedback($"已选择 {preset.DisplayName}，请填写 API Key", autoHide: false);
                 _isDirty = true;
             }
@@ -313,6 +323,8 @@ namespace QuickTranslate.UI
                 ApiBaseUrlTextBox.Text = config.ApiBaseUrl;
                 ApiKeyPasswordBox.Password = config.ApiKey;
                 ApiKeyVisibleTextBox.Text = config.ApiKey;
+                ModelComboBox.Text = config.ModelName;
+                ModelAliasTextBox.Text = ModelProfileCatalog.ResolveLegacyAlias(config);
 
                 var domain = ExtractDomainShortName(config.ApiBaseUrl);
                 ShowModelFeedback($"已切换到 {config.ModelName}（{domain}）", autoHide: true);
@@ -510,6 +522,7 @@ namespace QuickTranslate.UI
             ApiBaseUrlTextBox.Text = string.Empty;
             ApiKeyPasswordBox.Password = string.Empty;
             ApiKeyVisibleTextBox.Text = string.Empty;
+            ModelAliasTextBox.Text = string.Empty;
 
             // 显示反馈
             ModelFeedbackText.Text = $"已删除 {modelName}";
@@ -709,22 +722,29 @@ namespace QuickTranslate.UI
             // 保存到已保存配置列表
             if (!string.IsNullOrWhiteSpace(model))
             {
-                _settings.SavedConfigs.RemoveAll(c =>
+                var alias = ModelProfileCatalog.NormalizeAlias(ModelAliasTextBox.Text);
+                var existing = _settings.SavedConfigs.FirstOrDefault(c =>
                     c.ModelName == _settings.ModelName &&
                     c.ApiBaseUrl == _settings.ApiBaseUrl &&
                     c.ApiKey == _settings.ApiKey);
 
-                _settings.SavedConfigs.Insert(0, new SavedConfig
+                if (existing is not null)
+                    _settings.SavedConfigs.Remove(existing);
+
+                var saved = existing ?? new SavedConfig
                 {
-                    DisplayName = _settings.ModelName,
                     ModelName = _settings.ModelName,
                     ApiBaseUrl = _settings.ApiBaseUrl,
                     ApiKey = _settings.ApiKey
-                });
+                };
+                saved.Alias = alias;
+                saved.DisplayName = string.IsNullOrWhiteSpace(alias) ? saved.ModelName : alias;
+                _settings.SavedConfigs.Insert(0, saved);
 
                 while (_settings.SavedConfigs.Count > 10)
                     _settings.SavedConfigs.RemoveAt(_settings.SavedConfigs.Count - 1);
             }
+
         }
 
         private void LoadTranslationTriggerModeComboBox()

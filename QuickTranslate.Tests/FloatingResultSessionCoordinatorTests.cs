@@ -100,6 +100,70 @@ public sealed class FloatingResultSessionCoordinatorTests
     }
 
     [Fact]
+    public void EchoWarning_PreservesResultAndEndsActiveRequest()
+    {
+        var coordinator = new FloatingResultSessionCoordinator();
+        var transition = coordinator.StartSession("source", ContentType.Translation);
+        var identity = Assert.IsType<FloatingResultRequestIdentity>(transition.RequestIdentity);
+        Assert.True(coordinator.TryUpdateStreaming(identity, "source source source"));
+
+        Assert.True(coordinator.TryCompleteWithEchoWarning(identity, "source source source"));
+
+        var state = Assert.IsType<FloatingResultSession>(transition.Session)
+            .ModeStates[ContentType.Translation];
+        Assert.Equal(ModeResultStatus.Completed, state.Status);
+        Assert.Equal("source source source", state.RawText);
+        Assert.Null(state.ErrorMessage);
+        Assert.Equal(ModeResultQuality.EchoWarning, state.Quality);
+        Assert.Null(coordinator.ActiveOperation);
+        Assert.False(coordinator.TryGetCompletedMode(ContentType.Translation, out _));
+    }
+
+    [Fact]
+    public void CancelActiveRequest_PreservesPartialResult()
+    {
+        var coordinator = new FloatingResultSessionCoordinator();
+        var transition = coordinator.StartSession("source", ContentType.Translation);
+        var identity = Assert.IsType<FloatingResultRequestIdentity>(transition.RequestIdentity);
+        Assert.True(coordinator.TryUpdateStreaming(identity, "partial result"));
+
+        coordinator.CancelActiveRequest();
+
+        var state = Assert.IsType<FloatingResultSession>(transition.Session)
+            .ModeStates[ContentType.Translation];
+        Assert.Equal(ModeResultStatus.Cancelled, state.Status);
+        Assert.Equal("partial result", state.RawText);
+        Assert.Equal(ModeResultQuality.Unassessed, state.Quality);
+        Assert.Null(coordinator.ActiveOperation);
+    }
+
+    [Fact]
+    public void SwitchMode_AfterRecoveryStartsFreshTranslationWhenUserReturns()
+    {
+        var coordinator = new FloatingResultSessionCoordinator();
+        var translation = coordinator.StartSession("source", ContentType.Translation);
+        var echoedIdentity = Assert.IsType<FloatingResultRequestIdentity>(translation.RequestIdentity);
+        Assert.True(coordinator.TryUpdateStreaming(echoedIdentity, "streamed source echo"));
+        Assert.True(coordinator.TryCompleteWithEchoWarning(echoedIdentity, "streamed source echo"));
+
+        var code = coordinator.SwitchMode(ContentType.Code);
+        var codeIdentity = Assert.IsType<FloatingResultRequestIdentity>(code.RequestIdentity);
+        Assert.True(coordinator.TryComplete(codeIdentity, "code result"));
+
+        var returned = coordinator.SwitchMode(ContentType.Translation);
+        var freshIdentity = Assert.IsType<FloatingResultRequestIdentity>(returned.RequestIdentity);
+        var state = Assert.IsType<FloatingResultSession>(returned.Session)
+            .ModeStates[ContentType.Translation];
+
+        Assert.Equal(FloatingResultSessionTransitionKind.StartedRequest, returned.Kind);
+        Assert.Equal(ModeResultStatus.Loading, state.Status);
+        Assert.Empty(state.RawText);
+        Assert.Null(state.ErrorMessage);
+        Assert.True(freshIdentity.RequestId > echoedIdentity.RequestId);
+        Assert.False(coordinator.TryComplete(echoedIdentity, "stale echo"));
+    }
+
+    [Fact]
     public void NewSessionAndDismiss_RejectCallbacksFromEarlierSessions()
     {
         var coordinator = new FloatingResultSessionCoordinator();

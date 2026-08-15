@@ -8,9 +8,20 @@ namespace QuickTranslate.Models
     public class SavedConfig
     {
         /// <summary>
+        /// Stable identifier used by settings that reference this provider configuration.
+        /// </summary>
+        public string Id { get; set; } = $"provider:{Guid.NewGuid():N}";
+
+        /// <summary>
         /// 显示名称（用于下拉框展示，如 "glm-4.7-flash @ 智谱"）
         /// </summary>
         public string DisplayName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Optional user-defined label. It is presentation-only and never
+        /// participates in configuration identity or request parameters.
+        /// </summary>
+        public string Alias { get; set; } = string.Empty;
 
         /// <summary>
         /// API Base URL
@@ -112,6 +123,7 @@ namespace QuickTranslate.Models
         /// </summary>
         public List<SavedConfig> SavedConfigs { get; set; } = new();
 
+        /// <summary>
         // ==================== 第四期：体验优化 ====================
 
         /// <summary>

@@ -137,6 +137,25 @@ public sealed class LoggingAndMetricsTests
     }
 
     [Fact]
+    public void TranslationMetrics_TracksEchoQualityGateWithoutUserContent()
+    {
+        var metrics = new TranslationMetrics();
+        metrics.RecordEchoSuspected();
+        metrics.RecordEchoConfirmed();
+        metrics.RecordModelSwitchRequested();
+        metrics.RecordModelSwitchCompleted();
+        metrics.RecordModelSwitchFailed();
+
+        var snapshot = metrics.GetSnapshot(cacheHits: 0, cacheMisses: 0);
+
+        Assert.Equal(1, snapshot.EchoSuspected);
+        Assert.Equal(1, snapshot.EchoConfirmed);
+        Assert.Equal(1, snapshot.ModelSwitchRequested);
+        Assert.Equal(1, snapshot.ModelSwitchCompleted);
+        Assert.Equal(1, snapshot.ModelSwitchFailed);
+    }
+
+    [Fact]
     public void AppSettings_LogLimitsAreRepresentedInBytes()
     {
         var settings = new QuickTranslate.Models.AppSettings();

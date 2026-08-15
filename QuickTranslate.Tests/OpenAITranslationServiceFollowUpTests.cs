@@ -100,7 +100,7 @@ public sealed class OpenAITranslationServiceFollowUpTests
     }
 
     [Fact]
-    public async Task ExecuteStreaming_UsesRawAnalysisSourceButKeepsTranslationDelimiter()
+    public async Task ExecuteStreaming_UsesRawTranslationTextButKeepsCodeDelimiter()
     {
         var handler = new RecordingHandler(_ => SseResponse("ok"));
         using var service = CreateService(handler);
@@ -120,9 +120,15 @@ public sealed class OpenAITranslationServiceFollowUpTests
         var translation = service.CreateRequest("bonjour", "English", ContentType.Translation);
         await service.ExecuteStreamingAsync(translation, _ => { }, CancellationToken.None);
 
-        Assert.Contains(
-            "<quicktranslate-input>\nbonjour\n</quicktranslate-input>",
-            handler.Messages[^1].Content);
+        Assert.Collection(
+            handler.Messages.TakeLast(2),
+            message => Assert.DoesNotContain("<quicktranslate-input>", message.Content),
+            message => AssertMessage(message, "user", "bonjour"));
+
+        var code = service.CreateRequest("git status", "简体中文", ContentType.Code);
+        await service.ExecuteStreamingAsync(code, _ => { }, CancellationToken.None);
+
+        Assert.Contains("<quicktranslate-input>\ngit status\n</quicktranslate-input>", handler.Messages[^1].Content);
     }
 
     [Fact]

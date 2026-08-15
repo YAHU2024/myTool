@@ -115,7 +115,7 @@ internal sealed class FloatingResultSessionCoordinator
             CancelActiveRequestLocked();
             _currentSession.SetActiveMode(mode);
             var state = _currentSession.GetModeState(mode);
-            if (state.Status == ModeResultStatus.Completed)
+            if (IsReusableCompletedResult(state))
             {
                 _presentationId++;
                 return new(FloatingResultSessionTransitionKind.RestoredCompleted, _currentSession, null);
@@ -143,7 +143,7 @@ internal sealed class FloatingResultSessionCoordinator
     {
         lock (_sync)
         {
-            if (_currentSession is null || _currentSession.GetModeState(mode).Status != ModeResultStatus.Completed)
+            if (_currentSession is null || !IsReusableCompletedResult(_currentSession.GetModeState(mode)))
                 return new(FloatingResultSessionTransitionKind.NoOp, _currentSession, null);
 
             CancelActiveRequestLocked();
@@ -157,9 +157,9 @@ internal sealed class FloatingResultSessionCoordinator
     {
         lock (_sync)
         {
-            if (_currentSession is not null && _currentSession.GetModeState(mode) is { Status: ModeResultStatus.Completed } completed)
+            if (_currentSession is not null && IsReusableCompletedResult(_currentSession.GetModeState(mode)))
             {
-                state = completed;
+                state = _currentSession.GetModeState(mode);
                 return true;
             }
 
@@ -192,7 +192,8 @@ internal sealed class FloatingResultSessionCoordinator
         {
             Status = ModeResultStatus.Loading,
             RawText = rawText,
-            ErrorMessage = null
+            ErrorMessage = null,
+            Quality = ModeResultQuality.Unassessed
         });
 
     public bool TryComplete(
@@ -210,7 +211,8 @@ internal sealed class FloatingResultSessionCoordinator
             {
                 Status = ModeResultStatus.Completed,
                 RawText = rawText,
-                ErrorMessage = null
+                ErrorMessage = null,
+                Quality = ModeResultQuality.Normal
             });
             if (identity.Mode == ContentType.Analysis)
             {
@@ -232,6 +234,18 @@ internal sealed class FloatingResultSessionCoordinator
         {
             Status = ModeResultStatus.Failed,
             ErrorMessage = errorMessage
+        }, clearActiveRequest: true);
+    }
+
+    public bool TryCompleteWithEchoWarning(FloatingResultRequestIdentity identity, string rawText)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(rawText);
+        return TryApply(identity, state => state with
+        {
+            Status = ModeResultStatus.Completed,
+            RawText = rawText,
+            ErrorMessage = null,
+            Quality = ModeResultQuality.EchoWarning
         }, clearActiveRequest: true);
     }
 
@@ -389,6 +403,7 @@ internal sealed class FloatingResultSessionCoordinator
             Status = ModeResultStatus.Loading,
             RawText = string.Empty,
             ErrorMessage = null,
+            Quality = ModeResultQuality.Unassessed,
             LastRequestId = identity.RequestId,
             ScrollOffset = 0,
             AutoScrollEnabled = true
@@ -465,6 +480,9 @@ internal sealed class FloatingResultSessionCoordinator
             LastRequestId: { } lastRequestId
         } &&
         lastRequestId == identity.RequestId;
+
+    private static bool IsReusableCompletedResult(ModeResultState state) =>
+        state.Status == ModeResultStatus.Completed && state.Quality != ModeResultQuality.EchoWarning;
 
     private FloatingResultSession RequireFollowUpReadySessionLocked()
     {

@@ -14,7 +14,7 @@ public enum FloatingStatusKind
 }
 
 /// <summary>
-/// Pure helpers for the reusable bottom status strip (TTS, auto-scroll, future notices).
+/// Pure helpers for the reusable bottom status strip.
 /// </summary>
 public static class FloatingStatusMessage
 {
@@ -22,7 +22,6 @@ public static class FloatingStatusMessage
     public static readonly TimeSpan SuccessDuration = TimeSpan.FromSeconds(3);
     public static readonly TimeSpan WarningDuration = TimeSpan.FromSeconds(3.5);
 
-    public const string AutoScrollToken = "auto_scroll";
     public const string TransientToken = "transient";
 
     public static (Color Background, Color Foreground) GetColors(FloatingStatusKind kind) =>

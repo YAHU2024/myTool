@@ -339,7 +339,7 @@
                         <TextBlock Text="API 与模型" Style="{StaticResource SectionTitle}" Margin="0,0,0,14"/>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="API 地址" Style="{StaticResource LabelStyle}"/>
                             <TextBox x:Name="ApiBaseUrlTextBox" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource InputTextBox}" LostFocus="Input_LostFocus"/>
                             <TextBlock Grid.Row="1" Text="API 密钥" Style="{StaticResource LabelStyle}"/>
@@ -351,7 +351,9 @@
                             <TextBlock Grid.Row="2" Text="模型" Style="{StaticResource LabelStyle}"/>
                             <ComboBox x:Name="ModelComboBox" Grid.Row="2" Grid.Column="1" Style="{StaticResource DarkComboBox}" IsEditable="True" SelectionChanged="ModelComboBox_SelectionChanged" LostFocus="Input_LostFocus"/>
                             <Button x:Name="DeleteConfigButton" Grid.Row="2" Grid.Column="2" Content="删除" Style="{StaticResource DangerButton}" Padding="10,6" Margin="8,2,0,2" IsEnabled="False" Click="DeleteConfigButton_Click" ToolTip="删除当前已保存的模型配置"/>
-                            <TextBlock x:Name="ModelFeedbackText" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Foreground="#6DD6A5" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                            <TextBlock Grid.Row="3" Text="备注名称" Style="{StaticResource LabelStyle}"/>
+                            <TextBox x:Name="ModelAliasTextBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" MaxLength="32" Style="{StaticResource InputTextBox}" LostFocus="Input_LostFocus" ToolTip="仅用于模型菜单显示，留空时显示模型名和供应商"/>
+                            <TextBlock x:Name="ModelFeedbackText" Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Foreground="#6DD6A5" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
                         </Grid>
                     </StackPanel>
                 </Border>

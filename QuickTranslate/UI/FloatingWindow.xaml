@@ -1,6 +1,7 @@
 <Window x:Class="QuickTranslate.UI.FloatingWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:QuickTranslate.UI"
         Title="QuickTranslate"
         WindowStyle="None"
         ResizeMode="CanResize"
@@ -119,7 +120,7 @@
                     <Button x:Name="AnalysisModeButton" Style="{StaticResource ModeButton}" Content="解析" ToolTip="深度解析" Click="ModeButton_Click"/>
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
-                    <Button Style="{StaticResource ToolbarButton}" Content="&#x21BB;" FontSize="16" ToolTip="重新生成" Click="RefreshButton_Click"/>
+                    <Button x:Name="RefreshButton" Style="{StaticResource IconToolbarButton}" FontFamily="Segoe MDL2 Assets" Content="&#xE72C;" ToolTip="重新生成" Click="RefreshButton_Click"/>
                     <Button Style="{StaticResource IconToolbarButton}" Content="&#x29C9;" ToolTip="复制全部" Click="CopyAllButton_Click"/>
                     <Button x:Name="SpeakButton" Style="{StaticResource IconToolbarButton}" FontFamily="Segoe MDL2 Assets" Content="&#xE768;" ToolTip="朗读结果" Click="SpeakButton_Click" IsEnabled="False" Opacity="0.45"/>
                     <Button x:Name="PinButton" Style="{StaticResource ToolbarButton}" Content="&#x1F4CC;" FontSize="13" ToolTip="固定窗口" Click="PinButton_Click"/>
@@ -132,7 +133,7 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel x:Name="ConversationNodeRail" Grid.Column="0" Margin="0,2,4,0" Visibility="Collapsed"/>
                 <ScrollViewer x:Name="TranslationScroller" Grid.Column="1" Style="{StaticResource Win11ScrollViewer}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxWidth="870" MinHeight="40" ScrollChanged="TranslationScroller_ScrollChanged" PreviewMouseWheel="TranslationScroller_PreviewMouseWheel" PreviewKeyDown="TranslationScroller_PreviewKeyDown" PreviewMouseLeftButtonDown="TranslationScroller_PreviewMouseLeftButtonDown">
-                    <StackPanel x:Name="ConversationContentPanel">
+                    <StackPanel x:Name="ConversationContentPanel" Margin="0,0,0,40">
                         <TextBlock x:Name="AnalysisRootLabel" Text="解析" Foreground="#B7C5FF" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" Visibility="Collapsed" Focusable="True" AutomationProperties.Name="初始解析"/>
                         <Grid x:Name="RootResultHost">
                             <TextBox x:Name="TranslationTextBlock" Foreground="#F0F0F0" FontSize="16" FontFamily="Microsoft YaHei UI" TextWrapping="Wrap" Padding="0,0,6,0" Text="" IsReadOnly="True" IsReadOnlyCaretVisible="False" Focusable="True" IsTabStop="False" AcceptsReturn="True" BorderThickness="0" Background="Transparent" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" SelectionBrush="#4DB6AC" SelectionOpacity="0.45" Cursor="IBeam"/>
@@ -146,6 +147,46 @@
                         <StackPanel x:Name="AnalysisTurnsPanel" Visibility="Collapsed"/>
                     </StackPanel>
                 </ScrollViewer>
+                <Button x:Name="ReturnToLatestButton"
+                        Grid.Column="1"
+                        Width="32"
+                        Height="32"
+                        Margin="0,0,14,10"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Bottom"
+                        Panel.ZIndex="4"
+                        Visibility="Collapsed"
+                        FontFamily="Segoe MDL2 Assets"
+                        FontSize="14"
+                        Foreground="#F4F4FA"
+                        Content="&#xE70D;"
+                        ToolTip="回到最新结果"
+                        AutomationProperties.Name="回到最新结果"
+                        Click="ReturnToLatestButton_Click"
+                        GotKeyboardFocus="ReturnToLatestButton_GotKeyboardFocus"
+                        LostKeyboardFocus="ReturnToLatestButton_LostKeyboardFocus">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Circle"
+                                    Width="32"
+                                    Height="32"
+                                    CornerRadius="16"
+                                    Background="#9938384F"
+                                    BorderBrush="#805F5F78"
+                                    BorderThickness="1">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Circle" Property="Background" Value="#E64A4A66"/>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="Circle" Property="BorderBrush" Value="#FF7EA7FF"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
                 <Border x:Name="LoadingIndicator" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,8,0" Background="#B01E1E2E" CornerRadius="4" Padding="6,3" Visibility="Collapsed" IsHitTestVisible="False">
                     <StackPanel Orientation="Horizontal">
                         <Ellipse x:Name="LoadingDotOne" Width="4" Height="4" Fill="#B7C5FF" Margin="1"/>
@@ -171,14 +212,27 @@
                 </Grid>
                 <Button x:Name="FollowUpSendButton" Grid.Column="1" Style="{StaticResource IconToolbarButton}" Width="32" Height="32" Margin="6,0,0,0" FontFamily="Segoe MDL2 Assets" Content="&#xE724;" ToolTip="发送追问" AutomationProperties.Name="发送追问" Click="FollowUpSendButton_Click"/>
             </Grid>
-            <Border x:Name="StatusMessageBar" Grid.Row="3" Margin="0,6,0,0" CornerRadius="4" Padding="8,4" Visibility="Collapsed" Background="#2A3348">
+            <Border x:Name="StatusMessageBar" Grid.Row="3" Height="30" Margin="0,6,0,0" CornerRadius="4" Padding="6,2" Background="#2A3348">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="StatusMessageText" Grid.Column="0" FontFamily="Microsoft YaHei UI" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="#B7C5FF" Text=""/>
-                    <Button x:Name="StatusMessageActionButton" Grid.Column="1" Margin="8,0,0,0" Padding="6,1" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="" Visibility="Collapsed" Click="StatusMessageActionButton_Click"/>
+                    <Grid Grid.Column="0" Margin="2,0,8,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Border x:Name="StatusMessageViewport" Grid.Column="0" ClipToBounds="True" ToolTip="{Binding Text, ElementName=StatusMessageText}">
+                            <TextBlock x:Name="StatusMessageText" FontFamily="Microsoft YaHei UI" FontSize="11" TextWrapping="NoWrap" VerticalAlignment="Center" Foreground="#B7C5FF" Text="就绪">
+                                <TextBlock.RenderTransform>
+                                    <TranslateTransform x:Name="StatusMessageTransform"/>
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+                        </Border>
+                        <Button x:Name="StatusMessageActionButton" Grid.Column="1" Margin="8,0,0,0" Padding="6,1" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="" Visibility="Collapsed" Click="StatusMessageActionButton_Click"/>
+                    </Grid>
+                    <ui:ModelSelectorControl x:Name="ModelSelector" Grid.Column="1"/>
                 </Grid>
             </Border>
             <Button x:Name="ExpandMarkdownButton" Grid.Row="4" HorizontalAlignment="Right" Margin="0,4,0,0" Padding="6,2" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="展开全文" ToolTip="渲染完整结果" Visibility="Collapsed" Click="ExpandMarkdownButton_Click"/>

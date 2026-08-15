@@ -451,6 +451,25 @@ public sealed class FloatingWindowFollowUpTests
     }
 
     [SkippableFact]
+    public void FooterStaysVisibleAndAutoScrollUsesFloatingAffordance()
+    {
+        RunOnSta(window =>
+        {
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Translation,
+                Completed("result") with { AutoScrollEnabled = false });
+
+            Assert.Equal(Visibility.Visible, window.StatusMessageBar.Visibility);
+            Assert.Equal("已完成", window.StatusMessageText.Text);
+            Assert.Equal(Visibility.Collapsed, window.StatusMessageActionButton.Visibility);
+            Assert.True(FloatingWindow.ShouldShowReturnToLatest(autoScrollEnabled: false, scrollableHeight: 1));
+            Assert.False(FloatingWindow.ShouldShowReturnToLatest(autoScrollEnabled: true, scrollableHeight: 1));
+            Assert.False(FloatingWindow.ShouldShowReturnToLatest(autoScrollEnabled: false, scrollableHeight: 0.5));
+        });
+    }
+
+    [SkippableFact]
     public void CompletedFollowUp_RestoresFocusToInput()
     {
         RunOnSta(window =>
@@ -489,6 +508,65 @@ public sealed class FloatingWindowFollowUpTests
             PumpDispatcher();
 
             Assert.True(window.FollowUpTextBox.IsKeyboardFocused);
+        });
+    }
+
+    [SkippableFact]
+    public void CancelledTranslation_PreservesStreamingMarkdownPreview()
+    {
+        RunOnSta(window =>
+        {
+            var sessionId = Guid.NewGuid();
+            var presentationId = window.BeginReplacement();
+            var partial = "# Heading\n\npartial **bold**";
+            window.SetSessionView(
+                sessionId,
+                ContentType.Translation,
+                new ModeResultState(ModeResultStatus.Loading, string.Empty, null, 1, 0, true));
+            window.UpdateTranslation(presentationId, partial);
+
+            window.SetSessionView(
+                sessionId,
+                ContentType.Translation,
+                new ModeResultState(ModeResultStatus.Cancelled, partial, null, 1, 0, true));
+
+            Assert.Equal(Visibility.Visible, window.StreamingMarkdownHost.Visibility);
+            Assert.Equal(Visibility.Collapsed, window.TranslationTextBlock.Visibility);
+            Assert.Equal("已停止，内容尚未完成", window.StatusMessageText.Text);
+        });
+    }
+
+    [SkippableFact]
+    public void LoadingState_ChangesRefreshButtonToStopAndBack()
+    {
+        RunOnSta(window =>
+        {
+            window.SetLoading(true);
+
+            Assert.True(window.IsGenerationStopVisibleForTests);
+            Assert.Equal("停止生成", window.RefreshButton.ToolTip);
+
+            window.SetLoading(false);
+
+            Assert.False(window.IsGenerationStopVisibleForTests);
+            Assert.Equal("重新生成", window.RefreshButton.ToolTip);
+        });
+    }
+
+    [SkippableFact]
+    public void AutoHideSuppression_IsScopedAndReferenceCounted()
+    {
+        RunOnSta(window =>
+        {
+            window.SuspendAutoHide();
+            window.SuspendAutoHide();
+            Assert.True(window.IsAutoHideSuppressedForTests);
+
+            window.ResumeAutoHide();
+            Assert.True(window.IsAutoHideSuppressedForTests);
+
+            window.ResumeAutoHide();
+            Assert.False(window.IsAutoHideSuppressedForTests);
         });
     }
 

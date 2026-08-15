@@ -41,6 +41,7 @@ public partial class FloatingWindow : Window
     private bool _userMoved;
     private bool _userResized;
     private bool _isSystemSizing;
+    private int _autoHideSuppressionCount;
     private HwndSource? _hwndSource;
     private const int WmNchittest = 0x0084;
     private const int WmEnterSizeMove = 0x0231;
@@ -64,11 +65,14 @@ public partial class FloatingWindow : Window
     private bool _isTtsBusy;
     private DateTime _lastSpeakClickUtc = DateTime.MinValue;
     private const string SpeakIcon = "\uE768";
+    private const string RefreshIcon = "\uE72C";
     private const string StopIcon = "\uE71A";
     private DispatcherTimer? _statusMessageTimer;
     private StatusMessageEntry? _persistentStatus;
     private StatusMessageEntry? _transientStatus;
     private Action? _statusAction;
+    private Storyboard? _statusScrollStoryboard;
+    private bool _returnButtonSuppressesAutoHide;
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
     private double _lastPositionedHeight;
@@ -111,12 +115,16 @@ public partial class FloatingWindow : Window
     public event Action<string>? AnalysisFollowUpRequested;
     public event Action? AnalysisFollowUpRetryRequested;
     public event Action<Guid, string>? AnalysisDraftChanged;
+    internal event Action<string>? ModelProfileSelected;
+    internal event Action? ModelSettingsRequested;
 
     internal bool IsTtsBusy => _isTtsBusy;
     internal int AnalysisTurnViewCount => AnalysisTurnsPanel.Children.Count;
     internal int ConversationNodeCount => ConversationNodeRail.Children.Count;
     internal string? CurrentConversationNodeKey => _currentConversationNodeKey;
     internal bool IsAutoScrollEnabledForTests => _autoScroll.IsAutoScrollEnabled;
+    internal bool IsGenerationStopVisibleForTests => Equals(RefreshButton.Content, StopIcon);
+    internal bool IsAutoHideSuppressedForTests => _autoHideSuppressionCount > 0;
 
     internal StreamingMarkdownRenderStats GetStreamingMarkdownStats() =>
         _streamingMarkdown?.GetStats() ?? StreamingMarkdownRenderStats.Empty;
@@ -166,6 +174,16 @@ public partial class FloatingWindow : Window
         FollowUpTextBox.GotKeyboardFocus += (_, _) => _autoHideTimer.Stop();
         FollowUpTextBox.LostKeyboardFocus += (_, _) => ResetAutoHideTimer();
         PreviewMouseDown += FloatingWindow_PreviewMouseDown;
+        ModelSelector.ProfileSelected += profileId => ModelProfileSelected?.Invoke(profileId);
+        ModelSelector.SettingsRequested += () => ModelSettingsRequested?.Invoke();
+        ModelSelector.MenuOpened += SuspendAutoHide;
+        ModelSelector.MenuClosed += ResumeAutoHide;
+        StatusMessageViewport.SizeChanged += (_, _) => RestartStatusScroll();
+        StatusMessageViewport.MouseEnter += (_, _) => _statusScrollStoryboard?.Pause(this);
+        StatusMessageViewport.MouseLeave += (_, _) => _statusScrollStoryboard?.Resume(this);
+        StatusMessageBar.GotKeyboardFocus += (_, _) => _statusScrollStoryboard?.Pause(this);
+        StatusMessageBar.LostKeyboardFocus += (_, _) => _statusScrollStoryboard?.Resume(this);
+        Activated += (_, _) => _statusScrollStoryboard?.Resume(this);
 
         _scrollBarHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.2) };
         _scrollBarHideTimer.Tick += (_, _) =>
@@ -186,6 +204,7 @@ public partial class FloatingWindow : Window
         };
         Deactivated += (_, _) =>
         {
+            _statusScrollStoryboard?.Pause(this);
             if (CanAutoHide())
                 Hide();
         };
@@ -232,7 +251,8 @@ public partial class FloatingWindow : Window
 
     internal bool ShowExistingResult()
     {
-        if (!_hasAnchor || string.IsNullOrWhiteSpace(_rawText))
+        if (!_hasAnchor ||
+            (string.IsNullOrWhiteSpace(_rawText) && _modeStatus == ModeResultStatus.NotStarted))
             return false;
 
         Show();
@@ -241,6 +261,19 @@ public partial class FloatingWindow : Window
         IsHitTestVisible = true;
         ResetAutoHideTimer();
         return true;
+    }
+
+    internal void SuspendAutoHide()
+    {
+        _autoHideSuppressionCount++;
+        _autoHideTimer.Stop();
+    }
+
+    internal void ResumeAutoHide()
+    {
+        if (_autoHideSuppressionCount > 0)
+            _autoHideSuppressionCount--;
+        ResetAutoHideTimer();
     }
 
     public new void Hide()
@@ -286,6 +319,7 @@ public partial class FloatingWindow : Window
     {
         // Persist the currently visible mode before its view is replaced.
         RaiseScrollStateChanged();
+        var isSameView = _sessionId == sessionId && _activeMode == mode;
 
         if (_sessionId != sessionId || _activeMode != mode)
         {
@@ -304,7 +338,13 @@ public partial class FloatingWindow : Window
             ? analysisConversation ?? AnalysisConversationState.Empty()
             : AnalysisConversationState.Empty();
         _isMarkdownExpanded = false;
-        _streamingMarkdown = null;
+        var preserveStreamingPreview =
+            isSameView &&
+            state.Status == ModeResultStatus.Cancelled &&
+            !string.IsNullOrWhiteSpace(state.RawText) &&
+            _streamingMarkdown is not null;
+        if (!preserveStreamingPreview)
+            _streamingMarkdown = null;
         ResetStreamingUiThrottle();
         _autoScroll.BeginRequest();
         if (!state.AutoScrollEnabled)
@@ -313,18 +353,24 @@ public partial class FloatingWindow : Window
 
         if (state.Status == ModeResultStatus.Completed)
             ShowCompletedMarkdown();
+        else if (preserveStreamingPreview)
+            ShowStreamingMarkdown();
         else
             ShowPlainText();
         SetLoading(state.Status == ModeResultStatus.Loading);
         RenderAnalysisConversation();
         RefreshSpeakButton();
+        RenderStatusBar();
 
         var expectedSessionId = sessionId;
         var expectedMode = mode;
         Dispatcher.BeginInvoke(() =>
         {
             if (_sessionId == expectedSessionId && _activeMode == expectedMode)
+            {
                 RestoreScrollState(state.ScrollOffset, state.AutoScrollEnabled);
+                UpdateAutoScrollAffordance();
+            }
         }, DispatcherPriority.Loaded);
     }
 
@@ -338,13 +384,22 @@ public partial class FloatingWindow : Window
 
         _isLoading = isLoading;
         LoadingIndicator.Visibility = isLoading ? Visibility.Visible : Visibility.Collapsed;
+        RefreshButton.Content = isLoading ? StopIcon : RefreshIcon;
+        RefreshButton.ToolTip = isLoading ? "停止生成" : "重新生成";
         if (isLoading)
             ((Storyboard)Resources["LoadingDotsStoryboard"]).Begin(this, true);
         else
             ((Storyboard)Resources["LoadingDotsStoryboard"]).Remove(this);
         RefreshSpeakButton();
+        RenderStatusBar();
         ResetAutoHideTimer();
     }
+
+    internal void SetModelProfiles(
+        IReadOnlyList<ModelProfile> profiles,
+        ModelProfile? currentProfile,
+        bool enabled) =>
+        ModelSelector.SetProfiles(profiles, currentProfile, enabled);
 
     public void ResetPin()
     {
@@ -389,7 +444,7 @@ public partial class FloatingWindow : Window
         var workArea = Win32Api.GetPhysicalWorkAreaAtPoint(anchor.PreferredPoint);
         var scale = DpiHelper.GetScaleForPhysicalPoint(anchor.PreferredPoint);
         var exclusionBounds = anchor.GetEffectiveExclusionBounds(scale);
-        var chromeHeightDip = contentType == ContentType.Analysis ? 94 : 54;
+        var chromeHeightDip = contentType == ContentType.Analysis ? 130 : 90;
         var gap = PlacementGapDip * scale.Y;
         var minimumWindowHeight = (80 + chromeHeightDip) * scale.Y;
         _placeAbove = FloatingWindowPlacement.ShouldPlaceAbove(exclusionBounds, workArea, minimumWindowHeight, gap);
@@ -445,6 +500,7 @@ public partial class FloatingWindow : Window
         {
             ScheduleStreamingScrollToEnd();
         }
+        UpdateAutoScrollAffordance();
 
         if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5 &&
             ShouldRunStreamingAction(
@@ -1496,6 +1552,25 @@ public partial class FloatingWindow : Window
         RaiseScrollStateChanged();
     }
 
+    private void ReturnToLatestButton_Click(object sender, RoutedEventArgs e) =>
+        ResumeAutoScrollFromStatus();
+
+    private void ReturnToLatestButton_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (_returnButtonSuppressesAutoHide)
+            return;
+        _returnButtonSuppressesAutoHide = true;
+        SuspendAutoHide();
+    }
+
+    private void ReturnToLatestButton_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (!_returnButtonSuppressesAutoHide)
+            return;
+        _returnButtonSuppressesAutoHide = false;
+        ResumeAutoHide();
+    }
+
     private void TranslationScroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
         _clickedConversationNodeKey = null;
@@ -1546,6 +1621,7 @@ public partial class FloatingWindow : Window
 
         if (e.VerticalChange != 0 || e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0)
             UpdateCurrentConversationNodeFromViewport();
+        UpdateAutoScrollAffordance();
         if (e.VerticalChange == 0)
             return;
 
@@ -1614,27 +1690,15 @@ public partial class FloatingWindow : Window
 
     private void UpdateAutoScrollAffordance()
     {
-        if (_autoScroll.IsAutoScrollEnabled)
-        {
-            if (_persistentStatus?.Token == FloatingStatusMessage.AutoScrollToken)
-            {
-                _persistentStatus = null;
-                if (_transientStatus is null)
-                    RenderStatusBar();
-            }
-            return;
-        }
-
-        _persistentStatus = new StatusMessageEntry(
-            FloatingStatusMessage.AutoScrollToken,
-            "自动滚动已暂停",
-            FloatingStatusKind.Info,
-            "恢复",
-            ResumeAutoScrollFromStatus);
-
-        if (_transientStatus is null)
-            RenderStatusBar();
+        ReturnToLatestButton.Visibility = ShouldShowReturnToLatest(
+            _autoScroll.IsAutoScrollEnabled,
+            TranslationScroller.ScrollableHeight)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
+
+    internal static bool ShouldShowReturnToLatest(bool autoScrollEnabled, double scrollableHeight) =>
+        !autoScrollEnabled && scrollableHeight > 0.5;
 
     private void ShowTransientStatus(string message, FloatingStatusKind kind, TimeSpan? duration = null)
     {
@@ -1690,22 +1754,12 @@ public partial class FloatingWindow : Window
         if (StatusMessageBar is null || StatusMessageText is null || StatusMessageActionButton is null)
             return;
 
-        var entry = _transientStatus ?? _persistentStatus;
-        if (entry is null)
-        {
-            StatusMessageBar.Visibility = Visibility.Collapsed;
-            StatusMessageText.Text = string.Empty;
-            StatusMessageActionButton.Visibility = Visibility.Collapsed;
-            StatusMessageActionButton.Content = string.Empty;
-            _statusAction = null;
-            return;
-        }
+        var entry = _transientStatus ?? _persistentStatus ?? DefaultStatusEntry();
 
         var (bg, fg) = FloatingStatusMessage.GetColors(entry.Kind);
         StatusMessageBar.Background = new SolidColorBrush(bg);
         StatusMessageText.Foreground = new SolidColorBrush(fg);
         StatusMessageText.Text = entry.Message;
-        StatusMessageBar.Visibility = Visibility.Visible;
 
         if (!string.IsNullOrWhiteSpace(entry.ActionText) && entry.Action is not null)
         {
@@ -1721,6 +1775,47 @@ public partial class FloatingWindow : Window
         }
 
         EnsureFooterFitsWindow();
+        RestartStatusScroll();
+    }
+
+    private StatusMessageEntry DefaultStatusEntry() => _modeStatus switch
+    {
+        ModeResultStatus.Loading => new("generation", "正在生成", FloatingStatusKind.Info, null, null),
+        ModeResultStatus.Completed => new("completed", "已完成", FloatingStatusKind.Success, null, null),
+        ModeResultStatus.Cancelled => new("cancelled", "已停止，内容尚未完成", FloatingStatusKind.Warning, null, null),
+        ModeResultStatus.Failed => new("failed", "生成失败，可重试", FloatingStatusKind.Error, null, null),
+        _ => new("ready", "就绪", FloatingStatusKind.Info, null, null)
+    };
+
+    private void RestartStatusScroll()
+    {
+        _statusScrollStoryboard?.Remove(this);
+        _statusScrollStoryboard = null;
+        StatusMessageTransform.X = 0;
+        Dispatcher.BeginInvoke(() =>
+        {
+            StatusMessageText.Measure(new Size(double.PositiveInfinity, StatusMessageViewport.ActualHeight));
+            var distance = StatusMessageText.DesiredSize.Width - StatusMessageViewport.ActualWidth;
+            if (distance <= 0.5 || StatusMessageViewport.ActualWidth <= 0)
+                return;
+
+            var animation = new DoubleAnimationUsingKeyFrames
+            {
+                RepeatBehavior = RepeatBehavior.Forever
+            };
+            animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(800))));
+            animation.KeyFrames.Add(new LinearDoubleKeyFrame(-distance, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(3.3))));
+            animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(-distance, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(4.3))));
+            animation.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(6.8))));
+            animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(7.8))));
+            _statusScrollStoryboard = new Storyboard();
+            _statusScrollStoryboard.Children.Add(animation);
+            Storyboard.SetTarget(animation, StatusMessageTransform);
+            Storyboard.SetTargetProperty(animation, new PropertyPath("X"));
+            _statusScrollStoryboard.Begin(this, true);
+            if (!IsActive || StatusMessageViewport.IsMouseOver || StatusMessageViewport.IsKeyboardFocusWithin)
+                _statusScrollStoryboard.Pause(this);
+        }, DispatcherPriority.Loaded);
     }
 
     /// <summary>
@@ -1848,6 +1943,7 @@ public partial class FloatingWindow : Window
 
     private bool CanAutoHide() =>
         !IsPinned &&
+        _autoHideSuppressionCount == 0 &&
         !_isLoading &&
         !_isMouseInside &&
         !_isSystemSizing &&

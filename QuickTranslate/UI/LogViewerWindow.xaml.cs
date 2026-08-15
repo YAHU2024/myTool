@@ -65,7 +65,12 @@ public partial class LogViewerWindow : Window
             .ToArray();
         EntriesListView.ItemsSource = filtered;
         var snapshot = _metrics.GetSnapshot(_cache.Hits, _cache.Misses);
-        StatusTextBlock.Text = $"显示 {filtered.Length}/{_entries.Count} 条 | 今日完成 {snapshot.Completed} | 平均 {snapshot.AverageMilliseconds:F0}ms | P95 {snapshot.P95Milliseconds:F0}ms | 缓存命中率 {snapshot.CacheHitRate:P0}";
+        StatusTextBlock.Text =
+            $"显示 {filtered.Length}/{_entries.Count} 条 | 今日完成 {snapshot.Completed} | " +
+            $"平均 {snapshot.AverageMilliseconds:F0}ms | P95 {snapshot.P95Milliseconds:F0}ms | " +
+            $"缓存命中率 {snapshot.CacheHitRate:P0} | 回显疑似/确认 " +
+            $"{snapshot.EchoSuspected}/{snapshot.EchoConfirmed} | 模型切换 " +
+            $"{snapshot.ModelSwitchCompleted}/{snapshot.ModelSwitchRequested}";
     }
 
     private void RefreshButton_Click(object sender, RoutedEventArgs e) => RefreshFiles();
