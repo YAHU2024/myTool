@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using QuickTranslate.Core;
@@ -42,49 +43,112 @@ public partial class ModelSelectorControl : UserControl
     {
         _profiles = profiles;
         _currentProfile = currentProfile;
+        if (!enabled)
+            SelectorPopup.IsOpen = false;
         IsEnabled = enabled;
         Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
-        ModelNameText.Text = currentProfile?.DisplayName ?? "选择模型";
+        ModelNameText.Text = currentProfile?.SelectorDisplayName ?? "选择模型";
         SelectorButton.ToolTip = currentProfile is null
             ? "选择当前会话模型"
             : BuildToolTip(currentProfile);
         ResetNameScroll();
+        if (SelectorPopup.IsOpen)
+            PopulateMenu();
     }
 
     private void SelectorButton_Click(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu
+        if (SelectorPopup.IsOpen)
         {
-            PlacementTarget = SelectorButton,
-            Placement = System.Windows.Controls.Primitives.PlacementMode.Top,
-            Background = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0x25, 0x25, 0x38)),
-            Foreground = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0xEE, 0xEE, 0xF4))
-        };
-        foreach (var profile in _profiles)
-        {
-            var item = new MenuItem
-            {
-                Header = CreateMenuHeader(profile),
-                IsEnabled = profile.IsComplete,
-                IsCheckable = true,
-                IsChecked = _currentProfile?.Id == profile.Id,
-                ToolTip = BuildToolTip(profile)
-            };
-            var selectedId = profile.Id;
-            item.Click += (_, _) => ProfileSelected?.Invoke(selectedId);
-            menu.Items.Add(item);
+            SelectorPopup.IsOpen = false;
+            return;
         }
 
-        if (menu.Items.Count > 0)
-            menu.Items.Add(new Separator());
-        var settingsItem = new MenuItem { Header = "管理模型配置..." };
-        settingsItem.Click += (_, _) => SettingsRequested?.Invoke();
-        menu.Items.Add(settingsItem);
-        menu.Opened += (_, _) => MenuOpened?.Invoke();
-        menu.Closed += (_, _) => MenuClosed?.Invoke();
-        menu.IsOpen = true;
+        PopulateMenu();
+        SelectorPopup.HorizontalOffset = Math.Min(0, SelectorButton.ActualWidth - PopupSurface.Width);
+        SelectorPopup.IsOpen = true;
+    }
+
+    private void PopulateMenu()
+    {
+        var entries = _profiles
+            .Select(profile => new ModelMenuEntry(
+                profile,
+                string.Equals(_currentProfile?.Id, profile.Id, StringComparison.Ordinal),
+                BuildToolTip(profile)))
+            .ToList();
+        ProfileList.ItemsSource = entries;
+        ProfileList.SelectedItem = entries.FirstOrDefault(entry => entry.IsCurrent)
+            ?? entries.FirstOrDefault(entry => entry.IsComplete);
+    }
+
+    private void SelectorPopup_Opened(object sender, EventArgs e)
+    {
+        MenuOpened?.Invoke();
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (ProfileList.SelectedItem is ModelMenuEntry { IsComplete: true } selectedEntry)
+            {
+                ProfileList.ScrollIntoView(ProfileList.SelectedItem);
+                ProfileList.UpdateLayout();
+                if (ProfileList.ItemContainerGenerator.ContainerFromItem(selectedEntry) is ListBoxItem item)
+                    item.Focus();
+                else
+                    ProfileList.Focus();
+            }
+            else
+            {
+                ManageModelsButton.Focus();
+            }
+        }, DispatcherPriority.Input);
+    }
+
+    private void SelectorPopup_Closed(object sender, EventArgs e)
+    {
+        MenuClosed?.Invoke();
+        SelectorButton.Focus();
+    }
+
+    private void ProfileList_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        var container = ItemsControl.ContainerFromElement(ProfileList, e.OriginalSource as DependencyObject) as ListBoxItem;
+        if (container?.DataContext is not ModelMenuEntry entry || !entry.IsComplete)
+            return;
+
+        e.Handled = true;
+        SelectEntry(entry);
+    }
+
+    private void ProfileList_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            SelectorPopup.IsOpen = false;
+            return;
+        }
+
+        if (e.Key is not (Key.Enter or Key.Space) || ProfileList.SelectedItem is not ModelMenuEntry entry)
+            return;
+
+        e.Handled = true;
+        SelectEntry(entry);
+    }
+
+    private void SelectEntry(ModelMenuEntry entry)
+    {
+        if (!entry.IsComplete)
+            return;
+
+        SelectorPopup.IsOpen = false;
+        if (!entry.IsCurrent)
+            ProfileSelected?.Invoke(entry.Id);
+    }
+
+    private void ManageModelsButton_Click(object sender, RoutedEventArgs e)
+    {
+        SelectorPopup.IsOpen = false;
+        SettingsRequested?.Invoke();
     }
 
     private void ScheduleNameScroll()
@@ -138,32 +202,23 @@ public partial class ModelSelectorControl : UserControl
         var host = Uri.TryCreate(profile.ApiBaseUrl, UriKind.Absolute, out var uri)
             ? uri.Host
             : "未知主机";
-        return $"{profile.DisplayName}\n模型：{profile.ModelName}\n供应商：{profile.ProviderName}\n主机：{host}";
-    }
-
-    private static FrameworkElement CreateMenuHeader(ModelProfile profile)
-    {
-        var panel = new StackPanel { Margin = new Thickness(2, 1, 8, 1) };
-        panel.Children.Add(new TextBlock
-        {
-            Text = profile.DisplayName,
-            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
-            FontSize = 12,
-            FontWeight = FontWeights.SemiBold
-        });
-        panel.Children.Add(new TextBlock
-        {
-            Text = $"{profile.ModelName} · {profile.ProviderName}",
-            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
-            FontSize = 10,
-            Foreground = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0xA8, 0xA8, 0xB8))
-        });
-        return panel;
+        var status = profile.IsComplete
+            ? string.Empty
+            : "\n状态：配置不完整，请在设置中补全";
+        return $"{profile.SelectorDisplayName}\n模型：{profile.ModelName}\n供应商：{profile.ProviderName}\n主机：{host}{status}";
     }
 
     private void SelectorButton_ToolTipOpening(object sender, ToolTipEventArgs e)
     {
         SelectorButton.ToolTip = _currentProfile is null ? "选择当前会话模型" : BuildToolTip(_currentProfile);
+    }
+
+    private sealed record ModelMenuEntry(ModelProfile Profile, bool IsCurrent, string ToolTip)
+    {
+        public string Id => Profile.Id;
+        public string Title => Profile.SelectorDisplayName;
+        public string Detail => Profile.MenuDetail;
+        public bool IsComplete => Profile.IsComplete;
+        public Visibility CurrentVisibility => IsCurrent ? Visibility.Visible : Visibility.Collapsed;
     }
 }

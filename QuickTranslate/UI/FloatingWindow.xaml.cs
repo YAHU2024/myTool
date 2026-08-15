@@ -1751,13 +1751,13 @@ public partial class FloatingWindow : Window
 
     private void RenderStatusBar()
     {
-        if (StatusMessageBar is null || StatusMessageText is null || StatusMessageActionButton is null)
+        if (StatusMessageBar is null || StatusIndicator is null || StatusMessageText is null || StatusMessageActionButton is null)
             return;
 
         var entry = _transientStatus ?? _persistentStatus ?? DefaultStatusEntry();
 
-        var (bg, fg) = FloatingStatusMessage.GetColors(entry.Kind);
-        StatusMessageBar.Background = new SolidColorBrush(bg);
+        var (indicator, fg) = FloatingStatusMessage.GetAccentColors(entry.Kind);
+        StatusIndicator.Fill = new SolidColorBrush(indicator);
         StatusMessageText.Foreground = new SolidColorBrush(fg);
         StatusMessageText.Text = entry.Message;
 
@@ -1782,7 +1782,7 @@ public partial class FloatingWindow : Window
     {
         ModeResultStatus.Loading => new("generation", "正在生成", FloatingStatusKind.Info, null, null),
         ModeResultStatus.Completed => new("completed", "已完成", FloatingStatusKind.Success, null, null),
-        ModeResultStatus.Cancelled => new("cancelled", "已停止，内容尚未完成", FloatingStatusKind.Warning, null, null),
+        ModeResultStatus.Cancelled => new("cancelled", "已停止，可重试或换模型", FloatingStatusKind.Warning, null, null),
         ModeResultStatus.Failed => new("failed", "生成失败，可重试", FloatingStatusKind.Error, null, null),
         _ => new("ready", "就绪", FloatingStatusKind.Info, null, null)
     };

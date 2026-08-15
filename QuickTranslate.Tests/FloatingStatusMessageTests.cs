@@ -10,11 +10,11 @@ public class FloatingStatusMessageTests
     [InlineData(FloatingStatusKind.Success)]
     [InlineData(FloatingStatusKind.Warning)]
     [InlineData(FloatingStatusKind.Error)]
-    public void GetColors_ReturnsDistinctSoftPair(FloatingStatusKind kind)
+    public void GetAccentColors_ReturnsDistinctOpaquePair(FloatingStatusKind kind)
     {
-        var (bg, fg) = FloatingStatusMessage.GetColors(kind);
-        Assert.NotEqual(bg, fg);
-        Assert.True(bg.A == 255);
+        var (indicator, fg) = FloatingStatusMessage.GetAccentColors(kind);
+        Assert.NotEqual(indicator, fg);
+        Assert.True(indicator.A == 255);
         Assert.True(fg.A == 255);
     }
 

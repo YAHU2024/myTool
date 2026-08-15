@@ -19,6 +19,12 @@ internal sealed record ModelProfile(
     public string DisplayName => !string.IsNullOrWhiteSpace(Alias)
         ? Alias
         : $"{ModelName} · {ProviderName}";
+
+    public string SelectorDisplayName => !string.IsNullOrWhiteSpace(Alias)
+        ? Alias
+        : ModelProfileCatalog.CompactModelName(ModelName);
+
+    public string MenuDetail => $"{ModelName} · {ProviderName}";
 }
 
 internal static class ModelProfileCatalog
@@ -86,6 +92,15 @@ internal static class ModelProfileCatalog
         return sanitized.Length <= MaxAliasLength
             ? sanitized
             : sanitized[..MaxAliasLength];
+    }
+
+    public static string CompactModelName(string? modelName)
+    {
+        var normalized = modelName?.Trim() ?? string.Empty;
+        var separatorIndex = normalized.LastIndexOf('/');
+        return separatorIndex >= 0 && separatorIndex < normalized.Length - 1
+            ? normalized[(separatorIndex + 1)..]
+            : normalized;
     }
 
     public static string ResolveLegacyAlias(SavedConfig config)

@@ -24,17 +24,17 @@ public static class FloatingStatusMessage
 
     public const string TransientToken = "transient";
 
-    public static (Color Background, Color Foreground) GetColors(FloatingStatusKind kind) =>
+    public static (Color Indicator, Color Foreground) GetAccentColors(FloatingStatusKind kind) =>
         kind switch
         {
             FloatingStatusKind.Success =>
-                (Color.FromRgb(0x24, 0x35, 0x2C), Color.FromRgb(0x9F, 0xD4, 0xA8)),
+                (Color.FromRgb(0x66, 0xC4, 0x85), Color.FromRgb(0x9F, 0xD4, 0xA8)),
             FloatingStatusKind.Warning =>
-                (Color.FromRgb(0x3A, 0x34, 0x24), Color.FromRgb(0xE6, 0xC0, 0x7B)),
+                (Color.FromRgb(0xDC, 0xAE, 0x54), Color.FromRgb(0xE6, 0xC0, 0x7B)),
             FloatingStatusKind.Error =>
-                (Color.FromRgb(0x3A, 0x28, 0x28), Color.FromRgb(0xE8, 0xA0, 0xA0)),
+                (Color.FromRgb(0xD8, 0x70, 0x70), Color.FromRgb(0xE8, 0xA0, 0xA0)),
             _ =>
-                (Color.FromRgb(0x2A, 0x33, 0x48), Color.FromRgb(0xB7, 0xC5, 0xFF)),
+                (Color.FromRgb(0x67, 0x96, 0xE8), Color.FromRgb(0xB7, 0xC5, 0xFF)),
         };
 
     public static TimeSpan ResolveDuration(FloatingStatusKind kind, TimeSpan? requested) =>

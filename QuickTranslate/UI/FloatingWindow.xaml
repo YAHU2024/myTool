@@ -212,25 +212,27 @@
                 </Grid>
                 <Button x:Name="FollowUpSendButton" Grid.Column="1" Style="{StaticResource IconToolbarButton}" Width="32" Height="32" Margin="6,0,0,0" FontFamily="Segoe MDL2 Assets" Content="&#xE724;" ToolTip="发送追问" AutomationProperties.Name="发送追问" Click="FollowUpSendButton_Click"/>
             </Grid>
-            <Border x:Name="StatusMessageBar" Grid.Row="3" Height="30" Margin="0,6,0,0" CornerRadius="4" Padding="6,2" Background="#2A3348">
+            <Border x:Name="StatusMessageBar" Grid.Row="3" Height="32" Margin="0,6,0,0" CornerRadius="4" Background="#20212B" BorderBrush="#3A3B49" BorderThickness="0,1,0,0">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <Grid Grid.Column="0" Margin="2,0,8,0">
+                    <Grid Grid.Column="0" Margin="10,0,8,0">
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Border x:Name="StatusMessageViewport" Grid.Column="0" ClipToBounds="True" ToolTip="{Binding Text, ElementName=StatusMessageText}">
+                        <Ellipse x:Name="StatusIndicator" Grid.Column="0" Width="7" Height="7" Margin="0,0,8,0" VerticalAlignment="Center" Fill="#6796E8"/>
+                        <Border x:Name="StatusMessageViewport" Grid.Column="1" ClipToBounds="True" ToolTip="{Binding Text, ElementName=StatusMessageText}">
                             <TextBlock x:Name="StatusMessageText" FontFamily="Microsoft YaHei UI" FontSize="11" TextWrapping="NoWrap" VerticalAlignment="Center" Foreground="#B7C5FF" Text="就绪">
                                 <TextBlock.RenderTransform>
                                     <TranslateTransform x:Name="StatusMessageTransform"/>
                                 </TextBlock.RenderTransform>
                             </TextBlock>
                         </Border>
-                        <Button x:Name="StatusMessageActionButton" Grid.Column="1" Margin="8,0,0,0" Padding="6,1" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#3E4B70" Content="" Visibility="Collapsed" Click="StatusMessageActionButton_Click"/>
+                        <Button x:Name="StatusMessageActionButton" Grid.Column="2" Margin="8,0,0,0" Padding="6,1" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#343644" Content="" Visibility="Collapsed" Click="StatusMessageActionButton_Click"/>
                     </Grid>
                     <ui:ModelSelectorControl x:Name="ModelSelector" Grid.Column="1"/>
                 </Grid>

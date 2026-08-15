@@ -463,9 +463,48 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Equal(Visibility.Visible, window.StatusMessageBar.Visibility);
             Assert.Equal("已完成", window.StatusMessageText.Text);
             Assert.Equal(Visibility.Collapsed, window.StatusMessageActionButton.Visibility);
+            Assert.Equal(Color.FromRgb(0x20, 0x21, 0x2B), ((SolidColorBrush)window.StatusMessageBar.Background).Color);
+            Assert.Equal(
+                FloatingStatusMessage.GetAccentColors(FloatingStatusKind.Success).Indicator,
+                ((SolidColorBrush)window.StatusIndicator.Fill).Color);
             Assert.True(FloatingWindow.ShouldShowReturnToLatest(autoScrollEnabled: false, scrollableHeight: 1));
             Assert.False(FloatingWindow.ShouldShowReturnToLatest(autoScrollEnabled: true, scrollableHeight: 1));
             Assert.False(FloatingWindow.ShouldShowReturnToLatest(autoScrollEnabled: false, scrollableHeight: 0.5));
+        });
+    }
+
+    [SkippableFact]
+    public void ModelSelector_UsesCompactCurrentNameAndConstrainedPopup()
+    {
+        RunOnSta(window =>
+        {
+            var profile = new ModelProfile(
+                "provider:qwen",
+                string.Empty,
+                "Qwen/Qwen3-8B",
+                "硅基流动",
+                "https://api.siliconflow.cn/v1",
+                "key");
+
+            window.SetModelProfiles([profile], profile, enabled: true);
+
+            Assert.Equal(176d, window.ModelSelector.Width);
+            Assert.Equal(176d, window.ModelSelector.MaxWidth);
+            Assert.Equal("Qwen3-8B", window.ModelSelector.ModelNameText.Text);
+            Assert.Equal(340d, window.ModelSelector.PopupSurface.Width);
+            Assert.Equal(312d, window.ModelSelector.ProfileList.MaxHeight);
+
+            window.Show();
+            window.ModelSelector.SelectorButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpDispatcher();
+
+            Assert.True(window.ModelSelector.SelectorPopup.IsOpen);
+            Assert.Single(window.ModelSelector.ProfileList.Items);
+
+            window.SetModelProfiles([], null, enabled: false);
+
+            Assert.False(window.ModelSelector.SelectorPopup.IsOpen);
+            Assert.Equal(Visibility.Collapsed, window.ModelSelector.Visibility);
         });
     }
 
@@ -532,7 +571,11 @@ public sealed class FloatingWindowFollowUpTests
 
             Assert.Equal(Visibility.Visible, window.StreamingMarkdownHost.Visibility);
             Assert.Equal(Visibility.Collapsed, window.TranslationTextBlock.Visibility);
-            Assert.Equal("已停止，内容尚未完成", window.StatusMessageText.Text);
+            Assert.Equal("已停止，可重试或换模型", window.StatusMessageText.Text);
+            Assert.Equal(Color.FromRgb(0x20, 0x21, 0x2B), ((SolidColorBrush)window.StatusMessageBar.Background).Color);
+            Assert.Equal(
+                FloatingStatusMessage.GetAccentColors(FloatingStatusKind.Warning).Indicator,
+                ((SolidColorBrush)window.StatusIndicator.Fill).Color);
         });
     }
 

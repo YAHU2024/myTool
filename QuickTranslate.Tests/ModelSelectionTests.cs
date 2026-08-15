@@ -26,7 +26,21 @@ public sealed class ModelSelectionTests
         });
 
         Assert.Equal("长文专用", aliased.DisplayName);
+        Assert.Equal("长文专用", aliased.SelectorDisplayName);
         Assert.Equal("glm-4.7-flash · 智谱 GLM", fallback.DisplayName);
+        Assert.Equal("glm-4.7-flash", fallback.SelectorDisplayName);
+        Assert.Equal("glm-4.7-flash · 智谱 GLM", fallback.MenuDetail);
+    }
+
+    [Theory]
+    [InlineData("Qwen/Qwen3-8B", "Qwen3-8B")]
+    [InlineData("tencent/Hunyuan-MT-7B", "Hunyuan-MT-7B")]
+    [InlineData("deepseek-v4-flash", "deepseek-v4-flash")]
+    [InlineData("trailing/", "trailing/")]
+    [InlineData("  model-name  ", "model-name")]
+    public void CompactModelName_RemovesOnlyOrganizationPrefix(string modelName, string expected)
+    {
+        Assert.Equal(expected, ModelProfileCatalog.CompactModelName(modelName));
     }
 
     [Fact]
