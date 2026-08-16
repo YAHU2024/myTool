@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <item>
-  <version>1.9.0</version>
-  <url>https://github.com/YAHU2024/myTool/releases/download/v1.9.0/QuickTranslate-Setup-1.9.0-win-x64-full.exe</url>
-  <changelog>https://github.com/YAHU2024/myTool/releases/tag/v1.9.0</changelog>
+  <version>1.9.1</version>
+  <url>https://github.com/YAHU2024/myTool/releases/download/v1.9.1/QuickTranslate-Setup-1.9.1-win-x64-full.exe</url>
+  <changelog>https://github.com/YAHU2024/myTool/releases/tag/v1.9.1</changelog>
   <args>/SILENT /SUPPRESSMSGBOXES /NORESTART</args>
-  <checksum algorithm="SHA256">4116CB40236C509F55A33734AE6976919F297BB23DAFFE95F32414A1653DBB5A</checksum>
+  <checksum algorithm="SHA256">8E8B3A2B9A968AF195DD012D7498B2636E471F75C3B348F84866476B828B6680</checksum>
   <mandatory>false</mandatory>
   <!--
     signer element: defines the expected Authenticode certificate subject
@@ -18,9 +18,9 @@
     the new subject and also update UpdateService.ExpectedPublisher in
     the same release. See docs/RELEASE.md for the full procedure.
 
-    NOTE: v1.9.0 installers are NOT Authenticode-signed (no code-signing
-    certificate yet). RequireAuthenticodeSignature defaults to false,
-    so updates will proceed in advisory mode.
+    NOTE: v1.9.0 and v1.9.1 installers are NOT Authenticode-signed (no
+    code-signing certificate yet). RequireAuthenticodeSignature defaults
+    to false, so updates will proceed in advisory mode.
   -->
   <signer>
     <subject>YaHu</subject>
