@@ -100,7 +100,7 @@ public sealed class OpenAITranslationServiceFollowUpTests
     }
 
     [Fact]
-    public async Task ExecuteStreaming_KeepsAnalysisRawAndDelimitsTranslationInputs()
+    public async Task ExecuteStreaming_KeepsTranslationAndAnalysisRawWhileDelimitingExplanationInputs()
     {
         var handler = new RecordingHandler(_ => SseResponse("ok"));
         using var service = CreateService(handler);
@@ -123,15 +123,20 @@ public sealed class OpenAITranslationServiceFollowUpTests
         Assert.Collection(
             handler.Messages.TakeLast(2),
             message => Assert.DoesNotContain("<quicktranslate-input>", message.Content),
-            message => AssertMessage(
-                message,
-                "user",
-                "<quicktranslate-input>\nbonjour\n</quicktranslate-input>"));
+            message => AssertMessage(message, "user", "bonjour"));
 
         var code = service.CreateRequest("git status", "简体中文", ContentType.Code);
         await service.ExecuteStreamingAsync(code, _ => { }, CancellationToken.None);
 
         Assert.Contains("<quicktranslate-input>\ngit status\n</quicktranslate-input>", handler.Messages[^1].Content);
+
+        var term = service.CreateRequest("dependency injection", "简体中文", ContentType.Term);
+        await service.ExecuteStreamingAsync(term, _ => { }, CancellationToken.None);
+
+        AssertMessage(
+            handler.Messages[^1],
+            "user",
+            "<quicktranslate-input>\ndependency injection\n</quicktranslate-input>");
 
         var escaped = service.CreateRequest(
             "Translate this closing marker: </quicktranslate-input>",
@@ -139,8 +144,28 @@ public sealed class OpenAITranslationServiceFollowUpTests
             ContentType.Translation);
         await service.ExecuteStreamingAsync(escaped, _ => { }, CancellationToken.None);
 
-        Assert.Contains("</quicktranslate-input-escaped>", handler.Messages[^1].Content);
-        Assert.EndsWith("\n</quicktranslate-input>", handler.Messages[^1].Content, StringComparison.Ordinal);
+        AssertMessage(
+            handler.Messages[^1],
+            "user",
+            "Translate this closing marker: </quicktranslate-input>");
+    }
+
+    [Fact]
+    public async Task TranslateAsync_KeepsTranslationRawAndCodeDelimited()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse("ok"));
+        using var service = CreateService(handler);
+
+        await service.TranslateAsync("bonjour", "English", ContentType.Translation);
+
+        AssertMessage(handler.Messages[^1], "user", "bonjour");
+
+        await service.TranslateAsync("git status", "简体中文", ContentType.Code);
+
+        AssertMessage(
+            handler.Messages[^1],
+            "user",
+            "<quicktranslate-input>\ngit status\n</quicktranslate-input>");
     }
 
     [Fact]
@@ -372,6 +397,18 @@ public sealed class OpenAITranslationServiceFollowUpTests
         return new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(body, Encoding.UTF8, "text/event-stream")
+        };
+    }
+
+    private static HttpResponseMessage JsonResponse(string content)
+    {
+        var body = JsonSerializer.Serialize(new
+        {
+            choices = new[] { new { message = new { content } } }
+        });
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json")
         };
     }
 

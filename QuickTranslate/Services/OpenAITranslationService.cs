@@ -433,7 +433,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
     private static Dictionary<string, object> BuildRequestBody(TranslationRequest request, bool stream)
     {
-        var userContent = request.Kind == TranslationRequestKind.Analysis
+        var userContent = request.Kind == TranslationRequestKind.Analysis ||
+                          request.ContentType == ContentType.Translation
             ? request.Text
             : PromptInputContract.Wrap(request.Text);
         return BuildRequestBody(
