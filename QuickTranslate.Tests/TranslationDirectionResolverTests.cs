@@ -94,4 +94,66 @@ public sealed class TranslationDirectionResolverTests
         Assert.Equal("简体中文", decision.EffectiveTargetLanguage);
         Assert.Equal(TranslationDirectionReason.ModeDoesNotUseFallback, decision.Reason);
     }
+
+    [Fact]
+    public void Resolve_ManualFallbackOverridesUnknownMixedText()
+    {
+        var decision = TranslationDirectionResolver.Resolve(
+            "fix translation 中文内容 and command examples",
+            "简体中文",
+            "English",
+            autoDetectLanguage: true,
+            ContentType.Translation,
+            TranslationDirectionPreference.FallbackTarget);
+
+        Assert.Equal("English", decision.EffectiveTargetLanguage);
+        Assert.Equal(TranslationDirectionReason.UserSelectedFallback, decision.Reason);
+        Assert.True(decision.FallbackUsed);
+    }
+
+    [Fact]
+    public void Resolve_ManualRequestedTargetOverridesAutoDetectedFallback()
+    {
+        var decision = TranslationDirectionResolver.Resolve(
+            "这是一段明确的中文正文，用于触发自动备选语言。",
+            "简体中文",
+            "English",
+            autoDetectLanguage: true,
+            ContentType.Translation,
+            TranslationDirectionPreference.RequestedTarget);
+
+        Assert.Equal("简体中文", decision.EffectiveTargetLanguage);
+        Assert.Equal(TranslationDirectionReason.UserSelectedTarget, decision.Reason);
+        Assert.False(decision.FallbackUsed);
+    }
+
+    [Fact]
+    public void Resolve_ManualFallbackWorksWhenAutoDetectionIsDisabled()
+    {
+        var decision = TranslationDirectionResolver.Resolve(
+            "这是一段明确的中文正文。",
+            "简体中文",
+            "English",
+            autoDetectLanguage: false,
+            ContentType.Translation,
+            TranslationDirectionPreference.FallbackTarget);
+
+        Assert.Equal("English", decision.EffectiveTargetLanguage);
+        Assert.Equal(TranslationDirectionReason.UserSelectedFallback, decision.Reason);
+    }
+
+    [Fact]
+    public void Resolve_NonTranslationModeIgnoresManualFallback()
+    {
+        var decision = TranslationDirectionResolver.Resolve(
+            "这是一段明确的中文正文。",
+            "简体中文",
+            "English",
+            autoDetectLanguage: true,
+            ContentType.Code,
+            TranslationDirectionPreference.FallbackTarget);
+
+        Assert.Equal("简体中文", decision.EffectiveTargetLanguage);
+        Assert.Equal(TranslationDirectionReason.ModeDoesNotUseFallback, decision.Reason);
+    }
 }

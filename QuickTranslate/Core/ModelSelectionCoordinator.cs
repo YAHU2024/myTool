@@ -101,6 +101,29 @@ internal sealed class ModelSelectionCoordinator
         return false;
     }
 
+    public bool TryApplyCurrentProfile(
+        Guid sessionId,
+        ContentType mode,
+        TranslationRequest semanticRequest,
+        out TranslationRequest? request)
+    {
+        ArgumentNullException.ThrowIfNull(semanticRequest);
+        if (!IsCurrent(sessionId, mode))
+        {
+            request = null;
+            return false;
+        }
+
+        request = semanticRequest with
+        {
+            ApiBaseUrl = _currentProfile!.ApiBaseUrl,
+            ApiKey = _currentProfile.ApiKey,
+            ModelName = _currentProfile.ModelName
+        };
+        _requestTemplate = request;
+        return true;
+    }
+
     public void Reset()
     {
         _sessionId = null;

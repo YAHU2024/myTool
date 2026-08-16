@@ -14,7 +14,8 @@ internal static partial class TranslationDirectionResolver
         string requestedTargetLanguage,
         string fallbackLanguage,
         bool autoDetectLanguage,
-        ContentType contentType)
+        ContentType contentType,
+        TranslationDirectionPreference preference = TranslationDirectionPreference.Auto)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentException.ThrowIfNullOrWhiteSpace(requestedTargetLanguage);
@@ -25,6 +26,22 @@ internal static partial class TranslationDirectionResolver
             return CreateUnchanged(
                 requestedTargetLanguage,
                 TranslationDirectionReason.ModeDoesNotUseFallback);
+        }
+
+        if (preference == TranslationDirectionPreference.RequestedTarget)
+        {
+            return CreateManual(
+                requestedTargetLanguage,
+                requestedTargetLanguage,
+                TranslationDirectionReason.UserSelectedTarget);
+        }
+
+        if (preference == TranslationDirectionPreference.FallbackTarget)
+        {
+            return CreateManual(
+                requestedTargetLanguage,
+                fallbackLanguage,
+                TranslationDirectionReason.UserSelectedFallback);
         }
 
         if (!autoDetectLanguage)
@@ -155,6 +172,18 @@ internal static partial class TranslationDirectionResolver
         new(
             requestedTargetLanguage,
             requestedTargetLanguage,
+            LanguageRelation.Unknown,
+            LanguageDetectionConfidence.None,
+            SourceLanguageFamily.Unknown,
+            reason);
+
+    private static TranslationDirectionDecision CreateManual(
+        string requestedTargetLanguage,
+        string effectiveTargetLanguage,
+        TranslationDirectionReason reason) =>
+        new(
+            requestedTargetLanguage,
+            effectiveTargetLanguage,
             LanguageRelation.Unknown,
             LanguageDetectionConfidence.None,
             SourceLanguageFamily.Unknown,

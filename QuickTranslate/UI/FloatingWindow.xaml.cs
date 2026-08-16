@@ -58,6 +58,7 @@ public partial class FloatingWindow : Window
     private const int ResizeBorderPhysical = 8;
     private string _rawText = string.Empty;
     private ModeResultStatus _modeStatus = ModeResultStatus.NotStarted;
+    private ModeResultQuality _modeQuality = ModeResultQuality.Unassessed;
     private TtsPlaybackCoordinator? _tts;
     private bool _ttsEnabled = true;
     private string _ttsVoice = string.Empty;
@@ -72,6 +73,10 @@ public partial class FloatingWindow : Window
     private StatusMessageEntry? _persistentStatus;
     private StatusMessageEntry? _transientStatus;
     private Action? _statusAction;
+    private string? _translationEffectiveTargetLanguage;
+    private string? _translationAlternateTargetLanguage;
+    private bool _translationDirectionIsManual;
+    private bool _translationDirectionEnabled;
     private Storyboard? _statusScrollStoryboard;
     private bool _returnButtonSuppressesAutoHide;
     private FloatingWindowAnchor _anchor;
@@ -118,6 +123,7 @@ public partial class FloatingWindow : Window
     public event Action<Guid, string>? AnalysisDraftChanged;
     internal event Action<string>? ModelProfileSelected;
     internal event Action? ModelSettingsRequested;
+    internal event Action? TranslationDirectionToggleRequested;
 
     internal bool IsTtsBusy => _isTtsBusy;
     internal int AnalysisTurnViewCount => AnalysisTurnsPanel.Children.Count;
@@ -333,6 +339,7 @@ public partial class FloatingWindow : Window
         _activeMode = mode;
         ApplyConversationFontSize(mode);
         _modeStatus = state.Status;
+        _modeQuality = state.Quality;
         SetActiveModeButton(mode);
         _rawText = state.RawText;
         _analysisConversation = mode == ContentType.Analysis
@@ -401,6 +408,19 @@ public partial class FloatingWindow : Window
         ModelProfile? currentProfile,
         bool enabled) =>
         ModelSelector.SetProfiles(profiles, currentProfile, enabled);
+
+    internal void SetTranslationDirectionState(
+        string? effectiveTargetLanguage,
+        string? alternateTargetLanguage,
+        bool isManual,
+        bool enabled)
+    {
+        _translationEffectiveTargetLanguage = effectiveTargetLanguage;
+        _translationAlternateTargetLanguage = alternateTargetLanguage;
+        _translationDirectionIsManual = isManual;
+        _translationDirectionEnabled = enabled;
+        RenderStatusBar();
+    }
 
     public void ResetPin()
     {
@@ -1358,6 +1378,11 @@ public partial class FloatingWindow : Window
         _sessionId = Guid.Empty;
         _activeMode = ContentType.Translation;
         _modeStatus = ModeResultStatus.NotStarted;
+        _modeQuality = ModeResultQuality.Unassessed;
+        _translationEffectiveTargetLanguage = null;
+        _translationAlternateTargetLanguage = null;
+        _translationDirectionIsManual = false;
+        _translationDirectionEnabled = false;
         _autoScroll.BeginRequest();
         SetLoading(false);
         UpdateAutoScrollAffordance();
@@ -1544,6 +1569,9 @@ public partial class FloatingWindow : Window
         action?.Invoke();
         ResetAutoHideTimer();
     }
+
+    private void RequestTranslationDirectionToggle() =>
+        TranslationDirectionToggleRequested?.Invoke();
 
     private void ResumeAutoScrollFromStatus()
     {
@@ -1781,15 +1809,33 @@ public partial class FloatingWindow : Window
         StatusMessageText.Foreground = new SolidColorBrush(fg);
         StatusMessageText.Text = entry.Message;
 
-        if (!string.IsNullOrWhiteSpace(entry.ActionText) && entry.Action is not null)
+        var actionText = entry.ActionText;
+        var action = entry.Action;
+        string? actionToolTip = null;
+        string? actionAutomationName = null;
+        if (string.IsNullOrWhiteSpace(actionText) &&
+            action is null &&
+            CanShowTranslationDirectionAction())
         {
-            StatusMessageActionButton.Content = entry.ActionText;
+            actionText = FormatTranslationDirectionActionText(_translationAlternateTargetLanguage!);
+            action = RequestTranslationDirectionToggle;
+            actionToolTip = $"使用当前模型将本段翻译为 {_translationAlternateTargetLanguage}";
+            actionAutomationName = $"将当前文本翻译为 {_translationAlternateTargetLanguage}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(actionText) && action is not null)
+        {
+            StatusMessageActionButton.Content = actionText;
+            StatusMessageActionButton.ToolTip = actionToolTip;
+            AutomationProperties.SetName(StatusMessageActionButton, actionAutomationName ?? actionText);
             StatusMessageActionButton.Visibility = Visibility.Visible;
-            _statusAction = entry.Action;
+            _statusAction = action;
         }
         else
         {
             StatusMessageActionButton.Content = string.Empty;
+            StatusMessageActionButton.ToolTip = null;
+            AutomationProperties.SetName(StatusMessageActionButton, string.Empty);
             StatusMessageActionButton.Visibility = Visibility.Collapsed;
             _statusAction = null;
         }
@@ -1798,9 +1844,24 @@ public partial class FloatingWindow : Window
         RestartStatusScroll();
     }
 
+    private bool CanShowTranslationDirectionAction() =>
+        _translationDirectionEnabled &&
+        _activeMode == ContentType.Translation &&
+        !string.IsNullOrWhiteSpace(_translationAlternateTargetLanguage);
+
+    private static string FormatTranslationDirectionActionText(string language) =>
+        language is "简体中文" or "繁体中文"
+            ? $"译为{language}"
+            : $"译为 {language}";
+
     private StatusMessageEntry DefaultStatusEntry() => _modeStatus switch
     {
+        ModeResultStatus.Loading when _translationDirectionIsManual &&
+            !string.IsNullOrWhiteSpace(_translationEffectiveTargetLanguage) =>
+            new("generation", $"正在译为 {_translationEffectiveTargetLanguage}", FloatingStatusKind.Info, null, null),
         ModeResultStatus.Loading => new("generation", "正在生成", FloatingStatusKind.Info, null, null),
+        ModeResultStatus.Completed when _modeQuality == ModeResultQuality.EchoWarning =>
+            new("echo-warning", "结果与原文高度一致", FloatingStatusKind.Warning, null, null),
         ModeResultStatus.Completed => new("completed", "已完成", FloatingStatusKind.Success, null, null),
         ModeResultStatus.Cancelled => new("cancelled", "已停止，可重试或换模型", FloatingStatusKind.Warning, null, null),
         ModeResultStatus.Failed => new("failed", "生成失败，可重试", FloatingStatusKind.Error, null, null),

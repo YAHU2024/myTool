@@ -26,6 +26,13 @@ public enum SourceLanguageFamily
     Thai
 }
 
+public enum TranslationDirectionPreference
+{
+    Auto,
+    RequestedTarget,
+    FallbackTarget
+}
+
 public enum TranslationDirectionReason
 {
     AutoDetectionDisabled,
@@ -33,7 +40,9 @@ public enum TranslationDirectionReason
     SourceMatchesRequestedTarget,
     SourceDiffersFromRequestedTarget,
     SourceLanguageUnknown,
-    TargetLanguageUnsupported
+    TargetLanguageUnsupported,
+    UserSelectedTarget,
+    UserSelectedFallback
 }
 
 public sealed record TranslationDirectionDecision(

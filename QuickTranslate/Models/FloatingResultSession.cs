@@ -119,6 +119,8 @@ internal sealed class FloatingResultSession
     public ContentType ActiveMode { get; private set; }
     public DetectionResult? Detection { get; }
     public TranslationRequestContext RequestContext { get; }
+    public TranslationDirectionPreference TranslationDirectionPreference { get; private set; } =
+        TranslationDirectionPreference.Auto;
     public IReadOnlyDictionary<ContentType, ModeResultState> ModeStates => _readOnlyModeStates;
     public AnalysisConversationState AnalysisConversation => _analysisConversation;
 
@@ -127,6 +129,9 @@ internal sealed class FloatingResultSession
     internal void SetActiveMode(ContentType mode) => ActiveMode = mode;
 
     internal void SetModeState(ContentType mode, ModeResultState state) => _modeStates[mode] = state;
+
+    internal void SetTranslationDirectionPreference(TranslationDirectionPreference preference) =>
+        TranslationDirectionPreference = preference;
 
     internal void SetAnalysisConversation(AnalysisConversationState state) => _analysisConversation = state;
 }

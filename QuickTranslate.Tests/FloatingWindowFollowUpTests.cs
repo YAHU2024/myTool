@@ -654,6 +654,102 @@ public sealed class FloatingWindowFollowUpTests
     }
 
     [SkippableFact]
+    public void TranslationDirectionAction_RemainsAvailableAndRaisesToggleIntent()
+    {
+        RunOnSta(window =>
+        {
+            var toggleCount = 0;
+            window.TranslationDirectionToggleRequested += () => toggleCount++;
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Translation,
+                Completed("result"));
+            window.SetTranslationDirectionState(
+                "简体中文",
+                "English",
+                isManual: false,
+                enabled: true);
+
+            Assert.Equal(Visibility.Visible, window.StatusMessageActionButton.Visibility);
+            Assert.Equal("译为 English", window.StatusMessageActionButton.Content);
+            Assert.Equal(22d, window.StatusMessageActionButton.Height);
+            Assert.Equal(new Thickness(6, 0, 6, 0), window.StatusMessageActionButton.Padding);
+            Assert.Equal(VerticalAlignment.Center, window.StatusMessageActionButton.VerticalAlignment);
+            Assert.Equal(
+                "使用当前模型将本段翻译为 English",
+                window.StatusMessageActionButton.ToolTip);
+            Assert.Equal(
+                "将当前文本翻译为 English",
+                AutomationProperties.GetName(window.StatusMessageActionButton));
+
+            window.ShowSelectionCaptureFeedback("临时提示");
+            Assert.Equal("临时提示", window.StatusMessageText.Text);
+            Assert.Equal(Visibility.Visible, window.StatusMessageActionButton.Visibility);
+            window.StatusMessageActionButton.RaiseEvent(
+                new RoutedEventArgs(Button.ClickEvent, window.StatusMessageActionButton));
+            Assert.Equal(1, toggleCount);
+
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Code,
+                Completed("code result"));
+            window.SetTranslationDirectionState(
+                "简体中文",
+                "English",
+                isManual: false,
+                enabled: true);
+            Assert.Equal(Visibility.Collapsed, window.StatusMessageActionButton.Visibility);
+        });
+    }
+
+    [SkippableFact]
+    public void ManualTranslationDirection_UsesTargetedLoadingStatus()
+    {
+        RunOnSta(window =>
+        {
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Translation,
+                Completed(string.Empty) with
+                {
+                    Status = ModeResultStatus.Loading,
+                    Quality = ModeResultQuality.Unassessed
+                });
+            window.SetTranslationDirectionState(
+                "English",
+                "简体中文",
+                isManual: true,
+                enabled: true);
+
+            Assert.Equal("正在译为 English", window.StatusMessageText.Text);
+            Assert.Equal("译为简体中文", window.StatusMessageActionButton.Content);
+        });
+    }
+
+    [SkippableFact]
+    public void EchoWarning_UsesExplicitStatusAndKeepsDirectionAction()
+    {
+        RunOnSta(window =>
+        {
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Translation,
+                Completed("echo") with { Quality = ModeResultQuality.EchoWarning });
+            window.SetTranslationDirectionState(
+                "简体中文",
+                "English",
+                isManual: false,
+                enabled: true);
+
+            Assert.Equal("结果与原文高度一致", window.StatusMessageText.Text);
+            Assert.Equal(
+                FloatingStatusMessage.GetAccentColors(FloatingStatusKind.Warning).Indicator,
+                ((SolidColorBrush)window.StatusIndicator.Fill).Color);
+            Assert.Equal(Visibility.Visible, window.StatusMessageActionButton.Visibility);
+        });
+    }
+
+    [SkippableFact]
     public void LoadingState_ChangesRefreshButtonToStopAndBack()
     {
         RunOnSta(window =>

@@ -156,6 +156,49 @@ public sealed class ModelSelectionTests
         Assert.Equal("model-b", refreshed!.ModelName);
     }
 
+    [Fact]
+    public void Coordinator_ManualSemanticRequestSurvivesLaterModelSwitch()
+    {
+        var coordinator = new ModelSelectionCoordinator();
+        var sessionId = Guid.NewGuid();
+        var initial = CreateRequest("model-a", "https://a.example/v1", "key-a");
+        coordinator.BeginSession(
+            sessionId,
+            ContentType.Translation,
+            ModelProfileCatalog.CreateCurrent(initial),
+            initial);
+        var manual = initial with
+        {
+            Direction = new TranslationDirectionDecision(
+                "简体中文",
+                "English",
+                LanguageRelation.Unknown,
+                LanguageDetectionConfidence.None,
+                SourceLanguageFamily.Unknown,
+                TranslationDirectionReason.UserSelectedFallback),
+            SystemPrompt = "translate to English"
+        };
+
+        Assert.True(coordinator.TryApplyCurrentProfile(
+            sessionId,
+            ContentType.Translation,
+            manual,
+            out var applied));
+        Assert.Equal("model-a", applied!.ModelName);
+
+        var switched = coordinator.Select(
+            sessionId,
+            ContentType.Translation,
+            new ModelProfile(
+                "provider:b", "B", "model-b", "b.example", "https://b.example/v1", "key-b"),
+            requestIsRunning: false);
+
+        Assert.Equal("model-b", switched.Request!.ModelName);
+        Assert.Equal("English", switched.Request.EffectiveTargetLanguage);
+        Assert.Equal(TranslationDirectionReason.UserSelectedFallback, switched.Request.Direction.Reason);
+        Assert.Equal("translate to English", switched.Request.SystemPrompt);
+    }
+
     private static TranslationRequest CreateRequest(string model, string apiBaseUrl, string apiKey) => new(
         TranslationRequestKind.Translation,
         "source text",

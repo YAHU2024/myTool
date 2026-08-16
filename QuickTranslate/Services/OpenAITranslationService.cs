@@ -82,7 +82,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         string text,
         ContentType contentType,
         TranslationRequestKind kind,
-        TranslationRequestContext context)
+        TranslationRequestContext context,
+        TranslationDirectionPreference directionPreference = TranslationDirectionPreference.Auto)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(context);
@@ -101,7 +102,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 context.RequestedTargetLanguage,
                 context.FallbackLanguage,
                 context.AutoDetectLanguage,
-                contentType);
+                contentType,
+                directionPreference);
             prompt = BuildAnalysisPrompt(context.RequestedTargetLanguage, context);
         }
         else
@@ -111,7 +113,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 context.RequestedTargetLanguage,
                 context.FallbackLanguage,
                 context.AutoDetectLanguage,
-                contentType);
+                contentType,
+                directionPreference);
             prompt = TranslationPromptBuilder.Build(
                 contentType,
                 direction.EffectiveTargetLanguage,

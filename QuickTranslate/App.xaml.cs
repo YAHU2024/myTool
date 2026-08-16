@@ -179,6 +179,7 @@ public partial class App : Application
         _floatingWindow.AnalysisDraftChanged += OnAnalysisDraftChanged;
         _floatingWindow.ModelProfileSelected += OnModelProfileSelected;
         _floatingWindow.ModelSettingsRequested += OnModelSettingsRequested;
+        _floatingWindow.TranslationDirectionToggleRequested += OnTranslationDirectionToggleRequested;
 
         _ttsService = new EdgeTtsService();
         _ttsPlayback = new TtsPlaybackCoordinator(_ttsService);
@@ -742,6 +743,38 @@ public partial class App : Application
             decision.Request);
     }
 
+    private async void OnTranslationDirectionToggleRequested()
+    {
+        if (_floatingWindow is null ||
+            _resultSessions.CurrentSession is not { ActiveMode: ContentType.Translation } session)
+        {
+            return;
+        }
+
+        var currentDirection = ResolveTranslationDirection(session);
+        var requestWasRunning = session.ModeStates[ContentType.Translation].Status == ModeResultStatus.Loading;
+        var preference = string.Equals(
+            currentDirection.EffectiveTargetLanguage,
+            session.RequestContext.FallbackLanguage,
+            StringComparison.Ordinal)
+            ? TranslationDirectionPreference.RequestedTarget
+            : TranslationDirectionPreference.FallbackTarget;
+        var transition = _resultSessions.SwitchTranslationDirection(preference);
+        if (transition.Kind != FloatingResultSessionTransitionKind.StartedRequest)
+            return;
+
+        var nextDirection = ResolveTranslationDirection(session);
+        Logger.Info("App", "translation.direction_switched", new
+        {
+            from_target = currentDirection.EffectiveTargetLanguage,
+            to_target = nextDirection.EffectiveTargetLanguage,
+            request_running = requestWasRunning,
+            model = _modelSelection.CurrentProfile?.ModelName ?? "unknown",
+            provider = _modelSelection.CurrentProfile?.ProviderName ?? "unknown"
+        });
+        await ExecuteSessionTransitionAsync(transition, "切换翻译方向");
+    }
+
     private static void LogEchoDetection(
         string eventName,
         TranslationRequest request,
@@ -863,6 +896,7 @@ public partial class App : Application
                 transition.Session.ActiveMode,
                 state,
                 transition.Session.AnalysisConversation);
+            RefreshFloatingTranslationDirectionState();
             return;
         }
 
@@ -882,6 +916,7 @@ public partial class App : Application
             transition.Session.ActiveMode,
             transition.Session.ModeStates[transition.Session.ActiveMode],
             transition.Session.AnalysisConversation);
+        RefreshFloatingTranslationDirectionState();
         await ExecuteRequestAsync(
             identity.Mode,
             anchor,
@@ -894,20 +929,26 @@ public partial class App : Application
 
     private TranslationRequest CreateDisplayRequest(FloatingResultSession session, ContentType contentType)
     {
-        if (contentType == ContentType.Translation &&
-            _modelSelection.TryGetRequest(session.SessionId, contentType, out var existingRequest) &&
-            existingRequest is not null)
-        {
-            return existingRequest;
-        }
-
-        return _translationService!.CreateRequest(
+        var semanticRequest = _translationService!.CreateRequest(
             session.SourceText,
             contentType,
             contentType == ContentType.Analysis
                 ? TranslationRequestKind.Analysis
                 : TranslationRequestKind.Translation,
-            session.RequestContext);
+            session.RequestContext,
+            session.TranslationDirectionPreference);
+        if (contentType == ContentType.Translation &&
+            _modelSelection.TryApplyCurrentProfile(
+                session.SessionId,
+                contentType,
+                semanticRequest,
+                out var profiledRequest) &&
+            profiledRequest is not null)
+        {
+            return profiledRequest;
+        }
+
+        return semanticRequest;
     }
 
     private void EnsureModelSelection(FloatingResultSession session, TranslationRequest request)
@@ -952,6 +993,46 @@ public partial class App : Application
             enabled ? _modelSelection.CurrentProfile : null,
             enabled);
     }
+
+    private void RefreshFloatingTranslationDirectionState()
+    {
+        if (_floatingWindow is null || _resultSessions.CurrentSession is not { } session)
+            return;
+
+        if (session.ActiveMode != ContentType.Translation ||
+            string.IsNullOrWhiteSpace(session.RequestContext.RequestedTargetLanguage) ||
+            string.IsNullOrWhiteSpace(session.RequestContext.FallbackLanguage) ||
+            string.Equals(
+                session.RequestContext.RequestedTargetLanguage,
+                session.RequestContext.FallbackLanguage,
+                StringComparison.Ordinal))
+        {
+            _floatingWindow.SetTranslationDirectionState(null, null, false, enabled: false);
+            return;
+        }
+
+        var direction = ResolveTranslationDirection(session);
+        var alternateTargetLanguage = string.Equals(
+            direction.EffectiveTargetLanguage,
+            session.RequestContext.FallbackLanguage,
+            StringComparison.Ordinal)
+            ? session.RequestContext.RequestedTargetLanguage
+            : session.RequestContext.FallbackLanguage;
+        _floatingWindow.SetTranslationDirectionState(
+            direction.EffectiveTargetLanguage,
+            alternateTargetLanguage,
+            session.TranslationDirectionPreference != TranslationDirectionPreference.Auto,
+            enabled: true);
+    }
+
+    private static TranslationDirectionDecision ResolveTranslationDirection(FloatingResultSession session) =>
+        TranslationDirectionResolver.Resolve(
+            session.SourceText,
+            session.RequestContext.RequestedTargetLanguage,
+            session.RequestContext.FallbackLanguage,
+            session.RequestContext.AutoDetectLanguage,
+            ContentType.Translation,
+            session.TranslationDirectionPreference);
 
     private async Task ExecuteRequestAsync(
         ContentType contentType,
@@ -1352,6 +1433,7 @@ public partial class App : Application
             session.ActiveMode,
             session.ModeStates[session.ActiveMode],
             session.AnalysisConversation);
+        RefreshFloatingTranslationDirectionState();
         RefreshFloatingModelSelector();
         _trayIcon?.SetRestoreAvailable(
             session.ModeStates.Values.Any(state =>

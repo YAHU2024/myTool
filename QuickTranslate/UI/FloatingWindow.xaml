@@ -232,7 +232,7 @@
                                 </TextBlock.RenderTransform>
                             </TextBlock>
                         </Border>
-                        <Button x:Name="StatusMessageActionButton" Grid.Column="2" Margin="8,0,0,0" Padding="6,1" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#343644" Content="" Visibility="Collapsed" Click="StatusMessageActionButton_Click"/>
+                        <Button x:Name="StatusMessageActionButton" Grid.Column="2" Height="22" Margin="8,0,0,0" Padding="6,0" VerticalAlignment="Center" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#343644" Content="" Visibility="Collapsed" Click="StatusMessageActionButton_Click"/>
                     </Grid>
                     <ui:ModelSelectorControl x:Name="ModelSelector" Grid.Column="1"/>
                 </Grid>
