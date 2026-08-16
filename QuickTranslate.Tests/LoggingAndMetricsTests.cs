@@ -38,13 +38,18 @@ public sealed class LoggingAndMetricsTests
         var request = new TranslationRequest(
             TranslationRequestKind.Translation,
             secretText,
-            "English",
+            new TranslationDirectionDecision(
+                "简体中文",
+                "English",
+                LanguageRelation.Same,
+                LanguageDetectionConfidence.High,
+                SourceLanguageFamily.Han,
+                TranslationDirectionReason.SourceMatchesRequestedTarget),
             ContentType.Translation,
             "https://example.invalid/v1",
             "secret-api-key",
             "test-model",
-            secretPrompt,
-            FallbackUsed: true);
+            secretPrompt);
 
         var context = OpenAITranslationService.BuildPromptLogContext(
             request,
@@ -61,6 +66,8 @@ public sealed class LoggingAndMetricsTests
         Assert.Contains("prompt.selected", json, StringComparison.Ordinal);
         Assert.Contains("prompt_len", json, StringComparison.Ordinal);
         Assert.Contains("custom_translation_prompt", json, StringComparison.Ordinal);
+        Assert.Contains("effective_target_language", json, StringComparison.Ordinal);
+        Assert.Contains("direction_reason", json, StringComparison.Ordinal);
         Assert.DoesNotContain(secretText, json, StringComparison.Ordinal);
         Assert.DoesNotContain(secretPrompt, json, StringComparison.Ordinal);
         Assert.DoesNotContain("secret-api-key", json, StringComparison.Ordinal);
@@ -134,6 +141,25 @@ public sealed class LoggingAndMetricsTests
         Assert.Equal(39, snapshot.P95Milliseconds);
         Assert.Equal(39.8, snapshot.P99Milliseconds, precision: 1);
         Assert.Equal(0.2, snapshot.CacheHitRate);
+    }
+
+    [Fact]
+    public void TranslationMetrics_TracksEchoQualityGateWithoutUserContent()
+    {
+        var metrics = new TranslationMetrics();
+        metrics.RecordEchoSuspected();
+        metrics.RecordEchoConfirmed();
+        metrics.RecordModelSwitchRequested();
+        metrics.RecordModelSwitchCompleted();
+        metrics.RecordModelSwitchFailed();
+
+        var snapshot = metrics.GetSnapshot(cacheHits: 0, cacheMisses: 0);
+
+        Assert.Equal(1, snapshot.EchoSuspected);
+        Assert.Equal(1, snapshot.EchoConfirmed);
+        Assert.Equal(1, snapshot.ModelSwitchRequested);
+        Assert.Equal(1, snapshot.ModelSwitchCompleted);
+        Assert.Equal(1, snapshot.ModelSwitchFailed);
     }
 
     [Fact]

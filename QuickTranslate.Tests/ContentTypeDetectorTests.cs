@@ -66,6 +66,8 @@ public sealed class ContentTypeDetectorTests
         "go",
         "Hello\n这是普通问候语",
         "Introduction\n这是文章的正文内容",
+        "Windows is easy to use.",
+        "OpenAI released a new model.",
         "ratio: 3",
         "x < y"
     };
@@ -146,7 +148,8 @@ public sealed class ContentTypeDetectorTests
         var result = ContentTypeDetector.DetectDetailed(input);
 
         Assert.Equal(ContentType.Code, result.ContentType);
-        Assert.Equal(DetectionConfidence.Low, result.Confidence);
+        Assert.Equal(DetectionConfidence.High, result.Confidence);
+        Assert.Equal(DetectedContentKind.Command, result.Kind);
         Assert.True(result.Score >= result.Threshold);
         Assert.True(result.Threshold > 0);
         Assert.NotEmpty(result.MatchedFeatures);
@@ -167,12 +170,13 @@ public sealed class ContentTypeDetectorTests
     }
 
     [Fact]
-    public void DetectDetailed_ReturnsLowConfidence_ForOrdinaryTermRule()
+    public void DetectDetailed_ReturnsHighConfidence_ForKnownTechnicalTerm()
     {
         var result = ContentTypeDetector.DetectDetailed("Kubernetes");
 
         Assert.Equal(ContentType.Term, result.ContentType);
-        Assert.Equal(DetectionConfidence.Low, result.Confidence);
+        Assert.Equal(DetectionConfidence.High, result.Confidence);
+        Assert.Equal(DetectedContentKind.Term, result.Kind);
     }
 
     [Fact]

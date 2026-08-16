@@ -16,6 +16,13 @@ internal enum ModeResultStatus
     Cancelled
 }
 
+internal enum ModeResultQuality
+{
+    Unassessed,
+    Normal,
+    EchoWarning
+}
+
 /// <summary>
 /// Immutable, read-only view of a single mode's result state.
 /// Instances are replaced by <see cref="FloatingResultSessionCoordinator"/> on transitions.
@@ -26,7 +33,8 @@ internal sealed record ModeResultState(
     string? ErrorMessage,
     long? LastRequestId,
     double ScrollOffset,
-    bool AutoScrollEnabled)
+    bool AutoScrollEnabled,
+    ModeResultQuality Quality = ModeResultQuality.Unassessed)
 {
     internal static ModeResultState NotStarted() =>
         new(ModeResultStatus.NotStarted, string.Empty, null, null, 0, true);
@@ -88,7 +96,8 @@ internal sealed class FloatingResultSession
         string sourceText,
         FloatingWindowAnchor? anchor,
         ContentType activeMode,
-        DetectionResult? detection = null)
+        DetectionResult? detection = null,
+        TranslationRequestContext? requestContext = null)
     {
         if (string.IsNullOrWhiteSpace(sourceText))
             throw new ArgumentException("Source text is required.", nameof(sourceText));
@@ -98,6 +107,7 @@ internal sealed class FloatingResultSession
         Anchor = anchor;
         ActiveMode = activeMode;
         Detection = detection;
+        RequestContext = requestContext ?? TranslationRequestContext.CreateDefault();
         _modeStates = Enum.GetValues<ContentType>()
             .ToDictionary(mode => mode, _ => ModeResultState.NotStarted());
         _readOnlyModeStates = new ReadOnlyDictionary<ContentType, ModeResultState>(_modeStates);
@@ -108,6 +118,9 @@ internal sealed class FloatingResultSession
     public FloatingWindowAnchor? Anchor { get; }
     public ContentType ActiveMode { get; private set; }
     public DetectionResult? Detection { get; }
+    public TranslationRequestContext RequestContext { get; }
+    public TranslationDirectionPreference TranslationDirectionPreference { get; private set; } =
+        TranslationDirectionPreference.Auto;
     public IReadOnlyDictionary<ContentType, ModeResultState> ModeStates => _readOnlyModeStates;
     public AnalysisConversationState AnalysisConversation => _analysisConversation;
 
@@ -116,6 +129,9 @@ internal sealed class FloatingResultSession
     internal void SetActiveMode(ContentType mode) => ActiveMode = mode;
 
     internal void SetModeState(ContentType mode, ModeResultState state) => _modeStates[mode] = state;
+
+    internal void SetTranslationDirectionPreference(TranslationDirectionPreference preference) =>
+        TranslationDirectionPreference = preference;
 
     internal void SetAnalysisConversation(AnalysisConversationState state) => _analysisConversation = state;
 }

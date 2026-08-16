@@ -1,0 +1,217 @@
+<UserControl x:Class="QuickTranslate.UI.ModelSelectorControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Focusable="True"
+             Width="176"
+             MinWidth="116"
+             MaxWidth="176"
+             Height="30">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="SharedToolWindowStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="ModelMenuItemStyle" TargetType="ListBoxItem">
+                <Setter Property="MinHeight" Value="52"/>
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="IsEnabled" Value="{Binding IsComplete}"/>
+                <Setter Property="ToolTip" Value="{Binding ToolTip}"/>
+                <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ListBoxItem">
+                            <Border x:Name="ItemSurface"
+                                    Margin="4,1"
+                                    Background="{TemplateBinding Background}"
+                                    CornerRadius="4"
+                                    SnapsToDevicePixels="True">
+                                <ContentPresenter Margin="12,6,10,6" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                    <Setter TargetName="ItemSurface" Property="Background" Value="#333B4C"/>
+                                </DataTrigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="ItemSurface" Property="Background" Value="#31323F"/>
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="ItemSurface" Property="Background" Value="#394257"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.45"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid>
+        <Button x:Name="SelectorButton"
+                Padding="10,0,8,0"
+                Background="Transparent"
+                BorderBrush="#414250"
+                BorderThickness="1,0,0,0"
+                Foreground="#ECECF2"
+                ToolTipOpening="SelectorButton_ToolTipOpening"
+                Click="SelectorButton_Click"
+                AutomationProperties.Name="切换当前会话模型">
+            <Button.Template>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Surface"
+                            Padding="{TemplateBinding Padding}"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="0,0,4,0"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Surface" Property="Background" Value="#2D2E3A"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Surface" Property="Background" Value="#343645"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Surface" Property="BorderBrush" Value="#4B91FF"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Surface" Property="Opacity" Value="0.45"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Button.Template>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Border x:Name="NameViewport" Grid.Column="0" ClipToBounds="True" Margin="0,0,6,0">
+                    <TextBlock x:Name="ModelNameText"
+                               FontFamily="Microsoft YaHei UI"
+                               FontSize="11"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               TextWrapping="NoWrap">
+                        <TextBlock.RenderTransform>
+                            <TranslateTransform x:Name="ModelNameTransform"/>
+                        </TextBlock.RenderTransform>
+                    </TextBlock>
+                </Border>
+                <TextBlock Grid.Column="1" FontFamily="Segoe MDL2 Assets" FontSize="10" Foreground="#AAAAB7" Text="&#xE70D;" VerticalAlignment="Center"/>
+            </Grid>
+        </Button>
+
+        <Popup x:Name="SelectorPopup"
+               PlacementTarget="{Binding ElementName=SelectorButton}"
+               Placement="Top"
+               AllowsTransparency="True"
+               StaysOpen="False"
+               PopupAnimation="Fade"
+               Opened="SelectorPopup_Opened"
+               Closed="SelectorPopup_Closed">
+            <Grid x:Name="PopupContainer" Width="312">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="6"/>
+                </Grid.RowDefinitions>
+                <Border x:Name="PopupSurface"
+                        Grid.Row="0"
+                        Padding="2"
+                        Background="#292A37"
+                        BorderBrush="#4A4C5C"
+                        BorderThickness="1"
+                        CornerRadius="6">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="38"/>
+                        </Grid.RowDefinitions>
+                        <ListBox x:Name="ProfileList"
+                                 Grid.Row="0"
+                                 MaxHeight="312"
+                                 Padding="0,3"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 Foreground="#F2F2F6"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ItemContainerStyle="{StaticResource ModelMenuItemStyle}"
+                                 PreviewMouseLeftButtonDown="ProfileList_PreviewMouseLeftButtonDown"
+                                 PreviewMouseLeftButtonUp="ProfileList_PreviewMouseLeftButtonUp"
+                                 PreviewKeyDown="ProfileList_PreviewKeyDown">
+                            <ListBox.Resources>
+                                <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource Win11VerticalScrollBar}">
+                                    <Setter Property="Opacity" Value="1"/>
+                                </Style>
+                            </ListBox.Resources>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="24"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0" Width="3" Margin="0,1" CornerRadius="2" Background="#4B91FF" Visibility="{Binding CurrentVisibility}"/>
+                                        <StackPanel Grid.Column="1" Margin="10,0,6,0">
+                                            <TextBlock Text="{Binding Title}" FontFamily="Microsoft YaHei UI" FontSize="12" FontWeight="SemiBold" Foreground="#F2F2F6" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                            <TextBlock Text="{Binding Detail}" Margin="0,2,0,0" FontFamily="Microsoft YaHei UI" FontSize="10" Foreground="#A8A9B8" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2" FontFamily="Segoe MDL2 Assets" FontSize="13" Foreground="#71A8FF" Text="&#xE73E;" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding CurrentVisibility}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <Border Grid.Row="1" Margin="4,2,4,0" BorderBrush="#484A59" BorderThickness="0,1,0,0">
+                            <Button x:Name="ManageModelsButton"
+                                    Padding="10,0"
+                                    HorizontalContentAlignment="Left"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Foreground="#D8D8E2"
+                                    Click="ManageModelsButton_Click">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="ManageSurface" Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" CornerRadius="4">
+                                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ManageSurface" Property="Background" Value="#31323F"/></Trigger>
+                                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="ManageSurface" Property="Background" Value="#31323F"/></Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="13" Foreground="#AEB0BF" Text="&#xE713;" VerticalAlignment="Center"/>
+                                    <TextBlock Margin="9,0,0,0" FontFamily="Microsoft YaHei UI" FontSize="11" Text="管理模型配置..." VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </Border>
+                    </Grid>
+                </Border>
+                <Path x:Name="PopupAnchor"
+                      Grid.Row="1"
+                      Width="12"
+                      Height="6"
+                      Margin="0,-1,82,0"
+                      HorizontalAlignment="Right"
+                      VerticalAlignment="Top"
+                      Stretch="Fill"
+                      Fill="#292A37"
+                      Stroke="#4A4C5C"
+                      StrokeThickness="1"
+                      Data="M 0,0 L 12,0 L 6,6 Z"
+                      IsHitTestVisible="False"/>
+            </Grid>
+        </Popup>
+    </Grid>
+</UserControl>

@@ -6,6 +6,11 @@ public sealed record TranslationMetricsSnapshot(
     long Failed,
     long Cancelled,
     long Expired,
+    long EchoSuspected,
+    long EchoConfirmed,
+    long ModelSwitchRequested,
+    long ModelSwitchCompleted,
+    long ModelSwitchFailed,
     long CacheHits,
     double CacheHitRate,
     double AverageMilliseconds,
@@ -26,6 +31,11 @@ public sealed class TranslationMetrics
     private long _failed;
     private long _cancelled;
     private long _expired;
+    private long _echoSuspected;
+    private long _echoConfirmed;
+    private long _modelSwitchRequested;
+    private long _modelSwitchCompleted;
+    private long _modelSwitchFailed;
     private long _cacheHits;
     private long _cacheLookups;
 
@@ -58,6 +68,11 @@ public sealed class TranslationMetrics
     public void RecordFailed() { lock (_sync) { ResetIfDateChanged(); _failed++; } }
     public void RecordCancelled() { lock (_sync) { ResetIfDateChanged(); _cancelled++; } }
     public void RecordExpired() { lock (_sync) { ResetIfDateChanged(); _expired++; } }
+    public void RecordEchoSuspected() { lock (_sync) { ResetIfDateChanged(); _echoSuspected++; } }
+    public void RecordEchoConfirmed() { lock (_sync) { ResetIfDateChanged(); _echoConfirmed++; } }
+    public void RecordModelSwitchRequested() { lock (_sync) { ResetIfDateChanged(); _modelSwitchRequested++; } }
+    public void RecordModelSwitchCompleted() { lock (_sync) { ResetIfDateChanged(); _modelSwitchCompleted++; } }
+    public void RecordModelSwitchFailed() { lock (_sync) { ResetIfDateChanged(); _modelSwitchFailed++; } }
 
     public TranslationMetricsSnapshot GetSnapshot(long cacheHits, long cacheMisses)
     {
@@ -71,6 +86,11 @@ public sealed class TranslationMetrics
                 _failed,
                 _cancelled,
                 _expired,
+                _echoSuspected,
+                _echoConfirmed,
+                _modelSwitchRequested,
+                _modelSwitchCompleted,
+                _modelSwitchFailed,
                 cacheHits,
                 cacheHits + cacheMisses == 0 ? 0 : (double)cacheHits / (cacheHits + cacheMisses),
                 values.Length == 0 ? 0 : values.Average(),
@@ -89,6 +109,11 @@ public sealed class TranslationMetrics
         _failed = 0;
         _cancelled = 0;
         _expired = 0;
+        _echoSuspected = 0;
+        _echoConfirmed = 0;
+        _modelSwitchRequested = 0;
+        _modelSwitchCompleted = 0;
+        _modelSwitchFailed = 0;
         _cacheHits = 0;
         _cacheLookups = 0;
         _durations.Clear();

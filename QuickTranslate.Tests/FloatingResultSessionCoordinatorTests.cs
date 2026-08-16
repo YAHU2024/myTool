@@ -100,6 +100,70 @@ public sealed class FloatingResultSessionCoordinatorTests
     }
 
     [Fact]
+    public void EchoWarning_PreservesResultAndEndsActiveRequest()
+    {
+        var coordinator = new FloatingResultSessionCoordinator();
+        var transition = coordinator.StartSession("source", ContentType.Translation);
+        var identity = Assert.IsType<FloatingResultRequestIdentity>(transition.RequestIdentity);
+        Assert.True(coordinator.TryUpdateStreaming(identity, "source source source"));
+
+        Assert.True(coordinator.TryCompleteWithEchoWarning(identity, "source source source"));
+
+        var state = Assert.IsType<FloatingResultSession>(transition.Session)
+            .ModeStates[ContentType.Translation];
+        Assert.Equal(ModeResultStatus.Completed, state.Status);
+        Assert.Equal("source source source", state.RawText);
+        Assert.Null(state.ErrorMessage);
+        Assert.Equal(ModeResultQuality.EchoWarning, state.Quality);
+        Assert.Null(coordinator.ActiveOperation);
+        Assert.False(coordinator.TryGetCompletedMode(ContentType.Translation, out _));
+    }
+
+    [Fact]
+    public void CancelActiveRequest_PreservesPartialResult()
+    {
+        var coordinator = new FloatingResultSessionCoordinator();
+        var transition = coordinator.StartSession("source", ContentType.Translation);
+        var identity = Assert.IsType<FloatingResultRequestIdentity>(transition.RequestIdentity);
+        Assert.True(coordinator.TryUpdateStreaming(identity, "partial result"));
+
+        coordinator.CancelActiveRequest();
+
+        var state = Assert.IsType<FloatingResultSession>(transition.Session)
+            .ModeStates[ContentType.Translation];
+        Assert.Equal(ModeResultStatus.Cancelled, state.Status);
+        Assert.Equal("partial result", state.RawText);
+        Assert.Equal(ModeResultQuality.Unassessed, state.Quality);
+        Assert.Null(coordinator.ActiveOperation);
+    }
+
+    [Fact]
+    public void SwitchMode_AfterRecoveryStartsFreshTranslationWhenUserReturns()
+    {
+        var coordinator = new FloatingResultSessionCoordinator();
+        var translation = coordinator.StartSession("source", ContentType.Translation);
+        var echoedIdentity = Assert.IsType<FloatingResultRequestIdentity>(translation.RequestIdentity);
+        Assert.True(coordinator.TryUpdateStreaming(echoedIdentity, "streamed source echo"));
+        Assert.True(coordinator.TryCompleteWithEchoWarning(echoedIdentity, "streamed source echo"));
+
+        var code = coordinator.SwitchMode(ContentType.Code);
+        var codeIdentity = Assert.IsType<FloatingResultRequestIdentity>(code.RequestIdentity);
+        Assert.True(coordinator.TryComplete(codeIdentity, "code result"));
+
+        var returned = coordinator.SwitchMode(ContentType.Translation);
+        var freshIdentity = Assert.IsType<FloatingResultRequestIdentity>(returned.RequestIdentity);
+        var state = Assert.IsType<FloatingResultSession>(returned.Session)
+            .ModeStates[ContentType.Translation];
+
+        Assert.Equal(FloatingResultSessionTransitionKind.StartedRequest, returned.Kind);
+        Assert.Equal(ModeResultStatus.Loading, state.Status);
+        Assert.Empty(state.RawText);
+        Assert.Null(state.ErrorMessage);
+        Assert.True(freshIdentity.RequestId > echoedIdentity.RequestId);
+        Assert.False(coordinator.TryComplete(echoedIdentity, "stale echo"));
+    }
+
+    [Fact]
     public void NewSessionAndDismiss_RejectCallbacksFromEarlierSessions()
     {
         var coordinator = new FloatingResultSessionCoordinator();
@@ -112,5 +176,82 @@ public sealed class FloatingResultSessionCoordinatorTests
         coordinator.DismissSession();
         Assert.False(coordinator.TryComplete(secondIdentity, "stale"));
         Assert.Null(coordinator.CurrentSession);
+    }
+
+    [Fact]
+    public void SessionRequestContext_IsPreservedAcrossRefreshAndModeSwitch()
+    {
+        var coordinator = new FloatingResultSessionCoordinator();
+        var context = TranslationRequestContext.CreateDefault("简体中文") with
+        {
+            ModelName = "session-model",
+            AutoDetectLanguage = true
+        };
+
+        var initial = coordinator.StartSession(
+            "source",
+            anchor: null,
+            ContentType.Translation,
+            detection: null,
+            context);
+        Assert.Same(context, initial.Session!.RequestContext);
+
+        var code = coordinator.SwitchMode(ContentType.Code);
+        Assert.Same(context, code.Session!.RequestContext);
+
+        var refresh = coordinator.RefreshMode();
+        Assert.Same(context, refresh.Session!.RequestContext);
+    }
+
+    [Fact]
+    public void TranslationDirectionPreference_PersistsWithinSessionAndResetsForNewSession()
+    {
+        var coordinator = new FloatingResultSessionCoordinator();
+        var initial = coordinator.StartSession("source", ContentType.Translation);
+        Assert.Equal(TranslationDirectionPreference.Auto, initial.Session!.TranslationDirectionPreference);
+
+        var switched = coordinator.SwitchTranslationDirection(TranslationDirectionPreference.FallbackTarget);
+        Assert.Equal(
+            TranslationDirectionPreference.FallbackTarget,
+            switched.Session!.TranslationDirectionPreference);
+
+        var code = coordinator.SwitchMode(ContentType.Code);
+        Assert.Equal(
+            TranslationDirectionPreference.FallbackTarget,
+            code.Session!.TranslationDirectionPreference);
+        var codeIdentity = Assert.IsType<FloatingResultRequestIdentity>(code.RequestIdentity);
+        Assert.True(coordinator.TryComplete(codeIdentity, "code result"));
+
+        var translation = coordinator.SwitchMode(ContentType.Translation);
+        Assert.Equal(
+            TranslationDirectionPreference.FallbackTarget,
+            translation.Session!.TranslationDirectionPreference);
+        coordinator.RefreshMode();
+        Assert.Equal(
+            TranslationDirectionPreference.FallbackTarget,
+            coordinator.CurrentSession!.TranslationDirectionPreference);
+
+        var nextSession = coordinator.StartSession("next source", ContentType.Translation);
+        Assert.Equal(TranslationDirectionPreference.Auto, nextSession.Session!.TranslationDirectionPreference);
+    }
+
+    [Fact]
+    public void SwitchTranslationDirection_CancelsCurrentRequestAndRejectsStaleCallbacks()
+    {
+        var coordinator = new FloatingResultSessionCoordinator();
+        var initial = coordinator.StartSession("source", ContentType.Translation);
+        var initialIdentity = Assert.IsType<FloatingResultRequestIdentity>(initial.RequestIdentity);
+        Assert.True(coordinator.TryUpdateStreaming(initialIdentity, "partial"));
+
+        var switched = coordinator.SwitchTranslationDirection(TranslationDirectionPreference.FallbackTarget);
+        var switchedIdentity = Assert.IsType<FloatingResultRequestIdentity>(switched.RequestIdentity);
+        var state = switched.Session!.ModeStates[ContentType.Translation];
+
+        Assert.Equal(FloatingResultSessionTransitionKind.StartedRequest, switched.Kind);
+        Assert.Equal(ModeResultStatus.Loading, state.Status);
+        Assert.Empty(state.RawText);
+        Assert.True(switchedIdentity.RequestId > initialIdentity.RequestId);
+        Assert.False(coordinator.TryComplete(initialIdentity, "stale"));
+        Assert.True(coordinator.TryComplete(switchedIdentity, "fresh"));
     }
 }

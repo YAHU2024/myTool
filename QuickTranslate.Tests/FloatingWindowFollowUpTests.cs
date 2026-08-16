@@ -451,6 +451,196 @@ public sealed class FloatingWindowFollowUpTests
     }
 
     [SkippableFact]
+    public void FooterStaysVisibleAndAutoScrollUsesFloatingAffordance()
+    {
+        RunOnSta(window =>
+        {
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Translation,
+                Completed("result") with { AutoScrollEnabled = false });
+
+            Assert.Equal(Visibility.Visible, window.StatusMessageBar.Visibility);
+            Assert.Equal("已完成", window.StatusMessageText.Text);
+            Assert.Equal(Visibility.Collapsed, window.StatusMessageActionButton.Visibility);
+            Assert.Equal(Color.FromRgb(0x20, 0x21, 0x2B), ((SolidColorBrush)window.StatusMessageBar.Background).Color);
+            Assert.Equal(
+                FloatingStatusMessage.GetAccentColors(FloatingStatusKind.Success).Indicator,
+                ((SolidColorBrush)window.StatusIndicator.Fill).Color);
+            Assert.Equal(0d, window.ConversationContentPanel.Margin.Bottom);
+            Assert.True(FloatingWindow.ShouldShowReturnToLatest(
+                autoScrollEnabled: false,
+                scrollableHeight: 1,
+                currentBottomReserve: 0));
+            Assert.False(FloatingWindow.ShouldShowReturnToLatest(
+                autoScrollEnabled: true,
+                scrollableHeight: 1,
+                currentBottomReserve: 0));
+            Assert.False(FloatingWindow.ShouldShowReturnToLatest(
+                autoScrollEnabled: false,
+                scrollableHeight: 0.5,
+                currentBottomReserve: 0));
+            Assert.False(FloatingWindow.ShouldShowReturnToLatest(
+                autoScrollEnabled: false,
+                scrollableHeight: 40,
+                currentBottomReserve: 40));
+            Assert.True(FloatingWindow.ShouldShowReturnToLatest(
+                autoScrollEnabled: false,
+                scrollableHeight: 41,
+                currentBottomReserve: 40));
+        });
+    }
+
+    [SkippableFact]
+    public void ReturnToLatestReserve_IsRemovedWhenReplacementContentFitsViewport()
+    {
+        RunOnSta(window =>
+        {
+            window.SizeToContent = SizeToContent.Manual;
+            window.Height = 220;
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Translation,
+                Completed(string.Join("\n", Enumerable.Repeat("long result line", 80))) with
+                {
+                    AutoScrollEnabled = false
+                });
+            window.Show();
+            window.UpdateLayout();
+            PumpDispatcher();
+
+            Assert.Equal(Visibility.Visible, window.ReturnToLatestButton.Visibility);
+            Assert.Equal(40d, window.ConversationContentPanel.Margin.Bottom);
+
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Translation,
+                Completed("short result") with { AutoScrollEnabled = false });
+            window.UpdateLayout();
+            PumpDispatcher();
+
+            Assert.Equal(Visibility.Collapsed, window.ReturnToLatestButton.Visibility);
+            Assert.Equal(0d, window.ConversationContentPanel.Margin.Bottom);
+        });
+    }
+
+    [SkippableFact]
+    public void ModelSelector_UsesCompactCurrentNameAndConstrainedPopup()
+    {
+        RunOnSta(window =>
+        {
+            var profile = new ModelProfile(
+                "provider:qwen",
+                string.Empty,
+                "Qwen/Qwen3-8B",
+                "硅基流动",
+                "https://api.siliconflow.cn/v1",
+                "key");
+
+            window.SetModelProfiles([profile], profile, enabled: true);
+
+            Assert.Equal(176d, window.ModelSelector.Width);
+            Assert.Equal(176d, window.ModelSelector.MaxWidth);
+            Assert.Equal("Qwen3-8B", window.ModelSelector.ModelNameText.Text);
+            Assert.Equal(312d, window.ModelSelector.PopupContainer.Width);
+            Assert.Equal(312d, window.ModelSelector.ProfileList.MaxHeight);
+
+            window.Show();
+            window.ModelSelector.SelectorButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpDispatcher();
+
+            Assert.True(window.ModelSelector.SelectorPopup.IsOpen);
+            Assert.Same(window.ModelSelector.SelectorButton, window.ModelSelector.SelectorPopup.PlacementTarget);
+            Assert.Equal(PlacementMode.Top, window.ModelSelector.SelectorPopup.Placement);
+            Assert.Equal(0d, window.ModelSelector.SelectorPopup.HorizontalOffset);
+            Assert.Equal(82d, window.ModelSelector.PopupAnchor.Margin.Right);
+            var modelListScrollBarStyle = Assert.IsType<Style>(
+                window.ModelSelector.ProfileList.Resources[typeof(ScrollBar)]);
+            var baseScrollBarStyle = Assert.IsType<Style>(window.ModelSelector.FindResource("Win11VerticalScrollBar"));
+            Assert.Same(baseScrollBarStyle, modelListScrollBarStyle.BasedOn);
+            Assert.Equal(
+                4d,
+                Assert.Single(
+                    baseScrollBarStyle.Setters.OfType<Setter>(),
+                    setter => setter.Property == FrameworkElement.WidthProperty).Value);
+            Assert.Equal(
+                4d,
+                Assert.Single(
+                    baseScrollBarStyle.Setters.OfType<Setter>(),
+                    setter => setter.Property == FrameworkElement.MinWidthProperty).Value);
+            Assert.Equal(
+                1d,
+                Assert.Single(
+                    modelListScrollBarStyle.Setters.OfType<Setter>(),
+                    setter => setter.Property == UIElement.OpacityProperty).Value);
+            Assert.Single(window.ModelSelector.ProfileList.Items);
+
+            window.SetModelProfiles([], null, enabled: false);
+
+            Assert.False(window.ModelSelector.SelectorPopup.IsOpen);
+            Assert.Equal(Visibility.Collapsed, window.ModelSelector.Visibility);
+        });
+    }
+
+    [SkippableFact]
+    public void ModelSelector_FirstClickOnLastVisibleProfile_SelectsWithoutMouseDownScroll()
+    {
+        RunOnSta(window =>
+        {
+            var profiles = Enumerable.Range(1, 7)
+                .Select(index => new ModelProfile(
+                    $"profile:{index}",
+                    string.Empty,
+                    $"model-{index}",
+                    "provider",
+                    "https://example.com/v1",
+                    "key"))
+                .ToArray();
+            string? selectedProfileId = null;
+            var selectionCount = 0;
+            window.ModelProfileSelected += profileId =>
+            {
+                selectedProfileId = profileId;
+                selectionCount++;
+            };
+            window.SetModelProfiles(profiles, profiles[0], enabled: true);
+            window.Show();
+            window.ModelSelector.SelectorButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpDispatcher();
+
+            var lastEntry = window.ModelSelector.ProfileList.Items[^1];
+            window.ModelSelector.ProfileList.ScrollIntoView(lastEntry);
+            window.ModelSelector.ProfileList.UpdateLayout();
+            var lastItem = Assert.IsType<ListBoxItem>(
+                window.ModelSelector.ProfileList.ItemContainerGenerator.ContainerFromItem(lastEntry));
+            var selectedBeforeMouseDown = window.ModelSelector.ProfileList.SelectedItem;
+
+            var mouseDown = new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            {
+                RoutedEvent = Mouse.PreviewMouseDownEvent,
+                Source = lastItem
+            };
+            lastItem.RaiseEvent(mouseDown);
+
+            Assert.True(mouseDown.Handled);
+            Assert.Same(selectedBeforeMouseDown, window.ModelSelector.ProfileList.SelectedItem);
+            Assert.True(window.ModelSelector.SelectorPopup.IsOpen);
+
+            var mouseUp = new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            {
+                RoutedEvent = Mouse.PreviewMouseUpEvent,
+                Source = lastItem
+            };
+            lastItem.RaiseEvent(mouseUp);
+
+            Assert.True(mouseUp.Handled);
+            Assert.False(window.ModelSelector.SelectorPopup.IsOpen);
+            Assert.Equal(profiles[^1].Id, selectedProfileId);
+            Assert.Equal(1, selectionCount);
+        });
+    }
+
+    [SkippableFact]
     public void CompletedFollowUp_RestoresFocusToInput()
     {
         RunOnSta(window =>
@@ -489,6 +679,165 @@ public sealed class FloatingWindowFollowUpTests
             PumpDispatcher();
 
             Assert.True(window.FollowUpTextBox.IsKeyboardFocused);
+        });
+    }
+
+    [SkippableFact]
+    public void CancelledTranslation_PreservesStreamingMarkdownPreview()
+    {
+        RunOnSta(window =>
+        {
+            var sessionId = Guid.NewGuid();
+            var presentationId = window.BeginReplacement();
+            var partial = "# Heading\n\npartial **bold**";
+            window.SetSessionView(
+                sessionId,
+                ContentType.Translation,
+                new ModeResultState(ModeResultStatus.Loading, string.Empty, null, 1, 0, true));
+            window.UpdateTranslation(presentationId, partial);
+
+            window.SetSessionView(
+                sessionId,
+                ContentType.Translation,
+                new ModeResultState(ModeResultStatus.Cancelled, partial, null, 1, 0, true));
+
+            Assert.Equal(Visibility.Visible, window.StreamingMarkdownHost.Visibility);
+            Assert.Equal(Visibility.Collapsed, window.TranslationTextBlock.Visibility);
+            Assert.Equal("已停止，可重试或换模型", window.StatusMessageText.Text);
+            Assert.Equal(Color.FromRgb(0x20, 0x21, 0x2B), ((SolidColorBrush)window.StatusMessageBar.Background).Color);
+            Assert.Equal(
+                FloatingStatusMessage.GetAccentColors(FloatingStatusKind.Warning).Indicator,
+                ((SolidColorBrush)window.StatusIndicator.Fill).Color);
+        });
+    }
+
+    [SkippableFact]
+    public void TranslationDirectionAction_RemainsAvailableAndRaisesToggleIntent()
+    {
+        RunOnSta(window =>
+        {
+            var toggleCount = 0;
+            window.TranslationDirectionToggleRequested += () => toggleCount++;
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Translation,
+                Completed("result"));
+            window.SetTranslationDirectionState(
+                "简体中文",
+                "English",
+                isManual: false,
+                enabled: true);
+
+            Assert.Equal(Visibility.Visible, window.StatusMessageActionButton.Visibility);
+            Assert.Equal("译为 English", window.StatusMessageActionButton.Content);
+            Assert.Equal(22d, window.StatusMessageActionButton.Height);
+            Assert.Equal(new Thickness(6, 0, 6, 0), window.StatusMessageActionButton.Padding);
+            Assert.Equal(VerticalAlignment.Center, window.StatusMessageActionButton.VerticalAlignment);
+            Assert.Equal(
+                "使用当前模型将本段翻译为 English",
+                window.StatusMessageActionButton.ToolTip);
+            Assert.Equal(
+                "将当前文本翻译为 English",
+                AutomationProperties.GetName(window.StatusMessageActionButton));
+
+            window.ShowSelectionCaptureFeedback("临时提示");
+            Assert.Equal("临时提示", window.StatusMessageText.Text);
+            Assert.Equal(Visibility.Visible, window.StatusMessageActionButton.Visibility);
+            window.StatusMessageActionButton.RaiseEvent(
+                new RoutedEventArgs(Button.ClickEvent, window.StatusMessageActionButton));
+            Assert.Equal(1, toggleCount);
+
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Code,
+                Completed("code result"));
+            window.SetTranslationDirectionState(
+                "简体中文",
+                "English",
+                isManual: false,
+                enabled: true);
+            Assert.Equal(Visibility.Collapsed, window.StatusMessageActionButton.Visibility);
+        });
+    }
+
+    [SkippableFact]
+    public void ManualTranslationDirection_UsesTargetedLoadingStatus()
+    {
+        RunOnSta(window =>
+        {
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Translation,
+                Completed(string.Empty) with
+                {
+                    Status = ModeResultStatus.Loading,
+                    Quality = ModeResultQuality.Unassessed
+                });
+            window.SetTranslationDirectionState(
+                "English",
+                "简体中文",
+                isManual: true,
+                enabled: true);
+
+            Assert.Equal("正在译为 English", window.StatusMessageText.Text);
+            Assert.Equal("译为简体中文", window.StatusMessageActionButton.Content);
+        });
+    }
+
+    [SkippableFact]
+    public void EchoWarning_UsesExplicitStatusAndKeepsDirectionAction()
+    {
+        RunOnSta(window =>
+        {
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Translation,
+                Completed("echo") with { Quality = ModeResultQuality.EchoWarning });
+            window.SetTranslationDirectionState(
+                "简体中文",
+                "English",
+                isManual: false,
+                enabled: true);
+
+            Assert.Equal("结果与原文高度一致", window.StatusMessageText.Text);
+            Assert.Equal(
+                FloatingStatusMessage.GetAccentColors(FloatingStatusKind.Warning).Indicator,
+                ((SolidColorBrush)window.StatusIndicator.Fill).Color);
+            Assert.Equal(Visibility.Visible, window.StatusMessageActionButton.Visibility);
+        });
+    }
+
+    [SkippableFact]
+    public void LoadingState_ChangesRefreshButtonToStopAndBack()
+    {
+        RunOnSta(window =>
+        {
+            window.SetLoading(true);
+
+            Assert.True(window.IsGenerationStopVisibleForTests);
+            Assert.Equal("停止生成", window.RefreshButton.ToolTip);
+
+            window.SetLoading(false);
+
+            Assert.False(window.IsGenerationStopVisibleForTests);
+            Assert.Equal("重新生成", window.RefreshButton.ToolTip);
+        });
+    }
+
+    [SkippableFact]
+    public void AutoHideSuppression_IsScopedAndReferenceCounted()
+    {
+        RunOnSta(window =>
+        {
+            window.SuspendAutoHide();
+            window.SuspendAutoHide();
+            Assert.True(window.IsAutoHideSuppressedForTests);
+
+            window.ResumeAutoHide();
+            Assert.True(window.IsAutoHideSuppressedForTests);
+
+            window.ResumeAutoHide();
+            Assert.False(window.IsAutoHideSuppressedForTests);
         });
     }
 

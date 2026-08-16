@@ -363,6 +363,15 @@ public class ConfigManagerTests : IDisposable
     public void SaveAndLoad_RoundTrip_PreservesAllFields()
     {
         var mgr = CreateManager();
+        var fallback = new SavedConfig
+        {
+            Id = "provider:fallback",
+            DisplayName = "fallback-model",
+            Alias = "我的备用模型",
+            ApiBaseUrl = "https://fallback.example.com/v1",
+            ApiKey = "fallback-key",
+            ModelName = "fallback-model"
+        };
         var original = new AppSettings
         {
             ApiBaseUrl = "https://api.example.com/v1",
@@ -380,7 +389,8 @@ public class ConfigManagerTests : IDisposable
             TtsRate = 1.1,
             TtsMaxChars = 1000,
             LogRetentionDays = 30,
-            LogMaxTotalBytes = 100 * 1024 * 1024
+            LogMaxTotalBytes = 100 * 1024 * 1024,
+            SavedConfigs = [fallback]
         };
 
         mgr.SaveInternal(original);
@@ -402,6 +412,36 @@ public class ConfigManagerTests : IDisposable
         Assert.Equal(original.TtsMaxChars, loaded.TtsMaxChars);
         Assert.Equal(original.LogRetentionDays, loaded.LogRetentionDays);
         Assert.Equal(original.LogMaxTotalBytes, loaded.LogMaxTotalBytes);
+        var loadedConfig = Assert.Single(loaded.SavedConfigs);
+        Assert.Equal(fallback.Id, loadedConfig.Id);
+        Assert.Equal(fallback.Alias, loadedConfig.Alias);
+    }
+
+    [Fact]
+    public void Load_MigratesMissingSavedConfigIdsAndLegacyDisplayNameAlias()
+    {
+        var mgr = CreateManager();
+        Directory.CreateDirectory(_testDir);
+        File.WriteAllText(ConfigPath,
+            """
+            {
+              "ApiKey": "key",
+              "SavedConfigs": [
+                {
+                  "DisplayName": "legacy",
+                  "ApiBaseUrl": "https://api.example.com/v1",
+                  "ApiKey": "legacy-key",
+                  "ModelName": "legacy-model"
+                }
+              ]
+            }
+            """);
+
+        var loaded = mgr.LoadInternal();
+
+        var config = Assert.Single(loaded.SavedConfigs);
+        Assert.StartsWith("provider:", config.Id, StringComparison.Ordinal);
+        Assert.Equal("legacy", config.Alias);
     }
 
     [Fact]

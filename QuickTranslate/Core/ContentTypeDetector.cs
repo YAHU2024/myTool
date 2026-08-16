@@ -29,7 +29,18 @@ namespace QuickTranslate.Core
         Low
     }
 
+    internal enum DetectedContentKind
+    {
+        NaturalText,
+        TechnicalDocument,
+        Code,
+        Command,
+        Configuration,
+        Term
+    }
+
     internal sealed record DetectionResult(
+        DetectedContentKind Kind,
         ContentType ContentType,
         DetectionConfidence Confidence,
         int Score,
@@ -48,7 +59,11 @@ namespace QuickTranslate.Core
         private const int JsonSampleCharacters = 4 * 1024;
 
         private static readonly Regex ShellPromptPrefix = new(
-            @"^[\$>#]\s+\S", RegexOptions.Compiled);
+            @"^[\$>]\s+\S", RegexOptions.Compiled);
+
+        private static readonly Regex RootShellPrompt = new(
+            @"^#\s+(?:git|npm|npx|yarn|pnpm|pip|pip3|docker|kubectl|cargo|go|dotnet|msbuild|cd|ls|dir|cat|grep|find|curl|wget|ssh|scp|make|cmake|python|python3|node|java|javac|gcc|g\+\+|rustc|apt|brew|choco|winget|sudo|chmod|chown|mkdir|rm|cp|mv|tar|zip|unzip)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex ShellOperators = new(
             @"(\|\||&&|>>?|2>&1)", RegexOptions.Compiled);
@@ -112,6 +127,12 @@ namespace QuickTranslate.Core
         private static readonly Regex XmlSelfClosingTag = new(
             @"^\s*<[A-Za-z_][\w:.-]*\b[^>]*/>\s*$", RegexOptions.Compiled);
 
+        private static readonly Regex MarkdownHeading = new(
+            @"(?m)^\s{0,3}#{1,6}\s+\S", RegexOptions.Compiled);
+
+        private static readonly Regex ProseWord = new(
+            @"\p{L}+(?:['’-]\p{L}+)?", RegexOptions.Compiled);
+
         private static readonly Regex PureEnglish = new(
             @"^[a-zA-Z0-9\s\.\-+#/]+$", RegexOptions.Compiled);
 
@@ -154,6 +175,7 @@ namespace QuickTranslate.Core
                 stopwatch.Stop();
                 var confidence = GetConfidence(contentType, score, threshold, features);
                 return new DetectionResult(
+                    ResolveContentKind(contentType, features),
                     contentType,
                     confidence,
                     score,
@@ -171,6 +193,12 @@ namespace QuickTranslate.Core
 
             var trimmed = text.Trim();
             var threshold = trimmed.Contains('\n') ? 3 : 2;
+
+            if (LooksLikeMarkdownDocument(trimmed))
+            {
+                features.Add("markdown-document");
+                return Finish(ContentType.Translation, 0, threshold);
+            }
 
             if (AmbiguousBareCommands.Contains(trimmed))
             {
@@ -196,6 +224,12 @@ namespace QuickTranslate.Core
             if (IsMultilineTechnicalDefinition(trimmed))
             {
                 features.Add("technical-definition");
+                return Finish(ContentType.Term, score, threshold);
+            }
+
+            if (IsKnownTechnicalTerm(trimmed))
+            {
+                features.Add("known-technical-term");
                 return Finish(ContentType.Term, score, threshold);
             }
 
@@ -225,7 +259,8 @@ namespace QuickTranslate.Core
 
             if (contentType == ContentType.Term)
             {
-                return features.Contains("technical-definition")
+                return features.Any(feature => feature is
+                    "technical-definition" or "known-technical-term" or "mixed-technical-term")
                     ? DetectionConfidence.High
                     : DetectionConfidence.Low;
             }
@@ -233,7 +268,8 @@ namespace QuickTranslate.Core
             if (contentType == ContentType.Code && features.Any(feature => feature is
                 "fenced-code" or "url" or "json-valid" or "json-large-candidate" or
                 "sql-block" or "yaml-structure" or "section-assignments" or
-                "xml-structure" or "environment-assignments"))
+                "xml-structure" or "environment-assignments" or "known-command" or
+                "powershell-command" or "root-shell-prompt"))
             {
                 return DetectionConfidence.High;
             }
@@ -243,12 +279,42 @@ namespace QuickTranslate.Core
                 : DetectionConfidence.Low;
         }
 
+        private static DetectedContentKind ResolveContentKind(
+            ContentType contentType,
+            IReadOnlyCollection<string> features)
+        {
+            if (contentType == ContentType.Term)
+                return DetectedContentKind.Term;
+            if (contentType == ContentType.Translation)
+            {
+                return features.Contains("markdown-document")
+                    ? DetectedContentKind.TechnicalDocument
+                    : DetectedContentKind.NaturalText;
+            }
+
+            if (features.Any(feature => feature is
+                "json-valid" or "json-large-candidate" or "yaml-structure" or
+                "section-assignments" or "xml-structure" or "environment-assignments"))
+            {
+                return DetectedContentKind.Configuration;
+            }
+
+            if (features.Any(feature => feature is
+                "known-command" or "powershell-command" or "shell-prompt" or
+                "root-shell-prompt" or "cli-flag" or "shell-operator"))
+            {
+                return DetectedContentKind.Command;
+            }
+
+            return DetectedContentKind.Code;
+        }
+
         internal static string FormatDiagnostic(DetectionResult result)
         {
             var features = result.MatchedFeatures.Count == 0
                 ? "none"
                 : string.Join(',', result.MatchedFeatures);
-            return $"type={result.ContentType}, confidence={result.Confidence}, score={result.Score}, threshold={result.Threshold}, " +
+            return $"kind={result.Kind}, type={result.ContentType}, confidence={result.Confidence}, score={result.Score}, threshold={result.Threshold}, " +
                    $"chars={result.CharacterCount}, elapsedMs={result.Elapsed.TotalMilliseconds:F3}, features=[{features}]";
         }
 
@@ -289,6 +355,7 @@ namespace QuickTranslate.Core
             AddScore(text.Contains('{') && text.Contains('}'), 2, "balanced-braces");
             AddScore(text.Contains('\n') && lines.Length >= 2 && lines.Any(l => l.TrimEnd().EndsWith(';')), 1, "multiline-semicolon");
             AddScore(ShellPromptPrefix.IsMatch(text), 2, "shell-prompt");
+            AddScore(RootShellPrompt.IsMatch(text), 2, "root-shell-prompt");
             AddScore(KnownCommands.IsMatch(text), 2, "known-command");
             AddScore(ShellOperators.IsMatch(text), 1, "shell-operator");
             AddScore(CliFlags.IsMatch(text), 1, "cli-flag");
@@ -351,6 +418,25 @@ namespace QuickTranslate.Core
 
             var value = assignment[(separatorIndex + 1)..].Trim();
             return value.StartsWith('"') || value.StartsWith('\'') || value.Contains("${", StringComparison.Ordinal);
+        }
+
+        private static bool LooksLikeMarkdownDocument(string text)
+        {
+            if (!MarkdownHeading.IsMatch(text))
+                return false;
+
+            var nonEmptyLines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            if (nonEmptyLines.Length < 4 || ProseWord.Matches(text).Count < 20)
+                return false;
+
+            return nonEmptyLines.Any(line =>
+            {
+                var trimmed = line.Trim();
+                return trimmed.Length >= 30 &&
+                       !trimmed.StartsWith('#') &&
+                       !trimmed.StartsWith("```") &&
+                       ProseWord.Matches(trimmed).Count >= 5;
+            });
         }
 
         private static JsonMatch GetJsonMatch(string text)
@@ -445,6 +531,29 @@ namespace QuickTranslate.Core
             var english = match.Groups["english"].Value;
             var modifier = match.Groups["modifier"].Value;
             return ChineseTermModifiers.Contains(modifier) && HasTechnicalShape(english);
+        }
+
+        private static bool IsKnownTechnicalTerm(string text)
+        {
+            if (text.Length > 50 || text.Contains('\n'))
+                return false;
+
+            if (KnownTechnicalTerms.Contains(text))
+                return true;
+
+            if (!IsEnglishTerm(text))
+                return false;
+
+            var tokens = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (!KnownTechnicalTerms.Contains(tokens[0]))
+                return false;
+
+            return tokens.Skip(1).All(token =>
+                token.Length >= 2 &&
+                (token.All(char.IsUpper) ||
+                 (char.IsUpper(token[0]) && token.Skip(1).All(char.IsLetterOrDigit)) ||
+                 token.Any(char.IsDigit) ||
+                 token.IndexOfAny(new[] { '.', '+', '#', '/', '-' }) >= 0));
         }
 
         private static bool IsMultilineTechnicalDefinition(string text)

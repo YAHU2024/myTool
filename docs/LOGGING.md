@@ -44,6 +44,8 @@
 3. 检查后续是 `translation.completed`、`translation.failed`、`translation.cancelled` 还是 `translation.cache_hit`。
 4. `translation.completed` 表示服务响应完成；`translation.presented` 表示最新有效请求已写入当前界面和历史。
 5. 流式卡顿时先看 `average_chunk_gap_ms`、`max_chunk_gap_ms` 和 `stalled_chunk_count`，再看 `max_frame_latency_ms`：前三者高通常表示模型、服务商或网络缓冲，后者高表示本地 UI 呈现延迟。
+6. 如果出现原文回显，搜索 `translation.echo_`。翻译内容保持正常流式显示；`echo_confirmed` 表示完整响应结束后检测到与原文高度一致，正文仍保留供用户判断，但不会缓存或写入历史。应用不会因此自动重试或切换模型。
+7. 用户从悬浮窗切换模型时搜索 `translation.model_switch_requested`。事件只记录切换前后的模型、供应商和切换时请求是否仍在运行。
 
 快速查词没有结果：
 
@@ -159,7 +161,7 @@ quicktranslate-2026-07-23-2.log
 新的主日志采用 JSON Lines 格式：每行都是一个独立 JSON 对象，文件扩展名仍为 `.log`。示例：
 
 ```json
-{"Timestamp":"2026-07-23T10:15:30.123-07:00","Level":"Info","Source":"TranslationService","EventName":"translation.completed","Context":{"operation":"translation","content_type":"Translation","target_language":"简体中文","text_len":42,"result_len":18,"duration_ms":527.4}}
+{"Timestamp":"2026-07-23T10:15:30.123-07:00","Level":"Info","Source":"TranslationService","EventName":"translation.completed","Context":{"operation":"translation","content_type":"Translation","requested_target_language":"简体中文","effective_target_language":"English","direction_relation":"Same","direction_confidence":"High","direction_reason":"SourceMatchesRequestedTarget","source_language_family":"Han","text_len":42,"result_len":18,"duration_ms":527.4}}
 ```
 
 标准字段：
@@ -186,7 +188,12 @@ quicktranslate-2026-07-23-2.log
 | --- | --- |
 | `operation` | translation 或 analysis 等请求类型 |
 | `content_type` | Translation、Code、Term、Analysis 等内容模式 |
-| `target_language` | 目标语言名称 |
+| `requested_target_language` | 用户为当前会话选择的目标语言 |
+| `effective_target_language` | 方向判断后本次请求实际使用的目标语言；只有高置信度同语言结果才可能使用备选语言 |
+| `direction_relation` | 源文本与请求目标的关系：Different、Same 或 Unknown |
+| `direction_confidence` | 本地方向判断置信度：None、Low 或 High |
+| `direction_reason` | 方向决策原因，例如 AutoDetectionDisabled、SourceMatchesRequestedTarget 或 SourceLanguageUnknown |
+| `source_language_family` | 仅基于本地文字系统统计得到的语言族，例如 Han、Latin 或 Unknown |
 | `text_len` | 输入字符数，不包含输入内容 |
 | `result_len` | 结果字符数，不包含结果内容 |
 | `duration_ms` | 操作耗时，单位毫秒 |
@@ -221,7 +228,7 @@ quicktranslate-2026-07-23-2.log
 日志查看器底部显示当前进程内的统计快照：
 
 ```text
-显示 120/250 条 | 今日完成 18 | 平均 430ms | P95 920ms | 缓存命中率 22%
+显示 120/250 条 | 今日完成 18 | 平均 430ms | P95 920ms | 缓存命中率 22% | 回显疑似/确认 3/2 | 模型切换 1/2
 ```
 
 统计口径：
@@ -231,6 +238,8 @@ quicktranslate-2026-07-23-2.log
 - 缓存命中不计入 API 延迟分布，避免把近乎零耗时的缓存结果拉低延迟。
 - 取消请求、失败请求和过期请求不会计入成功延迟。
 - 缓存命中率直接来自 `TranslationCacheService` 的命中和未命中计数，不从日志文本推算。
+- “回显疑似/确认”是本进程内检测到高相似结果的两级计数；正文保留供用户判断，确认回显不会缓存或写入历史。
+- “模型切换”显示“成功次数/用户请求次数”。传输失败或切换后仍确认回显计为失败；被下一次选择取代的旧请求只按取消处理。
 - 所有指标仅保存在当前进程内，应用重启后重新统计；跨午夜会重置“今日”计数。
 
 当前界面显示平均耗时和 P95。P50、P99 已由指标服务计算，可用于后续诊断或开发扩展。
@@ -328,7 +337,12 @@ Logger.Info("TranslationService", "translation.completed", new
 {
     operation = "translation",
     content_type = request.ContentType.ToString(),
-    target_language = request.TargetLanguage,
+    requested_target_language = request.RequestedTargetLanguage,
+    effective_target_language = request.EffectiveTargetLanguage,
+    direction_relation = request.Direction.Relation.ToString(),
+    direction_confidence = request.Direction.Confidence.ToString(),
+    direction_reason = request.Direction.Reason.ToString(),
+    source_language_family = request.Direction.SourceLanguageFamily.ToString(),
     text_len = request.Text.Length,
     result_len = result.Length,
     duration_ms = elapsed.TotalMilliseconds
@@ -426,12 +440,22 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 
 | Event | Level | Context keys (no text body) |
 |------|-------|-----------------------------|
-| translation.completed | Info | operation, content_type, target_language, text_len, result_len, duration_ms, stream_chunk_count, first_chunk_ms, average_chunk_gap_ms, max_chunk_gap_ms, stalled_chunk_count |
-| translation.presented | Info | operation, content_type, result_len, duration_ms, stream/UI/Dispatcher/Markdown/GC/composition timing fields listed above |
+| translation.completed | Info | operation, content_type, requested_target_language, effective_target_language, direction_relation, direction_confidence, direction_reason, source_language_family, text_len, result_len, duration_ms, stream_chunk_count, first_chunk_ms, average_chunk_gap_ms, max_chunk_gap_ms, stalled_chunk_count |
+| translation.presented | Info | operation, content_type, model, provider, result_len, duration_ms, stream/UI/Dispatcher/Markdown/GC/composition timing fields listed above |
 | analysis.follow_up.completed | Info | turn, answer_len, duration_ms, request_id, stream_chunk_count, first_chunk_ms, average_chunk_gap_ms, max_chunk_gap_ms, stalled_chunk_count |
 | analysis.follow_up.presented | Info | turn, request_id, stream/UI/Dispatcher/Markdown/GC/composition timing fields listed above |
 
-这些字段只包含计数和毫秒值。它们不记录 chunk 正文、累计结果、问题、回答、Prompt、API Key、Authorization 头或供应商响应体。
+这些字段只包含枚举、语言名称、计数和毫秒值。它们不记录 chunk 正文、累计结果、问题、回答、Prompt、API Key、Authorization 头或供应商响应体。方向判断完全在本地完成；自动判断关闭时实际目标始终等于用户选择的目标。拉丁文字语言之间无法仅凭文字系统可靠区分，因此保持 `Unknown` 并使用请求目标，不自动切换到备选语言。
+
+## Translation quality and model-switch events
+
+| Event | Level | Context keys (no text body) |
+|------|-------|-----------------------------|
+| translation.echo_suspected | Info | model, provider, source_len, result_len, similarity, length_ratio, reason |
+| translation.echo_confirmed | Warn | model, provider, source_len, result_len, similarity, length_ratio, reason |
+| translation.model_switch_requested | Info | from_model, from_provider, to_model, to_provider, request_running |
+
+这些日志不记录源文本、模型输出、系统提示词、完整 API 地址、API Key 或响应正文。`provider` 仅为 API 地址的主机名。回显检测只在完整响应结束后决定是否缓存和写入历史，不阻塞流式展示，也不会撤回已经展示的正文。模型切换只在用户明确选择后用于当前会话，不会静默修改默认模型；旧请求的迟到分片由请求身份门禁丢弃。
 
 ## Analysis follow-up events (Phase 11)
 

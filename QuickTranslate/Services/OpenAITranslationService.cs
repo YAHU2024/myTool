@@ -53,46 +53,92 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         ContentType contentType,
         TranslationRequestKind kind = TranslationRequestKind.Translation)
     {
+        return CreateRequest(text, contentType, kind, CaptureRequestContext(targetLang));
+    }
+
+    internal TranslationRequestContext CaptureRequestContext(string targetLang)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetLang);
+        var settings = Volatile.Read(ref _settings);
+        var selectedAnalysisPromptId = string.IsNullOrWhiteSpace(settings.SelectedAnalysisPromptId)
+            ? AnalysisPromptCatalog.GeneralId
+            : settings.SelectedAnalysisPromptId;
+        return new TranslationRequestContext(
+            settings.ApiBaseUrl,
+            settings.ApiKey,
+            settings.ModelName,
+            settings.EnableThinking,
+            targetLang,
+            settings.FallbackLanguage,
+            settings.AutoDetectLanguage,
+            settings.CustomTranslationPrompt,
+            selectedAnalysisPromptId,
+            (settings.AnalysisPromptProfiles ?? new List<AnalysisPromptProfile>())
+                .Select(profile => profile.Clone())
+                .ToArray());
+    }
+
+    internal TranslationRequest CreateRequest(
+        string text,
+        ContentType contentType,
+        TranslationRequestKind kind,
+        TranslationRequestContext context,
+        TranslationDirectionPreference directionPreference = TranslationDirectionPreference.Auto)
+    {
         ArgumentNullException.ThrowIfNull(text);
+        ArgumentNullException.ThrowIfNull(context);
         var maxRunes = kind == TranslationRequestKind.Analysis || contentType == ContentType.Analysis
             ? MaxAnalysisRequestRunes
             : MaxInitialRequestRunes;
         EnsureInputLength(text, maxRunes, kind == TranslationRequestKind.Analysis ? "解析" : "请求");
-        var settings = PromptSettings.From(Volatile.Read(ref _settings));
         string prompt;
-        var fallbackUsed = false;
+        TranslationDirectionDecision direction;
 
         if (kind == TranslationRequestKind.Analysis)
         {
-            prompt = BuildAnalysisPrompt(targetLang, settings);
             contentType = ContentType.Analysis;
+            direction = TranslationDirectionResolver.Resolve(
+                text,
+                context.RequestedTargetLanguage,
+                context.FallbackLanguage,
+                context.AutoDetectLanguage,
+                contentType,
+                directionPreference);
+            prompt = BuildAnalysisPrompt(context.RequestedTargetLanguage, context);
         }
         else
         {
-            var promptResult = BuildSystemPromptCore(targetLang, contentType, text, settings);
-            prompt = promptResult.Prompt;
-            fallbackUsed = promptResult.FallbackUsed;
+            direction = TranslationDirectionResolver.Resolve(
+                text,
+                context.RequestedTargetLanguage,
+                context.FallbackLanguage,
+                context.AutoDetectLanguage,
+                contentType,
+                directionPreference);
+            prompt = TranslationPromptBuilder.Build(
+                contentType,
+                direction.EffectiveTargetLanguage,
+                context.CustomTranslationPrompt);
         }
 
         var request = new TranslationRequest(
             kind,
             text,
-            targetLang,
+            direction,
             contentType,
-            settings.ApiBaseUrl,
-            settings.ApiKey,
-            settings.ModelName,
+            context.ApiBaseUrl,
+            context.ApiKey,
+            context.ModelName,
             prompt,
-            fallbackUsed,
-            settings.EnableThinking);
+            context.EnableThinking);
         Logger.Debug(
             "TranslationService",
             "prompt.selected",
             BuildPromptLogContext(
                 request,
-                !string.IsNullOrWhiteSpace(settings.CustomTranslationPrompt),
-                settings.SelectedAnalysisPromptId.StartsWith("custom:", StringComparison.Ordinal),
-                settings.SelectedAnalysisPromptId));
+                !string.IsNullOrWhiteSpace(context.CustomTranslationPrompt),
+                context.SelectedAnalysisPromptId.StartsWith("custom:", StringComparison.Ordinal),
+                context.SelectedAnalysisPromptId));
         return request;
     }
 
@@ -110,7 +156,12 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         {
             operation,
             content_type = request.ContentType.ToString(),
-            target_language = request.TargetLanguage,
+            requested_target_language = request.RequestedTargetLanguage,
+            effective_target_language = request.EffectiveTargetLanguage,
+            direction_relation = request.Direction.Relation.ToString(),
+            direction_confidence = request.Direction.Confidence.ToString(),
+            direction_reason = request.Direction.Reason.ToString(),
+            source_language_family = request.Direction.SourceLanguageFamily.ToString(),
             text_len = request.Text.Length
         });
 
@@ -126,7 +177,12 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         {
             operation,
             content_type = request.ContentType.ToString(),
-            target_language = request.TargetLanguage,
+            requested_target_language = request.RequestedTargetLanguage,
+            effective_target_language = request.EffectiveTargetLanguage,
+            direction_relation = request.Direction.Relation.ToString(),
+            direction_confidence = request.Direction.Confidence.ToString(),
+            direction_reason = request.Direction.Reason.ToString(),
+            source_language_family = request.Direction.SourceLanguageFamily.ToString(),
             text_len = request.Text.Length,
             result_len = result.Length,
             duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
@@ -146,7 +202,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         IReadOnlyList<AnalysisFollowUpExchange> completedTurns,
         string question,
         int turnNumber,
-        long requestId = 0)
+        long requestId = 0,
+        TranslationRequestContext? requestContext = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceText);
         ArgumentException.ThrowIfNullOrWhiteSpace(rootAnalysis);
@@ -190,17 +247,17 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             throw new InvalidOperationException("当前解析内容过长，无法继续追问");
         }
 
-        var settings = PromptSettings.From(Volatile.Read(ref _settings));
+        var context = requestContext ?? CaptureRequestContext(semanticSnapshot.TargetLanguage);
         return new AnalysisFollowUpRequest(
             turnNumber,
             messages.ToArray(),
-            settings.ApiBaseUrl,
-            settings.ApiKey,
-            settings.ModelName,
+            context.ApiBaseUrl,
+            context.ApiKey,
+            context.ModelName,
             normalizedQuestion.Length,
             contextCharacters,
             requestId,
-            settings.EnableThinking);
+            context.EnableThinking);
     }
 
     public async Task<string> ExecuteAnalysisFollowUpStreamingAsync(
@@ -379,7 +436,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
     private static Dictionary<string, object> BuildRequestBody(TranslationRequest request, bool stream)
     {
-        var userContent = request.Kind == TranslationRequestKind.Analysis
+        var userContent = request.Kind == TranslationRequestKind.Analysis ||
+                          request.ContentType == ContentType.Translation
             ? request.Text
             : PromptInputContract.Wrap(request.Text);
         return BuildRequestBody(
@@ -503,78 +561,12 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             stalledChunkCount);
     }
 
-    private static PromptResult BuildSystemPromptCore(
-        string targetLang,
-        ContentType contentType,
-        string sourceText,
-        PromptSettings settings)
-    {
-        var sourceMatchesTarget = contentType == ContentType.Translation &&
-                                  settings.AutoDetectLanguage &&
-                                  TextMatchesLanguage(sourceText, targetLang);
-        var effectiveTarget = sourceMatchesTarget ? settings.FallbackLanguage : targetLang;
-        string prompt;
-
-        if (contentType == ContentType.Code)
-        {
-            prompt = $"Explain this code, script, SQL, configuration, or terminal command in {targetLang}. " +
-                     "For commands, cover each command, option, pipe, redirect, and important side effect. " +
-                     "Do not translate or reproduce the full source; quote only tiny snippets when necessary. " +
-                     "Output a concise explanation with no preamble, labels, or markdown headers. " +
-                     PromptInputContract.SystemInstruction;
-        }
-        else if (contentType == ContentType.Term)
-        {
-            prompt = $"Explain this term in {targetLang} in 1-2 concise sentences: what it is and its main use. " +
-                     "Output only the explanation; no preamble or markdown headers. " +
-                     PromptInputContract.SystemInstruction;
-        }
-        else if (!string.IsNullOrWhiteSpace(settings.CustomTranslationPrompt))
-        {
-            prompt = settings.CustomTranslationPrompt.Replace("{targetLang}", effectiveTarget) + " " +
-                     PromptInputContract.SystemInstruction +
-                     " Output only the requested result in the target language, with no unrelated preamble or explanation.";
-        }
-        else if (settings.AutoDetectLanguage)
-        {
-            prompt = $"Translate the input into {effectiveTarget}. " +
-                     "Always translate; never return the original unchanged. Output only the translation. " +
-                     PromptInputContract.SystemInstruction;
-        }
-        else
-        {
-            prompt = $"Translate the input into {targetLang}. If it is already in {targetLang}, translate it into {settings.FallbackLanguage}. " +
-                     "Always translate; never return the original unchanged. Output only the translation. " +
-                     PromptInputContract.SystemInstruction;
-        }
-        return new PromptResult(prompt, sourceMatchesTarget);
-    }
-
-    private static string BuildAnalysisPrompt(string targetLang, PromptSettings settings)
+    private static string BuildAnalysisPrompt(string targetLang, TranslationRequestContext context)
     {
         return AnalysisPromptCatalog.Resolve(
-            settings.SelectedAnalysisPromptId,
-            settings.AnalysisPromptProfiles,
+            context.SelectedAnalysisPromptId,
+            context.AnalysisPromptProfiles,
             targetLang);
-    }
-
-    private static bool TextMatchesLanguage(string text, string lang)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return false;
-
-        var hasCjk = text.Any(c => c is >= '\u4E00' and <= '\u9FFF');
-        var hasKana = text.Any(c => c is >= '\u3040' and <= '\u30FF');
-        var hasHangul = text.Any(c => c is >= '\uAC00' and <= '\uD7AF');
-
-        return lang switch
-        {
-            "简体中文" or "繁体中文" => hasCjk && !hasKana,
-            "日本語" => hasKana,
-            "한국어" => hasHangul,
-            "English" => !hasCjk && !hasKana && !hasHangul,
-            _ => false
-        };
     }
 
     internal static IReadOnlyDictionary<string, object?> BuildPromptLogContext(
@@ -587,8 +579,13 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         {
             ["content_type"] = request.ContentType.ToString(),
             ["request_kind"] = request.Kind.ToString(),
-            ["target_language"] = request.TargetLanguage,
+            ["requested_target_language"] = request.RequestedTargetLanguage,
+            ["effective_target_language"] = request.EffectiveTargetLanguage,
             ["fallback_used"] = request.FallbackUsed,
+            ["direction_relation"] = request.Direction.Relation.ToString(),
+            ["direction_confidence"] = request.Direction.Confidence.ToString(),
+            ["direction_reason"] = request.Direction.Reason.ToString(),
+            ["source_language_family"] = request.Direction.SourceLanguageFamily.ToString(),
             ["custom_translation_prompt"] = customTranslationPrompt,
             ["custom_analysis_prompt"] = customAnalysisPrompt,
             ["analysis_preset"] = analysisPreset,
@@ -648,8 +645,6 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         _httpClient.Dispose();
     }
 
-    private sealed record PromptResult(string Prompt, bool FallbackUsed);
-
     private sealed record ChatStreamingResult(
         string Result,
         int ChunkCount,
@@ -658,36 +653,4 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         double MaxChunkGapMs,
         int StalledChunkCount);
 
-    private sealed record PromptSettings(
-        string ApiBaseUrl,
-        string ApiKey,
-        string ModelName,
-        bool EnableThinking,
-        string FallbackLanguage,
-        bool AutoDetectLanguage,
-        bool SmartContentType,
-        string CustomTranslationPrompt,
-        string SelectedAnalysisPromptId,
-        IReadOnlyList<AnalysisPromptProfile> AnalysisPromptProfiles)
-    {
-        public static PromptSettings From(AppSettings settings)
-        {
-            var selectedAnalysisPromptId = string.IsNullOrWhiteSpace(settings.SelectedAnalysisPromptId)
-                ? AnalysisPromptCatalog.GeneralId
-                : settings.SelectedAnalysisPromptId;
-            return new PromptSettings(
-                settings.ApiBaseUrl,
-                settings.ApiKey,
-                settings.ModelName,
-                settings.EnableThinking,
-                settings.FallbackLanguage,
-                settings.AutoDetectLanguage,
-                settings.SmartContentType,
-                settings.CustomTranslationPrompt,
-                selectedAnalysisPromptId,
-                (settings.AnalysisPromptProfiles ?? new List<AnalysisPromptProfile>())
-                    .Select(profile => profile.Clone())
-                    .ToArray());
-        }
-    }
 }

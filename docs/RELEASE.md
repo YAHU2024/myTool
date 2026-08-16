@@ -271,7 +271,7 @@ signtool verify /pa /v publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.
 ### 4.2 准备发布提交
 
 先完成下一步的 `version.xml` 和校验和更新，再将所有版本文件放进同一个发布提交。
-不要在 `version.xml` 更新前打标签。
+不要在 `version.xml` 更新前打标签。发布提交应从 `main` 切出 `chore/release` 分支，通过 PR 合并。发布 PR 为简化流程：直接开正式 PR，CI 绿即合并，无需草稿和审查。
 
 ---
 
@@ -312,14 +312,16 @@ signtool verify /pa /v publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.
 
 改完跑一次 `dotnet test QuickTranslate.Tests\QuickTranslate.Tests.csproj` 验证这些约束。
 
-验证通过后提交发布分支并通过 PR 合并：
+验证通过后提交发布分支，通过简化 PR 合并（发布 PR 无需草稿和审查，CI 绿即合并；常规 PR 流程见 [`docs/PR_MERGE_GUIDE.md`](PR_MERGE_GUIDE.md)）：
 
 ```powershell
+git switch -c chore/release
 git add QuickTranslate\QuickTranslate.csproj docs\RELEASE.md `
   installer\QuickTranslate-setup.iss installer\QuickTranslate-setup-full.iss `
   installer\version.xml QuickTranslate\Services\UpdateService.cs
-git commit -m "chore(release): bump version to 1.8.0"
+git commit -m "chore(release): 版本号升级到 1.8.0"
 git push -u origin HEAD
+gh pr create --base main --title "chore(release): 版本号升级到 1.8.0" --body-file /tmp/pr_body.md
 ```
 
 PR 合并后在最新 `main` 提交上创建并推送标签：
@@ -569,12 +571,14 @@ signtool verify /pa /v publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-
 # 4.6 验证 version.xml（版本一致性、args、checksum 格式）
 dotnet test QuickTranslate.Tests\QuickTranslate.Tests.csproj
 
-# 5. 提交发布分支并通过 PR 合并
+# 5. 提交发布分支并创建 PR（发布 PR 无需草稿和审查，CI 绿即合并；常规 PR 流程见 docs/PR_MERGE_GUIDE.md）
+git switch -c chore/release
 git add QuickTranslate\QuickTranslate.csproj docs\RELEASE.md `
   installer\QuickTranslate-setup.iss installer\QuickTranslate-setup-full.iss `
   installer\version.xml QuickTranslate\Services\UpdateService.cs
-git commit -m "chore(release): bump version to $ver"
+git commit -m "chore(release): 版本号升级到 $ver"
 git push -u origin HEAD
+gh pr create --base main --title "chore(release): 版本号升级到 $ver" --body-file /tmp/pr_body.md
 
 # PR 合并后，在最新 main 上打标签
 git switch main
