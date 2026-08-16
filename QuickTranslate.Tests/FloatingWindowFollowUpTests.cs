@@ -583,6 +583,64 @@ public sealed class FloatingWindowFollowUpTests
     }
 
     [SkippableFact]
+    public void ModelSelector_FirstClickOnLastVisibleProfile_SelectsWithoutMouseDownScroll()
+    {
+        RunOnSta(window =>
+        {
+            var profiles = Enumerable.Range(1, 7)
+                .Select(index => new ModelProfile(
+                    $"profile:{index}",
+                    string.Empty,
+                    $"model-{index}",
+                    "provider",
+                    "https://example.com/v1",
+                    "key"))
+                .ToArray();
+            string? selectedProfileId = null;
+            var selectionCount = 0;
+            window.ModelProfileSelected += profileId =>
+            {
+                selectedProfileId = profileId;
+                selectionCount++;
+            };
+            window.SetModelProfiles(profiles, profiles[0], enabled: true);
+            window.Show();
+            window.ModelSelector.SelectorButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpDispatcher();
+
+            var lastEntry = window.ModelSelector.ProfileList.Items[^1];
+            window.ModelSelector.ProfileList.ScrollIntoView(lastEntry);
+            window.ModelSelector.ProfileList.UpdateLayout();
+            var lastItem = Assert.IsType<ListBoxItem>(
+                window.ModelSelector.ProfileList.ItemContainerGenerator.ContainerFromItem(lastEntry));
+            var selectedBeforeMouseDown = window.ModelSelector.ProfileList.SelectedItem;
+
+            var mouseDown = new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            {
+                RoutedEvent = Mouse.PreviewMouseDownEvent,
+                Source = lastItem
+            };
+            lastItem.RaiseEvent(mouseDown);
+
+            Assert.True(mouseDown.Handled);
+            Assert.Same(selectedBeforeMouseDown, window.ModelSelector.ProfileList.SelectedItem);
+            Assert.True(window.ModelSelector.SelectorPopup.IsOpen);
+
+            var mouseUp = new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            {
+                RoutedEvent = Mouse.PreviewMouseUpEvent,
+                Source = lastItem
+            };
+            lastItem.RaiseEvent(mouseUp);
+
+            Assert.True(mouseUp.Handled);
+            Assert.False(window.ModelSelector.SelectorPopup.IsOpen);
+            Assert.Equal(profiles[^1].Id, selectedProfileId);
+            Assert.Equal(1, selectionCount);
+        });
+    }
+
+    [SkippableFact]
     public void CompletedFollowUp_RestoresFocusToInput()
     {
         RunOnSta(window =>

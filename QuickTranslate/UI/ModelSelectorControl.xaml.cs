@@ -114,6 +114,13 @@ public partial class ModelSelectorControl : UserControl
         SelectorButton.Focus();
     }
 
+    private void ProfileList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var container = ItemsControl.ContainerFromElement(ProfileList, e.OriginalSource as DependencyObject) as ListBoxItem;
+        if (container?.DataContext is ModelMenuEntry { IsComplete: true })
+            e.Handled = true;
+    }
+
     private void ProfileList_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         var container = ItemsControl.ContainerFromElement(ProfileList, e.OriginalSource as DependencyObject) as ListBoxItem;

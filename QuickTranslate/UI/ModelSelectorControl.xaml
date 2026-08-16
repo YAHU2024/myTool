@@ -145,6 +145,7 @@
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                                  ItemContainerStyle="{StaticResource ModelMenuItemStyle}"
+                                 PreviewMouseLeftButtonDown="ProfileList_PreviewMouseLeftButtonDown"
                                  PreviewMouseLeftButtonUp="ProfileList_PreviewMouseLeftButtonUp"
                                  PreviewKeyDown="ProfileList_PreviewKeyDown">
                             <ListBox.Resources>
