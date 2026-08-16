@@ -29,7 +29,8 @@ namespace QuickTranslate.Services
             IReadOnlyList<AnalysisFollowUpExchange> completedTurns,
             string question,
             int turnNumber,
-            long requestId = 0);
+            long requestId = 0,
+            TranslationRequestContext? requestContext = null);
 
         Task<string> ExecuteAnalysisFollowUpStreamingAsync(
             AnalysisFollowUpRequest request,

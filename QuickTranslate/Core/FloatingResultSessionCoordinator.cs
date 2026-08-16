@@ -84,12 +84,19 @@ internal sealed class FloatingResultSessionCoordinator
         string sourceText,
         FloatingWindowAnchor? anchor,
         ContentType initialMode,
-        DetectionResult? detection = null)
+        DetectionResult? detection = null,
+        TranslationRequestContext? requestContext = null)
     {
         lock (_sync)
         {
             CancelActiveRequestLocked();
-            _currentSession = new FloatingResultSession(Guid.NewGuid(), sourceText, anchor, initialMode, detection);
+            _currentSession = new FloatingResultSession(
+                Guid.NewGuid(),
+                sourceText,
+                anchor,
+                initialMode,
+                detection,
+                requestContext);
             return StartRequestLocked(_currentSession, initialMode);
         }
     }

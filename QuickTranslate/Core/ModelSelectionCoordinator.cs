@@ -41,7 +41,7 @@ internal sealed class ModelSelectionCoordinator
 
     public void RefreshCurrentProfile(ModelProfile profile)
     {
-        if (_currentProfile is null)
+        if (_currentProfile is null || _requestTemplate is null)
             return;
         if (_currentProfile.Id == profile.Id ||
             (string.Equals(_currentProfile.ApiBaseUrl.TrimEnd('/'), profile.ApiBaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase) &&
@@ -49,6 +49,12 @@ internal sealed class ModelSelectionCoordinator
              string.Equals(_currentProfile.ModelName, profile.ModelName, StringComparison.Ordinal)))
         {
             _currentProfile = profile;
+            _requestTemplate = _requestTemplate with
+            {
+                ApiBaseUrl = profile.ApiBaseUrl,
+                ApiKey = profile.ApiKey,
+                ModelName = profile.ModelName
+            };
         }
     }
 
@@ -76,10 +82,23 @@ internal sealed class ModelSelectionCoordinator
             ApiKey = profile.ApiKey,
             ModelName = profile.ModelName
         };
+        _requestTemplate = request;
         return new(
             requestIsRunning ? ModelSelectionIntent.CancelAndStart : ModelSelectionIntent.StartWith,
             profile,
             request);
+    }
+
+    public bool TryGetRequest(Guid sessionId, ContentType mode, out TranslationRequest? request)
+    {
+        if (IsCurrent(sessionId, mode))
+        {
+            request = _requestTemplate;
+            return true;
+        }
+
+        request = null;
+        return false;
     }
 
     public void Reset()

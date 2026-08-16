@@ -61,6 +61,7 @@ namespace QuickTranslate.UI
             // 备选语言
             FallbackLanguageComboBox.ItemsSource = _settings.SupportedLanguages;
             FallbackLanguageComboBox.SelectedItem = _settings.FallbackLanguage;
+            RefreshFallbackLanguageAvailability();
 
             // 智能内容识别
             SmartContentTypeCheckBox.IsChecked = _settings.SmartContentType;
@@ -543,7 +544,15 @@ namespace QuickTranslate.UI
         private void Setting_Changed(object sender, RoutedEventArgs e)
         {
             if (_isInitializing) return;
+            if (ReferenceEquals(sender, AutoDetectLanguageCheckBox))
+                RefreshFallbackLanguageAvailability();
             _isDirty = true;
+        }
+
+        private void RefreshFallbackLanguageAvailability()
+        {
+            if (FallbackLanguagePanel is not null)
+                FallbackLanguagePanel.IsEnabled = AutoDetectLanguageCheckBox.IsChecked == true;
         }
 
         /// <summary>

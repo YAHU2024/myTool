@@ -98,7 +98,7 @@ public sealed class ModelSelectionTests
         Assert.Equal("https://b.example/v1", switched.Request.ApiBaseUrl);
         Assert.Equal("key-b", switched.Request.ApiKey);
         Assert.Equal(request.Text, switched.Request.Text);
-        Assert.Equal(request.TargetLanguage, switched.Request.TargetLanguage);
+        Assert.Equal(request.Direction, switched.Request.Direction);
         Assert.Equal(request.SystemPrompt, switched.Request.SystemPrompt);
         Assert.Equal("model-a", request.ModelName);
     }
@@ -152,16 +152,26 @@ public sealed class ModelSelectionTests
             requestIsRunning: false);
 
         Assert.Equal(request.SystemPrompt, switched.Request!.SystemPrompt);
+        Assert.True(coordinator.TryGetRequest(sessionId, ContentType.Translation, out var refreshed));
+        Assert.Equal("model-b", refreshed!.ModelName);
     }
 
     private static TranslationRequest CreateRequest(string model, string apiBaseUrl, string apiKey) => new(
         TranslationRequestKind.Translation,
         "source text",
-        "简体中文",
+        FixedDirection("简体中文"),
         ContentType.Translation,
         apiBaseUrl,
         apiKey,
         model,
-        "translate prompt",
-        FallbackUsed: false);
+        "translate prompt");
+
+    private static TranslationDirectionDecision FixedDirection(string targetLanguage) =>
+        new(
+            targetLanguage,
+            targetLanguage,
+            LanguageRelation.Unknown,
+            LanguageDetectionConfidence.None,
+            SourceLanguageFamily.Unknown,
+            TranslationDirectionReason.AutoDetectionDisabled);
 }

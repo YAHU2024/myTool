@@ -420,18 +420,14 @@ public partial class App : Application
                 return;
             }
 
-            // 智能内容检测（仅在 SmartContentType 开启时执行）—— 提前到翻译前
-            var detection = _settings.SmartContentType
-                ? ContentTypeDetector.DetectDetailed(selectedText)
-                : null;
-            var contentType = detection?.ContentType ?? ContentType.Translation;
+            var route = TranslationRouteResolver.Resolve(selectedText, _settings.SmartContentType);
 
             await StartSessionRequestAsync(
                 selectedText,
-                contentType,
+                route.InitialMode,
                 floatingAnchor.Value,
                 "热键翻译",
-                detection);
+                route.ContentDecision);
         }
         catch (Exception ex)
         {
@@ -648,18 +644,14 @@ public partial class App : Application
                 return;
             }
 
-            // 智能内容检测（仅在 SmartContentType 开启时执行）—— 提前到翻译前
-            var detection = _settings.SmartContentType
-                ? ContentTypeDetector.DetectDetailed(textToTranslate)
-                : null;
-            var contentType = detection?.ContentType ?? ContentType.Translation;
+            var route = TranslationRouteResolver.Resolve(textToTranslate, _settings.SmartContentType);
 
             await StartSessionRequestAsync(
                 textToTranslate,
-                contentType,
+                route.InitialMode,
                 floatingAnchor,
                 "红点翻译",
-                detection);
+                route.ContentDecision);
         }
         catch (Exception ex)
         {
@@ -832,7 +824,13 @@ public partial class App : Application
         DetectionResult? detection = null)
     {
         _modelSelection.Reset();
-        var transition = _resultSessions.StartSession(text, floatingAnchor, contentType, detection);
+        var requestContext = _translationService!.CaptureRequestContext(_settings!.TargetLanguage);
+        var transition = _resultSessions.StartSession(
+            text,
+            floatingAnchor,
+            contentType,
+            detection,
+            requestContext);
         return ExecuteSessionTransitionAsync(transition, operationName);
     }
 
@@ -850,7 +848,7 @@ public partial class App : Application
             _translationRequests.Cancel();
             var state = transition.Session.ModeStates[transition.Session.ActiveMode];
             var displayRequest = CreateDisplayRequest(
-                transition.Session.SourceText,
+                transition.Session,
                 transition.Session.ActiveMode);
             EnsureModelSelection(transition.Session, displayRequest);
             RefreshFloatingModelSelector();
@@ -876,9 +874,7 @@ public partial class App : Application
         }
 
         var visualPresentationId = _floatingWindow.BeginReplacement(identity.PresentationId);
-        var request = requestOverride ?? CreateDisplayRequest(
-            transition.Session.SourceText,
-            identity.Mode);
+        var request = requestOverride ?? CreateDisplayRequest(transition.Session, identity.Mode);
         EnsureModelSelection(transition.Session, request);
         RefreshFloatingModelSelector();
         _floatingWindow.SetSessionView(
@@ -896,15 +892,22 @@ public partial class App : Application
             request);
     }
 
-    private TranslationRequest CreateDisplayRequest(string text, ContentType contentType)
+    private TranslationRequest CreateDisplayRequest(FloatingResultSession session, ContentType contentType)
     {
+        if (contentType == ContentType.Translation &&
+            _modelSelection.TryGetRequest(session.SessionId, contentType, out var existingRequest) &&
+            existingRequest is not null)
+        {
+            return existingRequest;
+        }
+
         return _translationService!.CreateRequest(
-            text,
-            _settings!.TargetLanguage,
+            session.SourceText,
             contentType,
             contentType == ContentType.Analysis
                 ? TranslationRequestKind.Analysis
-                : TranslationRequestKind.Translation);
+                : TranslationRequestKind.Translation,
+            session.RequestContext);
     }
 
     private void EnsureModelSelection(FloatingResultSession session, TranslationRequest request)
@@ -995,7 +998,7 @@ public partial class App : Application
                 SaveTranslationHistory(
                     request.Text,
                     cachedResult,
-                    request.TargetLanguage,
+                    request.EffectiveTargetLanguage,
                     request.ContentType,
                     request.ModelName);
                 _translationMetrics.RecordCompleted(TimeSpan.Zero, cacheHit: true);
@@ -1116,7 +1119,7 @@ public partial class App : Application
             SaveTranslationHistory(
                 request.Text,
                 result,
-                request.TargetLanguage,
+                request.EffectiveTargetLanguage,
                 request.ContentType,
                 request.ModelName);
             var duration = Stopwatch.GetElapsedTime(startedAt);
@@ -1222,7 +1225,8 @@ public partial class App : Application
                 _resultSessions.GetCompletedFollowUpExchanges(transition.Session.SessionId),
                 transition.Turn.Question,
                 transition.Turn.TurnNumber,
-                identity.RequestId);
+                identity.RequestId,
+                transition.Session.RequestContext);
 
             var presentedText = new StringBuilder();
             var dispatcherMetrics = new StreamingDispatcherMetrics();
@@ -1357,7 +1361,7 @@ public partial class App : Application
 
     private static AnalysisSemanticSnapshot? CreateAnalysisSemanticSnapshot(TranslationRequest request) =>
         request.Kind == TranslationRequestKind.Analysis
-            ? new AnalysisSemanticSnapshot(request.SystemPrompt, request.TargetLanguage)
+            ? new AnalysisSemanticSnapshot(request.SystemPrompt, request.EffectiveTargetLanguage)
             : null;
 
     private async Task ShowMessageWithoutReplacingSessionAsync(

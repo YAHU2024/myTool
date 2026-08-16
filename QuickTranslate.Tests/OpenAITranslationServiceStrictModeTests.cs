@@ -20,7 +20,7 @@ public sealed class OpenAITranslationServiceStrictModeTests
 
         Assert.Equal(TranslationRequestKind.Translation, request.Kind);
         Assert.Equal(ContentType.Translation, request.ContentType);
-        Assert.Contains("Translate the user-provided text into English.", request.SystemPrompt);
+        Assert.Contains("completely into English", request.SystemPrompt);
         Assert.DoesNotContain("terminal command", request.SystemPrompt);
         Assert.DoesNotContain("If the input is code", request.SystemPrompt);
     }

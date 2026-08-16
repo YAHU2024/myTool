@@ -76,6 +76,22 @@ public sealed class SettingsWindowModelSelectionTests
         });
     }
 
+    [SkippableFact]
+    public void AutoDetectionToggle_ControlsFallbackLanguageAvailability()
+    {
+        Skip.If(IsRunningOnCI, "WPF window tests require a real message pump, unavailable on headless CI.");
+
+        RunOnSta(new AppSettings { AutoDetectLanguage = false }, window =>
+        {
+            Assert.False(window.FallbackLanguagePanel.IsEnabled);
+
+            window.AutoDetectLanguageCheckBox.IsChecked = true;
+            PumpDispatcher();
+
+            Assert.True(window.FallbackLanguagePanel.IsEnabled);
+        });
+    }
+
     private static void RunOnSta(AppSettings settings, Action<SettingsWindow> assertion)
     {
         Exception? failure = null;

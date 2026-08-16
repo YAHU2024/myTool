@@ -16,6 +16,10 @@ public class TranslationCacheServiceTests
         var changedModel = translation with { ModelName = "model-b" };
         var analysis = translation with { Kind = TranslationRequestKind.Analysis, ContentType = ContentType.Analysis };
         var changedThinking = translation with { EnableThinking = true };
+        var changedEffectiveTarget = translation with
+        {
+            Direction = translation.Direction with { EffectiveTargetLanguage = "English" }
+        };
 
         cache.Set(translation, "result");
 
@@ -25,6 +29,7 @@ public class TranslationCacheServiceTests
         Assert.False(cache.TryGet(changedModel, out _));
         Assert.False(cache.TryGet(analysis, out _));
         Assert.False(cache.TryGet(changedThinking, out _));
+        Assert.False(cache.TryGet(changedEffectiveTarget, out _));
     }
 
     [Fact]
@@ -90,14 +95,22 @@ public class TranslationCacheServiceTests
         return new TranslationRequest(
             TranslationRequestKind.Translation,
             "hello",
-            "简体中文",
+            FixedDirection("简体中文"),
             ContentType.Translation,
             "https://example.test/v1",
             "api-key",
             model,
-            prompt,
-            false);
+            prompt);
     }
+
+    private static TranslationDirectionDecision FixedDirection(string targetLanguage) =>
+        new(
+            targetLanguage,
+            targetLanguage,
+            LanguageRelation.Unknown,
+            LanguageDetectionConfidence.None,
+            SourceLanguageFamily.Unknown,
+            TranslationDirectionReason.AutoDetectionDisabled);
 
     private sealed class ManualTimeProvider : TimeProvider
     {

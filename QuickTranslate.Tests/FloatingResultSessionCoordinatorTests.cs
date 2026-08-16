@@ -177,4 +177,29 @@ public sealed class FloatingResultSessionCoordinatorTests
         Assert.False(coordinator.TryComplete(secondIdentity, "stale"));
         Assert.Null(coordinator.CurrentSession);
     }
+
+    [Fact]
+    public void SessionRequestContext_IsPreservedAcrossRefreshAndModeSwitch()
+    {
+        var coordinator = new FloatingResultSessionCoordinator();
+        var context = TranslationRequestContext.CreateDefault("简体中文") with
+        {
+            ModelName = "session-model",
+            AutoDetectLanguage = true
+        };
+
+        var initial = coordinator.StartSession(
+            "source",
+            anchor: null,
+            ContentType.Translation,
+            detection: null,
+            context);
+        Assert.Same(context, initial.Session!.RequestContext);
+
+        var code = coordinator.SwitchMode(ContentType.Code);
+        Assert.Same(context, code.Session!.RequestContext);
+
+        var refresh = coordinator.RefreshMode();
+        Assert.Same(context, refresh.Session!.RequestContext);
+    }
 }

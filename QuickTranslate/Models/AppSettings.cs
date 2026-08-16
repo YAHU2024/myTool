@@ -189,7 +189,7 @@ namespace QuickTranslate.Models
         public bool EnableThinking { get; set; } = false;
 
         /// <summary>
-        /// 自定义翻译提示词（留空使用默认，支持 {targetLang} 占位符）
+        /// 附加翻译要求（核心翻译任务始终由程序提供，支持 {targetLang} 占位符）
         /// </summary>
         public string CustomTranslationPrompt { get; set; } = string.Empty;
 

@@ -41,12 +41,20 @@ public class TranslationCacheRefreshTests
         return new TranslationRequest(
             TranslationRequestKind.Translation,
             "hello",
-            "Chinese",
+            FixedDirection("Chinese"),
             ContentType.Translation,
             "https://example.test/v1",
             "api-key",
             "model-a",
-            "Translate to Chinese.",
-            false);
+            "Translate to Chinese.");
     }
+
+    private static TranslationDirectionDecision FixedDirection(string targetLanguage) =>
+        new(
+            targetLanguage,
+            targetLanguage,
+            LanguageRelation.Unknown,
+            LanguageDetectionConfidence.None,
+            SourceLanguageFamily.Unknown,
+            TranslationDirectionReason.AutoDetectionDisabled);
 }

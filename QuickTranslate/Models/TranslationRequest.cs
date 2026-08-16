@@ -14,11 +14,15 @@ public enum TranslationRequestKind
 public sealed record TranslationRequest(
     TranslationRequestKind Kind,
     string Text,
-    string TargetLanguage,
+    TranslationDirectionDecision Direction,
     ContentType ContentType,
     string ApiBaseUrl,
     string ApiKey,
     string ModelName,
     string SystemPrompt,
-    bool FallbackUsed,
-    bool EnableThinking = false);
+    bool EnableThinking = false)
+{
+    public string RequestedTargetLanguage => Direction.RequestedTargetLanguage;
+    public string EffectiveTargetLanguage => Direction.EffectiveTargetLanguage;
+    public bool FallbackUsed => Direction.FallbackUsed;
+}

@@ -96,7 +96,8 @@ internal sealed class FloatingResultSession
         string sourceText,
         FloatingWindowAnchor? anchor,
         ContentType activeMode,
-        DetectionResult? detection = null)
+        DetectionResult? detection = null,
+        TranslationRequestContext? requestContext = null)
     {
         if (string.IsNullOrWhiteSpace(sourceText))
             throw new ArgumentException("Source text is required.", nameof(sourceText));
@@ -106,6 +107,7 @@ internal sealed class FloatingResultSession
         Anchor = anchor;
         ActiveMode = activeMode;
         Detection = detection;
+        RequestContext = requestContext ?? TranslationRequestContext.CreateDefault();
         _modeStates = Enum.GetValues<ContentType>()
             .ToDictionary(mode => mode, _ => ModeResultState.NotStarted());
         _readOnlyModeStates = new ReadOnlyDictionary<ContentType, ModeResultState>(_modeStates);
@@ -116,6 +118,7 @@ internal sealed class FloatingResultSession
     public FloatingWindowAnchor? Anchor { get; }
     public ContentType ActiveMode { get; private set; }
     public DetectionResult? Detection { get; }
+    public TranslationRequestContext RequestContext { get; }
     public IReadOnlyDictionary<ContentType, ModeResultState> ModeStates => _readOnlyModeStates;
     public AnalysisConversationState AnalysisConversation => _analysisConversation;
 

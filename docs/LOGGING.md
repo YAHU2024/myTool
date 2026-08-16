@@ -161,7 +161,7 @@ quicktranslate-2026-07-23-2.log
 新的主日志采用 JSON Lines 格式：每行都是一个独立 JSON 对象，文件扩展名仍为 `.log`。示例：
 
 ```json
-{"Timestamp":"2026-07-23T10:15:30.123-07:00","Level":"Info","Source":"TranslationService","EventName":"translation.completed","Context":{"operation":"translation","content_type":"Translation","target_language":"简体中文","text_len":42,"result_len":18,"duration_ms":527.4}}
+{"Timestamp":"2026-07-23T10:15:30.123-07:00","Level":"Info","Source":"TranslationService","EventName":"translation.completed","Context":{"operation":"translation","content_type":"Translation","requested_target_language":"简体中文","effective_target_language":"English","direction_relation":"Same","direction_confidence":"High","direction_reason":"SourceMatchesRequestedTarget","source_language_family":"Han","text_len":42,"result_len":18,"duration_ms":527.4}}
 ```
 
 标准字段：
@@ -188,7 +188,12 @@ quicktranslate-2026-07-23-2.log
 | --- | --- |
 | `operation` | translation 或 analysis 等请求类型 |
 | `content_type` | Translation、Code、Term、Analysis 等内容模式 |
-| `target_language` | 目标语言名称 |
+| `requested_target_language` | 用户为当前会话选择的目标语言 |
+| `effective_target_language` | 方向判断后本次请求实际使用的目标语言；只有高置信度同语言结果才可能使用备选语言 |
+| `direction_relation` | 源文本与请求目标的关系：Different、Same 或 Unknown |
+| `direction_confidence` | 本地方向判断置信度：None、Low 或 High |
+| `direction_reason` | 方向决策原因，例如 AutoDetectionDisabled、SourceMatchesRequestedTarget 或 SourceLanguageUnknown |
+| `source_language_family` | 仅基于本地文字系统统计得到的语言族，例如 Han、Latin 或 Unknown |
 | `text_len` | 输入字符数，不包含输入内容 |
 | `result_len` | 结果字符数，不包含结果内容 |
 | `duration_ms` | 操作耗时，单位毫秒 |
@@ -332,7 +337,12 @@ Logger.Info("TranslationService", "translation.completed", new
 {
     operation = "translation",
     content_type = request.ContentType.ToString(),
-    target_language = request.TargetLanguage,
+    requested_target_language = request.RequestedTargetLanguage,
+    effective_target_language = request.EffectiveTargetLanguage,
+    direction_relation = request.Direction.Relation.ToString(),
+    direction_confidence = request.Direction.Confidence.ToString(),
+    direction_reason = request.Direction.Reason.ToString(),
+    source_language_family = request.Direction.SourceLanguageFamily.ToString(),
     text_len = request.Text.Length,
     result_len = result.Length,
     duration_ms = elapsed.TotalMilliseconds
@@ -430,12 +440,12 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 
 | Event | Level | Context keys (no text body) |
 |------|-------|-----------------------------|
-| translation.completed | Info | operation, content_type, target_language, text_len, result_len, duration_ms, stream_chunk_count, first_chunk_ms, average_chunk_gap_ms, max_chunk_gap_ms, stalled_chunk_count |
+| translation.completed | Info | operation, content_type, requested_target_language, effective_target_language, direction_relation, direction_confidence, direction_reason, source_language_family, text_len, result_len, duration_ms, stream_chunk_count, first_chunk_ms, average_chunk_gap_ms, max_chunk_gap_ms, stalled_chunk_count |
 | translation.presented | Info | operation, content_type, model, provider, result_len, duration_ms, stream/UI/Dispatcher/Markdown/GC/composition timing fields listed above |
 | analysis.follow_up.completed | Info | turn, answer_len, duration_ms, request_id, stream_chunk_count, first_chunk_ms, average_chunk_gap_ms, max_chunk_gap_ms, stalled_chunk_count |
 | analysis.follow_up.presented | Info | turn, request_id, stream/UI/Dispatcher/Markdown/GC/composition timing fields listed above |
 
-这些字段只包含计数和毫秒值。它们不记录 chunk 正文、累计结果、问题、回答、Prompt、API Key、Authorization 头或供应商响应体。
+这些字段只包含枚举、语言名称、计数和毫秒值。它们不记录 chunk 正文、累计结果、问题、回答、Prompt、API Key、Authorization 头或供应商响应体。方向判断完全在本地完成；自动判断关闭时实际目标始终等于用户选择的目标。拉丁文字语言之间无法仅凭文字系统可靠区分，因此保持 `Unknown` 并使用请求目标，不自动切换到备选语言。
 
 ## Translation quality and model-switch events
 
