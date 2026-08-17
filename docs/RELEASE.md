@@ -350,14 +350,28 @@ Draft PR 创建后等待人工确认。获得明确合并授权后，再将 PR �
 随后同步 `main` 并记录准确的合并提交：
 
 ```powershell
-gh pr ready
+$pr = <PR编号>
+$prHeadSha = gh pr view $pr --json headRefOid --jq .headRefOid
+gh pr ready $pr
 # 仅在发布人明确授权后执行合并，或由发布人在 GitHub 网页手动合并
-gh pr merge --merge --delete-branch
+gh pr merge $pr --squash --delete-branch
 
 git switch main
 git pull --ff-only
-$mergeSha = git rev-parse HEAD
+$mergeSha = gh pr view $pr --json mergeCommit --jq .mergeCommit.oid
+
+# 即使 main 随后又有新提交，也要固定到这个 release PR 自己的 squash commit
+git merge-base --is-ancestor $mergeSha HEAD
+if ($LASTEXITCODE -ne 0) { throw "Release PR squash commit is not on the current main branch." }
+
+# squash 会生成新的提交；发布前必须证明它与已核验的 PR head 文件树一致
+git diff --exit-code $prHeadSha $mergeSha --
+if ($LASTEXITCODE -ne 0) { throw "Squash commit differs from the approved release PR head." }
 ```
+
+树一致性检查通过后，才能把合并前已经核验且与 `version.xml` 校验值匹配的产物
+上传到 Draft Release。不要在合并后随意重建并继续沿用旧校验值；如果重建了安装包，
+必须重新计算 SHA256、更新 `version.xml`，并通过新的 release PR 审批循环。
 
 > 此文件作为 Release 附件上传后，已安装用户的应用会通过
 > `https://github.com/YAHU2024/myTool/releases/latest/download/version.xml`
@@ -620,14 +634,20 @@ git push -u origin HEAD
 gh pr create --draft --base main --title "chore(release): 版本号升级到 $ver" `
   --body-file "$env:TEMP\quicktranslate-release-pr.md"
 
-# STOP：人工确认门 1。报告差异和验证结果；未取得明确授权时不得执行以下两行
-gh pr ready
-gh pr merge --merge --delete-branch
+# STOP：人工确认门 1。报告差异和验证结果；未取得明确授权时不得执行以下四行
+$pr = <PR编号>
+$prHeadSha = gh pr view $pr --json headRefOid --jq .headRefOid
+gh pr ready $pr
+gh pr merge $pr --squash --delete-branch
 
-# 合并后同步 main，并固定 Draft Release 的目标提交
+# 合并后同步 main，验证 squash 文件树，并固定 Draft Release 的目标提交
 git switch main
 git pull --ff-only
-$mergeSha = git rev-parse HEAD
+$mergeSha = gh pr view $pr --json mergeCommit --jq .mergeCommit.oid
+git merge-base --is-ancestor $mergeSha HEAD
+if ($LASTEXITCODE -ne 0) { throw "Release PR squash commit is not on the current main branch." }
+git diff --exit-code $prHeadSha $mergeSha --
+if ($LASTEXITCODE -ne 0) { throw "Squash commit differs from the approved release PR head." }
 
 # 6. 创建 Draft Release（同时上传 5 个文件）
 gh release create v$ver `
