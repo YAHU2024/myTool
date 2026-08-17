@@ -18,7 +18,7 @@
 - [阶段六：合并与清理](#阶段六合并与清理)
 - [提交规范](#提交规范)
 - [PR 标题与正文规范](#pr-标题与正文规范)
-- [合并前置条件（分支保护）](#合并前置条件分支保护)
+- [合并前置条件（仓库流程政策）](#合并前置条件仓库流程政策)
 - [安全红线](#安全红线)
 - [异常处理](#异常处理)
 - [审批节点速查](#审批节点速查)
@@ -30,14 +30,14 @@
 | 角色 | 负责内容 |
 |:-----|:---------|
 | **AI 助手** | 读需求、创建分支、编码、运行 build/test/format、拆分提交、推送、创建草稿 PR、盯 CI、按反馈修改、同步分支。 |
-| **人工（维护者）** | 代码审查（Approving Review）、解决讨论、最终合并、删除远程分支。 |
+| **人工（维护者）** | 审核变更与验证结果、解决讨论、明确批准转正与合并；可自行执行合并，也可明确授权 AI 代为执行。 |
 
 **AI 禁止执行的动作**（除非人工下达明确指令）：
 
 - 直接 `git push` 到 `main`。
 - 直接合并 PR（`gh pr merge`、点 merge 按钮）。
 - 对 `main` 或远端仍存在的已合并分支使用 `git push --force`。对未合并的 PR 分支，rebase 后 force push 更新远程是允许的。
-- 绕过 pre-commit hook（`--no-verify`）或关闭签名校验（`--no-gpg-sign`）。
+- 使用 `--no-verify` 绕过 pre-commit hook。
 - 提交 `settings.json`、密钥、数据库、日志、`bin/`、`obj/`、`publish/`。
 
 > 一句话：**AI 可以把 PR 准备到"只差按合并按钮"，但"按合并按钮"这步属于人工。**
@@ -56,7 +56,7 @@
                                     [5b 草稿转正]（⛔ 人工确认后执行）
                                                     │
                                                     ▼
-                            [5c 代码审查]（CI 绿 + 至少 1 个 Approve）
+                            [5c 人工审查]（检查结果完整 + 明确合并授权）
                                                     │
                                                     ▼
                             [6 合并/清理]（⛔ 人工审批节点）
@@ -88,7 +88,8 @@ git switch -c <类型>/<scope>
 | `docs/` | 文档 | `docs/readme` |
 | `chore/` | 发布/构建等杂项 | `chore/release` |
 
-> 分支名用 `/` 分隔多级时（如 `fix/red_dot`），注意本项目曾出现 git 写命令误删 `.git/refs/heads/<前缀>/` 目录的环境异常，处理办法见 [异常处理](#异常处理)。
+> 如果 Git 写操作后出现 HEAD、ref 或 index 异常，立即停止变更并按
+> [异常处理](#异常处理) 收集证据，不要直接修改 `.git` 内部文件。
 
 ---
 
@@ -143,22 +144,25 @@ git push -u origin HEAD
 ```
 
 - 若本次改动新增/修改了 `.github/workflows/*.yml`，gh 令牌必须具备 `workflow` 作用域，否则 GitHub 拒绝推送。补全：`gh auth refresh -h github.com -s workflow`（设备码流程，需人工在浏览器授权）。
-- 非交互/后台运行 `gh` 时必须带 `-h github.com`，否则报 `--hostname required when not running interactively`。
+- 在仓库外或非交互环境运行 `gh` 时，若无法推断仓库或主机，应显式传入
+  `--repo YAHU2024/myTool` 或 `--hostname github.com`，不要把特定环境报错当作所有环境的固定要求。
 
 ### 4.2 创建草稿 PR
 
 **所有 PR 默认以草稿创建**，避免半成品打扰 reviewer。按 [PR 正文规范](#pr-标题与正文规范) 填写标题与正文。由于正文通常包含多行 markdown（含 checkbox、代码块），直接在 `--body` 参数中传值容易转义出错，应使用 `--body-file`：
 
-```bash
-cat > /tmp/pr_body.md << 'EOF'
+```powershell
+$prBodyPath = Join-Path $env:TEMP "quicktranslate-pr-body.md"
+@'
 <正文>
-EOF
-gh pr create --base main --title "<标题>" --body-file /tmp/pr_body.md --draft
+'@ | Set-Content -LiteralPath $prBodyPath -Encoding utf8
+
+gh pr create --base main --title "<标题>" --body-file $prBodyPath --draft
 ```
 
 - 标题遵循 Conventional Commits 风格并带 scope。
 - 正文必须包含：变更说明、关联 Issue、改动类型、自测项（build/test/手动验证）、reviewer 注意点；XAML 或窗口布局改动附截图/GIF。
-- `cat > file` 写入的文件在沙箱外进程可见；Write 工具写入的文件在沙箱文件系统，`gh --body-file` 读取不到。
+- PR 正文临时文件放在系统临时目录，不要留在仓库根目录或加入提交。
 - 草稿 PR 不会触发 reviewer 通知，CI 仍会运行，但草稿状态不可合并，CI 结果仅供参考。
 
 ---
@@ -191,7 +195,7 @@ git push --force-with-lease
 
    | 转正条件 | 说明 |
    |:---------|:-----|
-   | **CI 全绿** | `build-and-test` 检查全部通过。若 CI 因 `paths-ignore`（如纯文档改动）未触发，视为"CI 条件自动满足"，但 reviewer 仍需确认改动不影响编译。 |
+   | **CI 状态明确** | 已触发的 `build-and-test` 检查全部通过。若因 `paths-ignore`（如纯文档改动）未触发，必须明确报告“未运行”，执行适用的文档/差异检查，并由人工判断是否足够。 |
    | **自测完成** | AI 已完成所有自动化验证；手动验证项（如有）已记录在 PR 正文。 |
    | **正文完整** | PR 正文所有板块已填写，截图（如有）已附上。 |
 
@@ -199,10 +203,10 @@ git push --force-with-lease
    gh pr ready <PR编号>
    ```
 
-5. 转正后，满足 [合并前置条件](#合并前置条件分支保护) 后，**停下来，交由人工审批**（⛔）：
-   - 人工给出至少一次 Approving Review；
+5. 转正后，满足 [合并前置条件](#合并前置条件仓库流程政策) 后，**停下来，交由人工审批**（⛔）：
+   - 人工在对话或 GitHub 上明确表示允许合并；有独立 reviewer 时可用 Approving Review 留痕；
    - 人工确认所有 Review 讨论已 Resolved；
-   - 人工确认 PR 分支与 `main` 无冲突、CI 全绿。
+   - 人工确认 PR 分支与 `main` 无冲突，且 CI 或未运行原因已经说明。
 
 6. 若审查被拒绝（Request Changes），AI 在原分支继续修改、提交、推送，PR 自动更新。若改动方向完全推翻（如换了实现方案），经人工确认后可关闭旧 PR、另开新分支。
 
@@ -216,20 +220,31 @@ git push --force-with-lease
 
 默认使用 **squash merge**（合并提交汇总为一个干净的 squash commit）：
 
-```bash
+```powershell
+$prHeadSha = gh pr view <PR编号> --json headRefOid --jq .headRefOid
 gh pr merge <PR编号> --squash --delete-branch
 ```
 
 ### 6.2 清理本地
 
-```bash
+```powershell
+$prHeadSha = gh pr view <PR编号> --json headRefOid --jq .headRefOid
 git switch main
 git pull --ff-only
 git fetch --prune
-git branch -d <已合并分支>
+
+$mergeSha = gh pr view <PR编号> --json mergeCommit --jq .mergeCommit.oid
+git diff --exit-code $prHeadSha $mergeSha --
+if ($LASTEXITCODE -ne 0) { throw "Squash commit differs from the approved PR head." }
+
+# `gh pr merge --delete-branch` 通常已完成清理；若本地分支仍存在，
+# squash 后原提交不是 main 的祖先，-d 会拒绝。完成上述核验后才允许删除准确分支。
+if (git branch --list <已合并分支>) { git branch -D <已合并分支> }
 ```
 
-> 版本发布（打 tag、建 GitHub Release、更新 `installer/version.xml`）不在本文档范围，按 `docs/RELEASE.md` 由维护者执行。发布 PR 为简化流程：直接开正式 PR，CI 绿即合并，无需草稿和审查。
+> release PR 同样默认使用 Draft PR 和 squash merge，不享有跳过审查或自动合并的例外。
+> 版本号、产物、tag 和 GitHub Release 的额外确认门及文件树校验按
+> [`docs/RELEASE.md`](RELEASE.md) 执行。
 
 ---
 
@@ -296,18 +311,22 @@ git branch -d <已合并分支>
 
 ---
 
-## 合并前置条件（分支保护）
+## 合并前置条件（仓库流程政策）
 
-`main` 分支受 GitHub Branch Protection 保护，合并前必须**同时满足**：
+截至 2026-08-17，GitHub 上的 `main` 没有 Branch Protection 或 Ruleset；下列要求是
+仓库流程政策，而不是平台自动拦截。AI 必须主动遵守，不能因为 GitHub 允许点击合并就
+视为已经获得授权。以后若启用或调整分支保护，应重新核对并同步本文档。
 
 | 检查项 | 说明 |
 |:-------|:-----|
-| **Build & Test 通过** | 所有 `build-and-test` 检查绿色。若 CI 因 `paths-ignore`（如纯 `*.md`、`docs/**`、`LICENSE` 改动）未触发，视为"CI 条件自动满足"，但 reviewer 仍需确认改动不影响编译。 |
-| **PR 审查** | 至少一次 Approving Review。 |
+| **验证状态明确** | 已触发的检查全部通过；未触发或未执行的检查必须如实说明原因、替代检查和剩余风险。 |
+| **人工确认** | 维护者明确批准合并。独立 Approving Review 是推荐留痕方式，但单人维护时不作为虚假的硬性前提。 |
 | **分支保持最新** | PR 分支与 `main` 同步（无冲突）。 |
 | **对话已解决** | 所有 Review 讨论已标记 Resolved。 |
+| **发布附加门禁** | release PR 还必须满足 `docs/RELEASE.md` 中的合并前确认、squash 文件树校验和 Draft Release 发布确认。 |
 
-> 合并后忽略这些规则的风险自负。CI 会在 PR 页面自动展示测试结果与代码覆盖率摘要。
+> 在 GitHub 尚未配置技术强制前，这些规则完全依赖执行者遵守。启用 Branch Protection
+> 或 Ruleset 应作为独立的仓库管理任务评估，不能只修改文档后宣称已经受保护。
 
 ---
 
@@ -318,8 +337,9 @@ git branch -d <已合并分支>
 - 提交 `settings.json`、真实 API Key、服务凭据、数据库文件、日志文件、`bin/`、`obj/`、`publish/`。
 - 在提交消息、PR 正文、Issue、Review 讨论中粘贴真实选中原文、翻译/解析输出、系统/自定义 Prompt、Authorization 头、完整 Provider 响应体、异常消息。
 - 对 `main` 或远端仍存在的已合并分支 `push --force`。对未合并的 PR 分支，rebase 后 `push --force-with-lease` 更新远程是允许的。
-- 绕过 pre-commit hook 或关闭签名校验。
-- 在未获人工明确指令时执行合并、删除远程分支、打 tag 或创建 Release。
+- 使用 `--no-verify` 绕过 pre-commit hook。
+- 在未获人工明确指令时执行合并或删除远程分支；未经发布任务授权创建 Release；
+  未经发布人的第二次明确确认将 Draft Release 转为正式或设置 Latest。
 
 ---
 
@@ -330,39 +350,25 @@ git branch -d <已合并分支>
 - 现象：推送含 `.github/workflows/*.yml` 的提交时报 `refusing to allow an OAuth App to create or update workflow ... without workflow scope`。
 - 处理：`gh auth refresh -h github.com -s workflow`（设备码流程，需人工在浏览器完成一次授权），完成后重推。
 
-### 2. git 写命令误删 `.git/refs/heads/<前缀>/` 目录
+### 2. Git ref 或 index 状态异常
 
-- 现象：`git commit` / `git update-ref` / `git reset` 返回 0（成功），但 `.git/refs/heads/<分支>/` 目录被删，HEAD 指向不存在的 ref，`git status` 把所有文件显示为 `new file` staged。
-- 安全：提交对象和 reflog 完好，数据不丢。
-- 恢复（绕过 git 写 ref）：
-
-```bash
-# 1. 确认提交对象仍在
-git reflog
-git cat-file -t YOUR_COMMIT_HASH
-
-# 2. 手动写回 ref 文件（将 YOUR_COMMIT_HASH / YOUR_PREFIX / YOUR_BRANCH 替换为实际值）
-mkdir -p .git/refs/heads/YOUR_PREFIX
-printf 'YOUR_COMMIT_HASH\n' > .git/refs/heads/YOUR_PREFIX/YOUR_BRANCH
-
-# 3. 用 read-tree 重置脏 index（不要用 git reset，会再删 ref）
-git read-tree HEAD
-
-# 4. 推送正常，不删本地 ref
-git push
-```
-
-> 这些 git 写命令需在**关闭沙箱**的环境中执行；通过 Write 工具写入的文件在沙箱文件系统，沙箱外进程（如 `gh --body-file`）看不到，需用 `bash` 的 `cat > file` 写。
+- 现象：Git 写操作异常返回、HEAD 指向不存在的 ref，或 `git status` 突然把大量文件显示为新增/暂存。
+- 处理：立即停止提交、reset、rebase、清理和推送。先用 `git status`、`git branch -vv`、
+  `git reflog` 和 `git cat-file -t <提交>` 收集只读证据，再向维护者报告。
+- 禁止在未确认原因、目标提交和恢复路径前手写 `.git/refs`、运行 `git read-tree`，
+  或用 `git reset --hard`、`git checkout --` 尝试恢复。
 
 ### 3. 陈旧 `.git/index.lock`
 
 - 现象：git 操作报 `index.lock` 已存在。
-- 处理：确认无 git 进程运行后 `rm -f .git/index.lock`。
+- 处理：先检查是否仍有 Git 进程，并核对锁文件的时间和大小。只有确认锁已失效且维护者
+  明确同意后，才使用 PowerShell 对准确路径执行 `Remove-Item -LiteralPath <index.lock> -Force`。
 
 ### 4. 非交互运行 `gh` 报 hostname 缺失
 
 - 现象：`--hostname required when not running interactively`。
-- 处理：所有 `gh` 命令显式加 `-h github.com`。
+- 处理：确认当前目录属于目标仓库；必要时显式传入 `--repo YAHU2024/myTool` 或
+  `--hostname github.com`，不要盲目重试或改变认证状态。
 
 ---
 
@@ -378,7 +384,7 @@ git push
 | 阶段五 ⛔ | 草稿转正（CI 绿 + 自测完成 + 正文完整，人工确认后执行） | **是** |
 | 阶段五 | 审查拒绝后在原分支继续修改 | 否（AI） |
 | 阶段五 | 关闭旧 PR 另开新分支（需人工确认） | **是** |
-| 阶段五 ⛔ | Approving Review / Resolve 讨论 | **是** |
+| 阶段五 ⛔ | 审查、Resolve 讨论并明确授权合并 | **是** |
 | 阶段六 ⛔ | squash 合并 / 删远程分支 | **是** |
 | 阶段六 | 清理本地分支、同步 main | 否（AI，合并完成后） |
 

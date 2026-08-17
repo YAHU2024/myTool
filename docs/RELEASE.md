@@ -147,10 +147,17 @@ ISCC installer\QuickTranslate-setup-full.iss
 
 ---
 
-## 第三步B：对安装程序进行 Authenticode 签名
+## 第三步B：确认 Authenticode 模式并签名
 
-**这是安全关键步骤。未签名的安装包不得上传到 GitHub Release。
-签名后的安装包才可通过自动更新的独立信任链验证。**
+Authenticode 是自动更新的独立信任链，是否强制签名取决于当前发布模式：
+
+- **咨询模式**：尚未购买代码签名证书时允许发布未签名安装包，但必须保留
+  SHA256 校验，并在发布 PR 和 Release 核验结果中明确标注“未签名”。
+- **严格模式**：购买证书并启用 `RequireAuthenticodeSignature` 后，两个安装包
+  必须完成签名和验证；未签名或签名验证失败的安装包不得上传。
+
+不得把咨询模式的未签名产物描述成已签名，也不得为了通过发布而临时关闭
+已经启用的严格模式。
 
 ### 3B.1 为什么需要签名
 
@@ -162,7 +169,7 @@ Authenticode 签名提供**独立信任链**：
 - 签名私钥离线保管，不进入仓库、CI 日志或构建产物
 - 即使 GitHub Release 被完全控制，攻击者也无法伪造有效签名
 - 应用在执行安装包前依次验证 SHA256 → Authenticode 签名 → 证书链 → 发布者身份
-- 任一验证失败立即中止安装，禁止降级继续
+- 严格模式下任一签名验证失败立即中止安装，禁止降级继续
 
 **两阶段推进策略**：
 
@@ -239,19 +246,24 @@ signtool verify /pa /v publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.
 
 ### 3B.5 检查清单
 
-发布前逐项确认：
+发布前先确认本次采用的模式，再执行对应清单。
+
+咨询模式：
+
+- [ ] `AppSettings.RequireAuthenticodeSignature` 的发布默认值仍为 `false`
+- [ ] 两个安装包的 SHA256 已计算并核对，`version.xml` 指向完整版安装包摘要
+- [ ] 发布 PR 和 Draft Release 核验结果明确标注“安装包未签名（咨询模式）”
+- [ ] 没有把未签名产物描述为已通过 Authenticode 验证
+
+严格模式：
 
 - [ ] 两个安装包均已签名（轻量版 + 完整版）
 - [ ] `signtool verify /pa /v` 对两个包均通过
 - [ ] 证书 Subject 包含 "YaHu"（与 `UpdateService.cs` 中 `ExpectedPublisher` 常量一致）
 - [ ] 时间戳有效（签名时证书在有效期内）
 - [ ] `installer/version.xml` 的 `<signer><subject>` 与证书 Subject 匹配
-- [ ] 验证通过的安装包才上传到 GitHub Release
-- [ ] 未签名的安装包绝不进入 Release
-- [ ] 严格模式已启用确认：
-  - 首次购买证书后，将 `AppSettings.RequireAuthenticodeSignature` 默认值改为 `true`
-  - 或在 `settings.json` 中将 `RequireAuthenticodeSignature` 设为 `true`
-  - 若有旧版本仍在咨询模式运行，需通过一次手动更新过渡到严格模式版本
+- [ ] 只有验证通过的安装包才能上传到 GitHub Release
+- [ ] 若旧版本仍处于咨询模式，已安排一次可验证的严格模式过渡发布
 
 ---
 
@@ -271,7 +283,15 @@ signtool verify /pa /v publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.
 ### 4.2 准备发布提交
 
 先完成下一步的 `version.xml` 和校验和更新，再将所有版本文件放进同一个发布提交。
-不要在 `version.xml` 更新前打标签。发布提交应从 `main` 切出 `chore/release` 分支，通过 PR 合并。发布 PR 为简化流程：直接开正式 PR，CI 绿即合并，无需草稿和审查。
+不要在 `version.xml` 更新前打标签。发布提交应从 `main` 切出 `chore/release` 分支，
+通过 Draft PR 运行 CI 并供发布人检查。
+
+**人工确认门 1：合并 release PR**
+
+代理可以准备分支、推送并创建 Draft PR，但不得启用自动合并。CI 通过后必须向发布人
+报告版本差异、发布说明、自动化结果、安装包签名模式和人工验证缺口，然后停止操作。
+只有发布人明确同意后，才能将 PR 标记为 Ready 并合并。不能把“准备发布”或“CI 通过”
+解释为合并授权。
 
 ---
 
@@ -312,7 +332,8 @@ signtool verify /pa /v publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.
 
 改完跑一次 `dotnet test QuickTranslate.Tests\QuickTranslate.Tests.csproj` 验证这些约束。
 
-验证通过后提交发布分支，通过简化 PR 合并（发布 PR 无需草稿和审查，CI 绿即合并；常规 PR 流程见 [`docs/PR_MERGE_GUIDE.md`](PR_MERGE_GUIDE.md)）：
+验证通过后提交发布分支并创建 Draft PR（常规 PR 流程见
+[`docs/PR_MERGE_GUIDE.md`](PR_MERGE_GUIDE.md)）：
 
 ```powershell
 git switch -c chore/release
@@ -321,17 +342,36 @@ git add QuickTranslate\QuickTranslate.csproj docs\RELEASE.md `
   installer\version.xml QuickTranslate\Services\UpdateService.cs
 git commit -m "chore(release): 版本号升级到 1.8.0"
 git push -u origin HEAD
-gh pr create --base main --title "chore(release): 版本号升级到 1.8.0" --body-file /tmp/pr_body.md
+gh pr create --draft --base main --title "chore(release): 版本号升级到 1.8.0" `
+  --body-file "$env:TEMP\quicktranslate-release-pr.md"
 ```
 
-PR 合并后在最新 `main` 提交上创建并推送标签：
+Draft PR 创建后等待人工确认。获得明确合并授权后，再将 PR 标记为 Ready 并合并；
+随后同步 `main` 并记录准确的合并提交：
 
 ```powershell
+$pr = <PR编号>
+$prHeadSha = gh pr view $pr --json headRefOid --jq .headRefOid
+gh pr ready $pr
+# 仅在发布人明确授权后执行合并，或由发布人在 GitHub 网页手动合并
+gh pr merge $pr --squash --delete-branch
+
 git switch main
 git pull --ff-only
-git tag -a v1.8.0 -m "Release v1.8.0"
-git push origin v1.8.0
+$mergeSha = gh pr view $pr --json mergeCommit --jq .mergeCommit.oid
+
+# 即使 main 随后又有新提交，也要固定到这个 release PR 自己的 squash commit
+git merge-base --is-ancestor $mergeSha HEAD
+if ($LASTEXITCODE -ne 0) { throw "Release PR squash commit is not on the current main branch." }
+
+# squash 会生成新的提交；发布前必须证明它与已核验的 PR head 文件树一致
+git diff --exit-code $prHeadSha $mergeSha --
+if ($LASTEXITCODE -ne 0) { throw "Squash commit differs from the approved release PR head." }
 ```
+
+树一致性检查通过后，才能把合并前已经核验且与 `version.xml` 校验值匹配的产物
+上传到 Draft Release。不要在合并后随意重建并继续沿用旧校验值；如果重建了安装包，
+必须重新计算 SHA256、更新 `version.xml`，并通过新的 release PR 审批循环。
 
 > 此文件作为 Release 附件上传后，已安装用户的应用会通过
 > `https://github.com/YAHU2024/myTool/releases/latest/download/version.xml`
@@ -346,17 +386,28 @@ $ver = "1.8.0"
 
 gh release create v$ver `
   --draft `
+  --target $mergeSha `
   --title "v$ver" `
-  --notes "在此填写更新日志（支持 Markdown）" `
+  --notes-file "$env:TEMP\quicktranslate-release-notes.md" `
   publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.exe `
   publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-full.exe `
   publish\releases\v$ver\QuickTranslate-v$ver-win-x64.zip `
   publish\releases\v$ver\QuickTranslate-v$ver-win-x64-full.zip `
   installer\version.xml
 
-# 核对五个附件后再正式发布
+# 禁止在此自动继续。核对 Draft 并取得发布人的第二次明确确认后，
+# 才能执行下一行；发布人也可以在 GitHub 网页手动发布。
 gh release edit v$ver --draft=false --latest
 ```
+
+`gh release create` 在远端不存在指定 tag 时可能自动创建 tag，因此必须显式传入
+已经确认的 `$mergeSha`，不得依赖默认分支的当前状态。
+
+**人工确认门 2：Draft Release 转正式 Release**
+
+Draft 创建后必须核对标题、发布说明、目标提交、五个附件、SHA256、签名模式、
+Latest/Pre-release 选项和人工验证缺口，并把 Draft 链接及核验结果交给发布人。
+没有明确授权时，禁止执行 `--draft=false`、禁止设置 Latest，也禁止以其他方式公开发布。
 
 ### 5.2 在 GitHub 网页创建
 
@@ -370,8 +421,10 @@ gh release edit v$ver --draft=false --latest
    - `QuickTranslate-v{version}-win-x64.zip` — 标准版压缩包
    - `QuickTranslate-v{version}-win-x64-full.zip` — 完整版压缩包
    - `version.xml` — 自动更新元数据
-6. 保持 Draft，核对五个附件和校验和后再正式发布
-7. 建议在 Release 说明中注明两个版本的区别（参考[第四步 4.1](#41-编写更新日志)）
+6. 保持 Draft，核对目标提交、五个附件、校验和、签名模式和发布说明
+7. 将 Draft 链接和核验结果交给发布人，等待第二次明确确认
+8. 由发布人手动点击发布，或明确授权代理转为正式 Release 并设为 Latest
+9. 建议在 Release 说明中注明两个版本的区别（参考[第四步 4.1](#41-编写更新日志)）
 
 ---
 
@@ -549,7 +602,7 @@ Compress-Archive -Path publish\source\v$ver-full\*  -DestinationPath publish\rel
 ISCC installer\QuickTranslate-setup.iss
 ISCC installer\QuickTranslate-setup-full.iss
 
-# 4.1 签名两个安装包（必须有代码签名证书）
+# 4.1 严格模式：签名两个安装包（咨询模式跳过，但必须在核验结果中标注未签名）
 $certPath = "D:\secure\quicktranslate-code-signing.pfx"
 $tsUrl = "http://timestamp.digicert.com"
 
@@ -571,32 +624,45 @@ signtool verify /pa /v publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-
 # 4.6 验证 version.xml（版本一致性、args、checksum 格式）
 dotnet test QuickTranslate.Tests\QuickTranslate.Tests.csproj
 
-# 5. 提交发布分支并创建 PR（发布 PR 无需草稿和审查，CI 绿即合并；常规 PR 流程见 docs/PR_MERGE_GUIDE.md）
+# 5. 提交发布分支并创建 Draft PR
 git switch -c chore/release
 git add QuickTranslate\QuickTranslate.csproj docs\RELEASE.md `
   installer\QuickTranslate-setup.iss installer\QuickTranslate-setup-full.iss `
   installer\version.xml QuickTranslate\Services\UpdateService.cs
 git commit -m "chore(release): 版本号升级到 $ver"
 git push -u origin HEAD
-gh pr create --base main --title "chore(release): 版本号升级到 $ver" --body-file /tmp/pr_body.md
+gh pr create --draft --base main --title "chore(release): 版本号升级到 $ver" `
+  --body-file "$env:TEMP\quicktranslate-release-pr.md"
 
-# PR 合并后，在最新 main 上打标签
+# STOP：人工确认门 1。报告差异和验证结果；未取得明确授权时不得执行以下四行
+$pr = <PR编号>
+$prHeadSha = gh pr view $pr --json headRefOid --jq .headRefOid
+gh pr ready $pr
+gh pr merge $pr --squash --delete-branch
+
+# 合并后同步 main，验证 squash 文件树，并固定 Draft Release 的目标提交
 git switch main
 git pull --ff-only
-git tag -a v$ver -m "Release v$ver"
-git push origin v$ver
+$mergeSha = gh pr view $pr --json mergeCommit --jq .mergeCommit.oid
+git merge-base --is-ancestor $mergeSha HEAD
+if ($LASTEXITCODE -ne 0) { throw "Release PR squash commit is not on the current main branch." }
+git diff --exit-code $prHeadSha $mergeSha --
+if ($LASTEXITCODE -ne 0) { throw "Squash commit differs from the approved release PR head." }
 
-# 6. 创建 GitHub Release（同时上传 5 个文件 — 签名后的安装包）
+# 6. 创建 Draft Release（同时上传 5 个文件）
 gh release create v$ver `
   --draft `
+  --target $mergeSha `
   --title "v$ver" `
-  --notes "在此填写更新日志" `
+  --notes-file "$env:TEMP\quicktranslate-release-notes.md" `
   publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.exe `
   publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-full.exe `
   publish\releases\v$ver\QuickTranslate-v$ver-win-x64.zip `
   publish\releases\v$ver\QuickTranslate-v$ver-win-x64-full.zip `
   installer\version.xml
 
+# STOP：人工确认门 2。报告 Draft 核验结果；未取得明确授权时不得执行下一行。
+# 发布人也可以在 GitHub 网页手动发布，不需要代理继续操作。
 gh release edit v$ver --draft=false --latest
 ```
 
