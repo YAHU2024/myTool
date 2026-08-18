@@ -31,7 +31,7 @@ QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中�
 
 | 核心体验 | QuickTranslate 能做什么 |
 |:---------|:----------------------|
-| **AI 智能翻译** | 根据选中文本的类型自动选择翻译、代码或术语 Prompt，并以流式方式呈现模型结果 |
+| **AI 智能翻译** | 根据选中文本的类型与语言自动选择任务和翻译方向，支持在当前会话内切换目标语言或模型，并以流式方式呈现结果 |
 | **AI 查词** | ECDICT + OEWN 本地词典优先，云端模型补全缺失中文；本地未命中时由 AI 生成结构化释义，并可补充音标、例句与搭配 |
 | **AI 轻对话** | 对深度解析结果继续追问，最多保留 10 轮上下文；从一个疑问出发，把陌生概念逐层弄懂 |
 | **开放模型接入** | 使用你自己的 OpenAI 兼容接口，自由切换 Base URL 和 Model，不被单一服务商绑定 |
@@ -48,7 +48,7 @@ QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中�
   <img src="docs/images/红点翻译功能展示.gif" alt="划词翻译演示" width="85%">
 </p>
 
-选中文本自动弹出红点引导，根据内容进入翻译、代码或术语模式，**流式输出 AI 结果**；支持拖拽、双击和三击触发。
+选中文本自动弹出红点引导，根据内容进入翻译、代码或术语模式，**流式输出 AI 结果**；支持拖拽、双击和三击触发。翻译模式会保守判断方向，也可在状态栏一键切换目标语言；悬浮窗支持为当前文本临时换用已保存模型，不会修改全局默认配置。
 
 ---
 
@@ -135,9 +135,9 @@ SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支
 
 | 类别 | 特性 |
 |:-----|:-----|
-| 核心翻译 | SSE 流式逐字输出 · 拖拽/双击/三击划词 · 红点引导交互 · 悬浮窗即时展示 · 14 种语言支持 · 语言自动检测 |
-| 智能识别 | 自动区分 Translation / Code / Term，路由专用 Prompt · 置信度诊断 · 浏览器/终端场景感知 |
-| 多模式会话 | 同文本支持翻译 · 命令解析 · 术语解释 · 深度解析四种模式切换 · 已完成结果瞬时恢复 |
+| 核心翻译 | SSE 流式逐字输出 · 拖拽/双击/三击划词 · 红点引导交互 · 悬浮窗即时展示 · 14 种语言支持 · 保守自动判断与会话级手动方向切换 |
+| 智能识别 | 自动区分 Translation / Code / Term，路由专用 Prompt · 低置信度技术文档保持完整翻译 · 浏览器/终端场景感知 |
+| 多模式会话 | 同文本支持翻译 · 命令解析 · 术语解释 · 深度解析四种模式切换 · 已完成结果瞬时恢复 · 当前会话模型切换 |
 | 解析追问 | 深度解析结果内连续追问 · 最多 10 轮上下文 · 流式回答 · 历史节点定位 · 失败尾轮重试 |
 | 快速查词 | 本地词典(ECDICT/OEWN)优先 · 未命中自动回退大模型查词 · 缺失中文一键 AI 补全 · 词性统一中文显示 · 结构化释义/音标/例句/搭配 · 最近 5 项 · 朗读与复制 · 居中弹出/切换隐显 |
 | Markdown | 流式增量渲染 · 围栏闭合后语法高亮与独立复制 · 表格/列表/引用 · 仅允许 http/https 链接 |
@@ -145,10 +145,11 @@ SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支
 | 翻译历史 | SQLite 本地持久化 · 按时间/语言搜索筛选 · 分页浏览 · 双击复制 · Anki 格式导出 |
 | 系统集成 | 两套独立全局快捷键（划词翻译 / 快速查词）· 查词快捷键带开关默认关闭 · 托盘单击快速查词 · 右键恢复最近翻译 · 开机自启 · 浏览器内触发 · 单实例保护 |
 | 深度解析 | 4 种内置预设（通用/语言学习/文学赏析/商务） · 自定义方案新建/复制/编辑/删除 · 多轮方案管理 |
-| 模型接入 | 内置四家供应商预置 · 自定义 OpenAI 兼容 Base URL 与 Model · 已保存配置按域名分组 · 思考模式默认关闭 · 智谱/DeepSeek/SiliconFlow/OpenAI 显式启停思考 |
+| 模型接入 | 内置四家供应商预置 · 自定义 OpenAI 兼容 Base URL 与 Model · 已保存配置支持备注与分组 · 悬浮窗临时切换当前会话模型 · 思考模式默认关闭 · 按供应商能力发送思考参数 |
 | 性能优化 | LRU+TTL 语义缓存 · latest-request-wins 请求冲突防护 · 请求快照隔离 · 设置修改不影响运行中请求 |
-| 自动更新 | GitHub Release 分发 · 启动时静默检查 · 系统代理兼容 · Inno Setup 双版本安装包 · SHA256 校验 |
-| 隐私安全 | 零污染剪贴板获取 · 日志脱敏（不记录原文/API Key/Prompt 正文） · 本地配置不上传 |
+| 结果质量 | 原文回显检测与状态提示 · 可疑结果不进入缓存或历史 · 不静默重试或自动切换模型 |
+| 自动更新 | GitHub Release 分发 · 启动时静默检查 · 应用内展示更新说明 · 系统代理兼容 · Inno Setup 双版本安装包 · SHA256 校验 |
+| 隐私安全 | 零污染剪贴板获取 · 终端安全取词避免误发 Ctrl+C · 日志脱敏（不记录原文/API Key/Prompt 正文） · 本地配置不上传 |
 | 运维诊断 | 结构化 JSON Lines 日志 · 专用查看器 · 多文件切换 · 级别/关键字筛选 · P50/P95/P99 延迟 · 自动清理 |
 
 ---
@@ -170,6 +171,8 @@ dotnet run
 ```
 
 启动后自动最小化到系统托盘，右键托盘图标即可开始配置。
+
+划词翻译完成后，可在悬浮窗底部状态栏切换当前目标语言；该选择只对当前文本会话生效，并在刷新、模式往返和当前会话模型切换后保持，新选中文本会恢复自动判断。模型按钮可以临时换用已保存方案，同样不会修改设置中的全局默认模型。若完整结果与原文高度一致，悬浮窗会保留正文并给出提示，但该结果不会写入缓存或翻译历史，也不会触发静默重试或自动换模型。
 
 单击托盘图标或按 `Alt+W`（需先在设置中开启"快速查词快捷键"）可显示或隐藏快速查词面板；输入单词或短语后按 `Enter` 查询。查词优先使用程序目录下 `Data\word-dictionary.db` 中的本地词典（ECDICT + OEWN），词性统一显示中文，ECDICT 中文释义与 OEWN 英文释义分字段展示；OEWN 原始例句标记为“英文例句”。本地命中默认不会发送任何内容；只有主动点击“AI 补全中文”时，缺少中文的英文义项和例句才会发送到当前 OpenAI 兼容 Provider，补全后来源显示“本地词典 + AI 补全 · 模型名”。未命中或未安装本地词典时仍回退到 AI 查词。正式发布包默认携带本地词典；源码运行需要先从仓库根目录执行 `scripts\prepare-word-dictionary.ps1` 生成该数据库。最近 5 项仅保存在当前进程，退出后清空。右键托盘菜单中的“恢复最近翻译”用于恢复最近一次划词翻译结果。
 
@@ -200,7 +203,7 @@ dotnet run
 | API Key | 你的密钥 | `sk-xxxxxxxxxxxxxxxx` |
 | Model | 模型名称 | `Qwen/Qwen3-8B` |
 
-模型下拉框按域名分组展示已保存配置，选中自动填充 URL 和 Key。思考模式默认关闭；智谱与 DeepSeek 使用 `thinking.type`，SiliconFlow 使用 `enable_thinking`，已适配的 OpenAI GPT-5.2/5.4/5.5/5.6 系列使用 `reasoning_effort`。不支持或未经验证的模型不会自动附加思考参数。
+模型下拉框按域名分组展示已保存配置，选中自动填充 URL 和 Key；每个方案可设置 32 个字符以内的备注。已保存方案也会出现在翻译悬浮窗的模型菜单中，供当前文本会话临时切换。思考模式默认关闭；智谱与 DeepSeek 使用 `thinking.type`，SiliconFlow 使用 `enable_thinking`，已适配的 OpenAI GPT-5.2/5.4/5.5/5.6 系列使用 `reasoning_effort`。不支持或未经验证的模型不会自动附加思考参数。
 
 首次运行会自动打开设置窗口并预选 SiliconFlow `Qwen/Qwen3-8B`。模型下拉框内置 SiliconFlow、智谱、DeepSeek 和 OpenAI 四组无密钥预置；选择预置后仍需填写自己的 API Key。已有配置会原样加载，不会被新的默认值替换；配置文件无法读取时会保留原文件、加载安全默认值并提示重新确认。
 
@@ -237,12 +240,18 @@ QuickTranslate/
 │   ├── ClipboardHelper.cs             # 零污染剪贴板（序列号检测+恢复）
 │   ├── ContentTypeDetector.cs         # 智能内容识别（Translation/Code/Term）
 │   ├── BrowserDetector.cs             # 浏览器窗口感知
-│   ├── TerminalDetector.cs            # 终端窗口感知
+│   ├── TerminalDetector.cs            # 终端宿主识别与复制风险判断
+│   ├── SelectionCapturePolicy.cs      # 选区复制动作安全策略
+│   ├── UiaCircuitBreaker.cs           # UIA 失败熔断与恢复
 │   ├── CopyShortcut.cs                # 复制快捷键辅助
 │   ├── AutoScrollController.cs        # 流式自动滚动（用户操作暂停/恢复）
 │   ├── LatestRequestCoordinator.cs    # latest-request-wins 请求协调
 │   ├── LatestPresentationCoordinator.cs  # 展示身份协调
 │   ├── FloatingResultSessionCoordinator.cs  # 多模式会话统一管理
+│   ├── TranslationDirectionResolver.cs # 自动/手动翻译方向决策
+│   ├── TranslationRouteResolver.cs    # 翻译与解释模式路由
+│   ├── ModelProfileCatalog.cs         # 当前会话可用模型方案目录
+│   ├── ModelSelectionCoordinator.cs   # 会话级模型切换协调
 │   ├── TrayClickCoordinator.cs        # 托盘点击协调（左键/右键/滚轮动作）
 │   ├── WordLookupSessionCoordinator.cs # 查词会话防竞态管理
 │   ├── WordLookupTextFormatter.cs     # 查词结果格式化
@@ -260,6 +269,8 @@ QuickTranslate/
 │   ├── ProviderModelCapabilities.cs   # 公共模型能力描述
 │   ├── ProviderRequestPolicy.cs       # 供应商请求参数策略
 │   ├── ProviderHttpError.cs           # 安全的供应商 HTTP 错误提取
+│   ├── TranslationPromptBuilder.cs    # 翻译任务与输入保护 Prompt
+│   ├── TranslationEchoDetector.cs     # 原文回显质量检测
 │   ├── BigModelModelCapabilities.cs   # 智谱模型思考能力
 │   ├── DeepSeekModelCapabilities.cs   # DeepSeek 模型思考能力
 │   ├── SiliconFlowModelCapabilities.cs # SiliconFlow 模型思考能力
@@ -287,6 +298,8 @@ QuickTranslate/
 │   ├── AppSettings.cs                 # 配置模型（多模型/快捷键/解析预设/更新设置）
 │   ├── ProviderPreset.cs              # 无密钥供应商预置目录
 │   ├── TranslationRequest.cs          # 不可变请求快照
+│   ├── TranslationRequestContext.cs   # 会话请求语义快照
+│   ├── TranslationDirectionDecision.cs # 翻译方向决策结果
 │   ├── FloatingResultSession.cs       # 多模式会话状态
 │   ├── AnalysisPromptProfile.cs       # 自定义解析方案
 │   ├── TranslationTriggerMode.cs      # 翻译触发模式枚举
@@ -310,6 +323,8 @@ QuickTranslate/
 │   ├── TrayIconManager.cs             # 系统托盘（右键菜单/气泡通知）
 │   ├── SettingsWindow.xaml/.cs        # 设置窗口（模型/快捷键/解析方案/更新管理）
 │   ├── DownloadUpdateWindow.xaml/.cs  # 更新下载窗口
+│   ├── UpdateAvailableWindow.xaml/.cs # 更新说明与用户确认窗口
+│   ├── ModelSelectorControl.xaml/.cs  # 当前会话模型选择控件
 │   ├── HistoryWindow.xaml/.cs         # 翻译历史查看
 │   ├── LogViewerWindow.xaml/.cs       # 日志查看器
 │   ├── LogEntryReader.cs              # 日志读取与筛选
@@ -337,6 +352,7 @@ myTool/
 ├── docs/                              # 项目文档
 │   ├── images/                        # 文档配图
 │   ├── LOGGING.md                     # 日志功能文档
+│   ├── PR_MERGE_GUIDE.md              # PR 创建、审批与合并流程
 │   ├── RELEASE.md                     # 发布流程文档
 │   ├── RELEASE_NOTES_NEXT.md          # 下一版本发布说明草稿
 │   └── THIRD_PARTY_NOTICES.md         # 第三方依赖声明
@@ -362,7 +378,7 @@ myTool/
 
 ### 自动更新
 
-应用启动时会静默检查 GitHub Release 上的最新版本。发现新版本后通过托盘气泡通知用户，点击即可触发更新对话框。下载和安装由 AutoUpdater.NET 接管，安装程序通过 SHA256 校验完整性。
+应用启动时会静默检查 GitHub Release 上的最新版本。发现新版本后通过托盘气泡通知用户，点击后在应用内查看更新说明并确认下载；下载和安装由 AutoUpdater.NET 接管，安装程序通过 SHA256 校验完整性。安装程序会检查 WebView2 Runtime，缺失时按需安装，以保证更新说明能够正常显示。
 
 更新流程详情见 [docs/RELEASE.md](docs/RELEASE.md)；下一版本的用户可见变更在 [发布说明草稿](docs/RELEASE_NOTES_NEXT.md) 中维护。
 
@@ -386,7 +402,7 @@ myTool/
 | 十二 | 自动更新 + GitHub Release 分发 + Inno Setup 双版本安装包 | done |
 | 十三 | 快速查词面板 + 独立全局快捷键 + 托盘单击集成 + 本地词典(ECDICT/OEWN) + AI中文补全 + 词性归一化 | done |
 | 十四 | 解析追问 + 多轮上下文 + 流式回答 + 历史节点定位 | done |
-| 十五 | 性能优化 | 规划中 |
+| 十五 | 终端安全取词 + 翻译方向与智能路由 + 会话模型/方向切换 + 回显质量门禁 | done |
 | 十六 | UI 统一与国际化 | 规划中 |
 
 ---

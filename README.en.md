@@ -4,7 +4,7 @@
 
 **More than translation. Select text and start understanding with AI.**
 
-QuickTranslate is a Windows AI tool that works inside your reading flow. Select text for AI translation, local-dictionary lookup enhanced by a cloud model, code and term analysis, and follow-up questions grounded in the result. No repeated copy-paste or window switching: move from reading the words to understanding the idea in one interaction.
+QuickTranslate is a Windows AI tool built for reading workflows. Select text to get AI translation, local-dictionary lookup with cloud-model enhancement, code and terminology analysis, and follow-up questions grounded in the result. No repeated copy-paste or window switching: a single selection can move from literal reading to real understanding.
 
 <br>
 
@@ -20,7 +20,7 @@ QuickTranslate is a Windows AI tool that works inside your reading flow. Select 
 
 <br>
 
-[Download](#download--install) · [Run from source](#quick-start-from-source) · [See the demos](#screenshots) · [Open an issue](https://github.com/YAHU2024/myTool/issues)
+[Download & install](#download--install) · [Run from source](#quick-start-from-source) · [See the demos](#screenshots) · [Open an issue](https://github.com/YAHU2024/myTool/issues)
 
 </div>
 
@@ -29,114 +29,131 @@ QuickTranslate is a Windows AI tool that works inside your reading flow. Select 
 ## Three AI Experiences, One Open Entry Point
 
 | Core experience | What QuickTranslate does |
-|:----------------|:-------------------------|
-| **Smart AI translation** | Detects whether the selected text is translation, code, or a term, routes it to a purpose-built prompt, and streams the model result |
-| **AI-assisted lookup** | Starts with ECDICT + OEWN locally, uses AI to complete missing Chinese definitions, and can add phonetics, structured definitions, examples, and collocations on a local miss |
-| **Focused AI follow-ups** | Ask questions about a deep-analysis result with up to 10 turns of context, turning one unclear point into a progressively clearer explanation |
-| **Open model access** | Bring any OpenAI-compatible Base URL and Model instead of depending on one provider |
+|:---------|:----------------------|
+| **AI smart translation** | Automatically matches the selected text type and language, chooses the appropriate task and translation direction, supports switching target language or model within the current session, and streams results incrementally |
+| **AI lookup** | Prioritizes ECDICT + OEWN local dictionaries, uses the cloud model to fill in missing Chinese meanings, and generates structured explanations, phonetics, examples, and collocations when local results are missing |
+| **AI lightweight follow-up** | Continue asking questions based on the deep-analysis result, holding up to 10 turns of context; start from one uncertainty and unpack unfamiliar concepts step by step |
+| **Open model integration** | Use your own OpenAI-compatible endpoint, freely switch Base URL and Model without being locked to a single provider |
 
-Local dictionary hits stay offline by default. Settings and history remain on your device, and privacy-safe logs omit selected text, prompt bodies, and API keys.
+Local dictionary hits default to offline mode. Settings and history stay on-device, and privacy-safe logs do not record selected text, prompt bodies, or API keys.
 
-> Finding it useful? Give the project a [**Star**](https://github.com/YAHU2024/myTool) so others can discover it.
+> If it helps you, please give the project a [**Star**](https://github.com/YAHU2024/myTool) so more people can discover it.
 
 ## Features
 
-| Category | Features |
-|:-----|:-----|
-| Core Translation | SSE streaming token-by-token output · drag / double-click / triple-click selection · red-dot guidance interaction · floating window instant preview · 14 languages · automatic language detection |
-| Smart Detection | Auto-classifies Translation / Code / Term and routes to specialized prompts · confidence diagnostics · browser / terminal scene awareness |
-| Multi-mode Sessions | Switch between Translate / Command-parse / Term-explain / Deep-analysis on the same text · instant restore of finished results |
-| Analysis Follow-ups | Up to 10 contextual questions after deep analysis · streaming answers · history-node navigation · retry for the latest failed turn |
-| Quick Lookup | Local dictionary priority (ECDICT/OEWN) · automatic AI fallback on miss · one-click AI Chinese completion · unified POS labels · structured definitions / phonetics / examples / collocations · five recent items · speech and copy · centered popup / toggle visibility |
-| Markdown | Incremental rendering while streaming · syntax highlighting after a fence closes · standalone code copy · tables / lists / quotes · only http/https links allowed |
-| Text-to-Speech | Edge TTS online synthesis · read selected text · one-click read of translation result · automatic language matching |
-| Translation History | SQLite local persistence · search & filter by time / language · paginated browsing · double-click to copy · Anki-format export |
-| System Integration | Two independent global hotkey sets (select-to-translate / quick lookup) · lookup hotkey has on/off toggle disabled by default · single-click tray lookup · restore latest translation from the context menu · launch on startup · in-browser trigger · single-instance guard |
-| Deep Analysis | 4 built-in presets (general / language-learning / literary / business) · custom profile create / duplicate / edit / delete · multi-turn profile management |
-| Model Access | Four built-in provider presets · custom OpenAI-compatible Base URL and Model · saved configurations grouped by domain · thinking mode disabled by default · explicit thinking control for Zhipu / DeepSeek / SiliconFlow / verified OpenAI GPT-5.2/5.4/5.5/5.6 models |
-| Performance | LRU + TTL semantic cache · latest-request-wins conflict protection · request snapshot isolation · live setting changes don't affect in-flight requests |
-| Auto Update | GitHub Release delivery · silent check on startup · system-proxy compatible · Inno Setup dual installer · SHA256 verification |
-| Privacy & Security | Zero-pollution clipboard access · desensitized logs (no original text / API key / prompt body) · local config never uploaded |
-| Ops & Diagnostics | Structured JSON Lines logs · dedicated viewer · multi-file switching · level / keyword filtering · P50/P95/P99 latency · auto cleanup |
-
----
-
-## Screenshots
-
-### AI Select-to-Translate · Red-dot Guidance
+### AI text selection translation · red-dot guidance
 
 <p align="center">
   <img src="docs/images/红点翻译功能展示.gif" alt="Select-to-translate demo" width="85%">
 </p>
 
-Select text to open red-dot guidance and route it to translation, code, or term mode with a **streaming AI result**. Trigger it by drag, double-click, or triple-click.
+Select text to open a red-dot guide and route it into translation, code, or terminology mode. Results are streamed in real time. The feature supports drag, double-click, and triple-click activation. Translation mode makes a conservative direction decision by default, but you can switch the target language from the status bar with one click. The floating window also supports temporarily using a saved model for the current text without modifying the global default settings.
 
 ---
 
-### Analysis Follow-ups · Keep Exploring the Result
+### Follow-up analysis · keep understanding the result
 
 <p align="center">
   <img src="docs/images/解析追问功能展示.gif" alt="Analysis follow-up demo" width="85%">
 </p>
 
-After deep analysis, keep asking in the same floating window with up to 10 contextual turns. Answers stream in place, while history nodes let you revisit, locate, or retry the latest turn.
+After deep analysis, you can continue asking questions in the same floating window, with up to 10 turns of context retained. Answers stream in place, and you can revisit, locate, or retry the last turn from history nodes.
 
 ---
 
-### Settings · Multi-model & Hotkey Management
+### Settings window · multi-model and shortcut management
 
 <p align="center">
   <img src="docs/images/设置页展示.gif" alt="Settings page" width="85%">
 </p>
 
-Multi-model switching, customizable global hotkeys, analysis profile management — **changes apply instantly without restart**.
+Multi-model switching, custom global shortcuts, and analysis profile management — **changes apply immediately without restart**.
 
 ---
 
-### AI Lookup · Local Dictionary Foundation, Cloud Model Completion
+### AI lookup · local dictionary foundation, cloud-model completion
 
 <p align="center">
   <img src="docs/images/快速查词窗口.png" alt="Quick Lookup window" width="85%">
 </p>
 
-Single-click the tray or press `Alt+W` to open a compact lookup panel. **ECDICT + OEWN stay first**, while AI can complete missing Chinese definitions; a local miss falls back to the cloud model for structured definitions and optional phonetics, examples, and collocations.
+Click the tray icon or press `Alt+W` to open a compact lookup panel. **Local dictionaries (ECDICT + OEWN) take priority**, and AI fills in missing Chinese definitions when needed. When local results are absent, it falls back to the cloud model to generate structured definitions and optionally provide phonetics, examples, and collocations.
 
 ---
 
-### Translation History · Search & Anki Export
+### Translation history · local search and Anki export
 
 <p align="center">
   <img src="docs/images/翻译历史页面.png" alt="Translation history" width="85%">
 </p>
 
-SQLite local persistence, search & filter by time / language, paginated browsing, **one-click Anki-format export**.
+SQLite keeps history locally, supports time/language search and filters, paginated browsing, and **one-click Anki export**.
 
 ---
 
-### Log Viewer · JSON Lines & Latency Metrics
+### Log viewer · JSON Lines and latency metrics
 
 <p align="center">
   <img src="docs/images/日志查看器.png" alt="Log viewer" width="85%">
 </p>
 
-Structured JSON Lines logs, multi-file switching, level / keyword filtering, **P50/P95/P99 latency statistics**, auto cleanup of expired logs.
+Structured JSON Lines logs, multi-file switching, level and keyword filtering, **P50/P95/P99 latency statistics**, and automatic cleanup of expired logs.
 
 ---
 
-## Download & Install
+## Table of contents
 
-Don't want to set up a dev environment? Just download the installer — **double-click to run, no .NET 8 SDK required**.
-
-| Edition | Size | Notes |
-|:-----|:-----|:-----|
-| **Full (recommended)** | ~85 MB | Bundles the runtime and local dictionary → [Download latest full edition](https://github.com/YAHU2024/myTool/releases/latest) |
-| **Standard** | ~47 MB | Bundles the local dictionary; requires the [.NET 8 runtime](https://dotnet.microsoft.com/download/dotnet/8.0) → [All releases](https://github.com/YAHU2024/myTool/releases) |
-
-All past versions, changelogs, and SHA256 checksums are on the [Releases page](https://github.com/YAHU2024/myTool/releases). After install, the app minimizes to the system tray; right-click the tray icon to configure.
+- [QuickTranslate](#quicktranslate)
+  - [Three AI Experiences, One Open Entry Point](#three-ai-experiences-one-open-entry-point)
+  - [Features](#features)
+    - [AI text selection translation · red-dot guidance](#ai-text-selection-translation--red-dot-guidance)
+    - [Follow-up analysis · keep understanding the result](#follow-up-analysis--keep-understanding-the-result)
+    - [Settings window · multi-model and shortcut management](#settings-window--multi-model-and-shortcut-management)
+    - [AI lookup · local dictionary foundation, cloud-model completion](#ai-lookup--local-dictionary-foundation-cloud-model-completion)
+    - [Translation history · local search and Anki export](#translation-history--local-search-and-anki-export)
+    - [Log viewer · JSON Lines and latency metrics](#log-viewer--json-lines-and-latency-metrics)
+  - [Table of contents](#table-of-contents)
+  - [Feature highlights](#feature-highlights)
+  - [Quick Start](#quick-start)
+    - [Requirements](#requirements)
+    - [Run](#run)
+  - [Download & Install](#download--install)
+  - [Configure API](#configure-api)
+  - [Project Structure](#project-structure)
+    - [Top-level layout](#top-level-layout)
+  - [Release & Update](#release--update)
+    - [Dual installer](#dual-installer)
+    - [Auto update](#auto-update)
+  - [Roadmap](#roadmap)
+  - [Open Source Acknowledgements](#open-source-acknowledgements)
+  - [License](#license)
 
 ---
 
-## Quick Start (from source)
+## Feature highlights
+
+| Category | Features |
+|:-----|:-----|
+| Core translation | SSE streaming output · drag/double-click/triple-click selection · red-dot guidance · floating-window preview · 14 languages supported · conservative auto-detection and session-level target-language switching |
+| Smart detection | Automatically distinguishes Translation / Code / Term and routes specialized prompts · keeps technical docs intact in low-confidence cases · browser / terminal awareness |
+| Multi-mode sessions | Same text can switch among Translate / Command parsing / Terminology explanation / Deep analysis · instant restore of finished results · current-session model switching |
+| Follow-up analysis | Deep analysis can continue with up to 10 contextual turns · streaming replies · history-node navigation · retry on last failed turn |
+| Quick lookup | Local dictionary priority (ECDICT/OEWN) · automatic AI fallback on miss · one-click AI Chinese completion · normalized POS labels · structured definitions / phonetics / examples / collocations · last 5 items · spoken output and copy · centered popup / show-hide toggle |
+| Markdown | Incremental streaming rendering · fence-closed code highlighting and standalone copy · tables / lists / quotes · only http/https links allowed |
+| Text-to-speech | Edge TTS online synthesis · read selected text · one-click read of translation result · automatic language matching |
+| Translation history | SQLite local persistence · time/language search and filtering · pagination · double-click copy · Anki export |
+| System integration | Two independent global shortcut sets (selection translation / quick lookup) · lookup shortcut has enable/disable switch off by default · tray click quick lookup · right-click restore latest translation · startup auto-launch · browser trigger · single-instance protection |
+| Deep analysis | 4 built-in presets (general / language learning / literary appreciation / business) · create / duplicate / edit / delete custom profiles · multi-turn profile management |
+| Model access | Built-in presets for four vendors · custom OpenAI-compatible Base URL and Model · saved configurations support notes and grouping · floating window can temporarily switch the current-session model · thinking mode off by default · send thinking parameters only when the provider model is verified compatible |
+| Performance | LRU + TTL semantic cache · latest-request-wins protection · request snapshot isolation · changing settings does not affect in-flight requests |
+| Result quality | Original-text echo detection and status hints · suspicious results are never cached or archived · no silent retry or automatic model switching |
+| Auto update | GitHub Releases distribution · silent startup check · in-app update changelog · system proxy support · Inno Setup dual installer · SHA256 verification |
+| Privacy & security | Zero-pollution clipboard capture · terminal-safe extraction avoids accidental Ctrl+C · log redaction (no original text / API keys / prompt body) · local config never uploaded |
+| Operations & diagnostics | Structured JSON Lines logs · dedicated viewer · multi-file switching · level / keyword filtering · P50/P95/P99 latency · automatic cleanup |
+
+---
+
+## Quick Start
 
 ### Requirements
 
@@ -152,36 +169,55 @@ cd myTool\QuickTranslate
 dotnet run
 ```
 
-The app minimizes to the system tray on launch; right-click the tray icon to open settings.
+After launch, the app minimizes to the system tray automatically. Right-click the tray icon to configure it.
 
-Single-click the tray icon or press `Alt+W` (enable "Quick Lookup hotkey" in Settings first) to show or hide Quick Lookup, then enter a word or phrase and press `Enter`. Lookup prefers the local dictionary at `Data\word-dictionary.db` (ECDICT + OEWN). Part-of-speech labels are consistently localized, ECDICT Chinese definitions and OEWN English definitions stay in separate fields, and untranslated OEWN examples are labeled as English examples. Local hits send nothing by default. Only clicking "AI 补全中文" sends missing English definitions and examples to the configured OpenAI-compatible provider; enriched results are labeled "本地词典 + AI 补全 · model." Missing local entries still fall back to AI lookup. Release packages bundle the local dictionary by default; source builds must run `scripts\prepare-word-dictionary.ps1` from the repository root first to generate it. The five recent items are process-local and cleared on exit. Use "Restore latest translation" in the tray context menu for the previous select-to-translate result.
+Once translation is complete, you can switch the current target language from the floating window status bar. This change only applies to the current text session and remains after refreshes, mode changes, and current-session model switching. A newly selected text restores the automatic language decision. The model button lets you temporarily use a saved model without changing the global default in settings.
+
+If the final result is highly similar to the original text, the floating window keeps the body and displays a hint, but that result will not be written to cache or translation history and will not trigger silent retry or automatic model switching.
+
+Click the tray icon or press `Alt+W` (enable "Quick Lookup shortcut" in Settings first) to show or hide the quick lookup panel. Enter a word or phrase and press `Enter` to query. Lookup prefers the local dictionary at `Data\word-dictionary.db` (ECDICT + OEWN), local entries display part-of-speech labels in Chinese, ECDICT Chinese definitions and OEWN English definitions are shown in separate fields, and OEWN examples are marked as "English example". Local hits default to no network or API usage. Only when the user clicks "AI 补全中文" does missing English definitions and examples go to the configured OpenAI-compatible provider. After enrichment, the source is labeled "本地词典 + AI 补全 · model name". Missing local entries still fall back to AI lookup. Release builds include the local dictionary by default; source builds need to run `scripts\prepare-word-dictionary.ps1` from the repository root first to generate it. The last 5 items are stored only in the current process and are cleared on exit. Right-click the tray menu and choose "Restore latest translation" to reopen the most recent selection translation result.
+
+> If you do not want to install the .NET SDK, jump to [Download & Install](#download--install) and get the self-contained installer.
+
+---
+
+## Download & Install
+
+Don't want to set up a development environment? Download the installer directly — **double-click and run, without needing the .NET 8 SDK**.
+
+| Edition | Size | Notes |
+|:-----|:-----|:-----|
+| **Full (recommended)** | ~85 MB | Self-contained runtime and local dictionary, ready to use → [Download the latest full edition](https://github.com/YAHU2024/myTool/releases/latest) |
+| **Standard** | ~47 MB | Includes the local dictionary but requires the [.NET 8 runtime](https://dotnet.microsoft.com/download/dotnet/8.0) → [All releases](https://github.com/YAHU2024/myTool/releases) |
+
+All historical versions, changelogs, and SHA256 checksums are on the [Releases page](https://github.com/YAHU2024/myTool/releases). After installation, the app minimizes to the system tray; right-click the tray icon to configure it.
 
 ---
 
 ## Configure API
 
-Right-click the tray icon and open the settings window:
+Right-click the tray icon to open the settings window:
 
 | Field | Description | Example |
 |:-----|:-----|:-------|
-| Base URL | API endpoint | `https://api.siliconflow.cn/v1` |
-| API Key | Your key | `sk-xxxxxxxxxxxxxxxx` |
+| Base URL | API endpoint address | `https://api.siliconflow.cn/v1` |
+| API Key | Your secret key | `sk-xxxxxxxxxxxxxxxx` |
 | Model | Model name | `Qwen/Qwen3-8B` |
 
-The model dropdown groups saved configurations by domain and auto-fills URL and Key on selection. Thinking mode is disabled by default. Zhipu and DeepSeek use `thinking.type`, SiliconFlow uses `enable_thinking`, and verified OpenAI GPT-5.2/5.4/5.5/5.6 models use `reasoning_effort`. Unsupported or unverified models do not receive an assumed thinking parameter.
+The model dropdown groups saved configs by domain and auto-fills the URL and key on selection. Each saved profile can store a note up to 32 characters long. Saved profiles also appear in the floating window model menu so you can temporarily switch the current text session without changing the global default. Thinking mode is off by default. Zhipu and DeepSeek use `thinking.type`, SiliconFlow uses `enable_thinking`, and verified OpenAI GPT-5.2/5.4/5.5/5.6 series models use `reasoning_effort`. Unsupported or unverified models do not receive thinking parameters automatically.
 
-On first launch, Settings opens automatically with SiliconFlow `Qwen/Qwen3-8B` selected. The model dropdown includes credential-free presets for SiliconFlow, Zhipu, DeepSeek, and OpenAI; you must still enter your own API key. Existing settings load unchanged. If the settings file cannot be read, QuickTranslate preserves it, loads safe defaults, and asks you to review the configuration before saving.
+On first launch, Settings opens automatically with SiliconFlow `Qwen/Qwen3-8B` preselected. The model dropdown includes built-in no-key presets for SiliconFlow, Zhipu, DeepSeek, and OpenAI; you still need to fill in your own API key. Existing configs load as-is without being overwritten by new defaults. If the config file cannot be read, QuickTranslate preserves the original file, loads safe defaults, and prompts you to confirm the settings.
 
-Quick Lookup shares the translation Base URL, API Key, and Model settings. Local dictionary hits do not require an API key or network; only local misses send the query to the configured provider. AI-generated definitions are learning aids rather than authoritative dictionary data, and uncertain optional fields such as phonetics may be omitted.
+Quick lookup and translation use the same Base URL, API Key, and Model configuration. Local dictionary hits do not need an API key or internet access. Only missing local entries, or a user explicitly choosing "AI 补全中文", sends relevant content to the configured provider. AI-generated or translated content is meant to assist understanding and is not authoritative dictionary data; uncertain values such as phonetics may be omitted.
 
 <details>
-<summary>One-click provider reference (expand)</summary>
+<summary>Quick provider reference (expand)</summary>
 
 <br>
 
 | Provider | Base URL | Model |
 |:-------|:---------|:------|
-| SiliconFlow (free recommended) | `https://api.siliconflow.cn/v1` | `Qwen/Qwen3-8B` |
+| SiliconFlow (recommended) | `https://api.siliconflow.cn/v1` | `Qwen/Qwen3-8B` |
 | Zhipu GLM | `https://open.bigmodel.cn/api/paas/v4` | `glm-4.7-flash` |
 | DeepSeek | `https://api.deepseek.com/v1` | `deepseek-v4-flash` |
 | OpenAI | `https://api.openai.com/v1` | `gpt-5.4` |
@@ -200,97 +236,110 @@ Quick Lookup shares the translation Base URL, API Key, and Model settings. Local
 QuickTranslate/
 ├── Core/                              # Core engine
 │   ├── GlobalKeyboardHook.cs          # Global keyboard hook (independent message loop)
-│   ├── SelectionDetector.cs           # Mouse-hook selection detection (drag/double/triple-click)
+│   ├── SelectionDetector.cs           # Mouse hook selection detection (drag/double/triple-click)
 │   ├── SelectionLocator.cs            # UIA pixel-level selection locator
 │   ├── ClipboardHelper.cs             # Zero-pollution clipboard (serial detection + restore)
-│   ├── ContentTypeDetector.cs         # Smart content detection (Translation/Code/Term)
+│   ├── ContentTypeDetector.cs         # Smart content detection (Translation / Code / Term)
 │   ├── BrowserDetector.cs             # Browser window awareness
-│   ├── TerminalDetector.cs            # Terminal window awareness
+│   ├── TerminalDetector.cs            # Terminal host awareness + copy-risk detection
+│   ├── SelectionCapturePolicy.cs      # Selection-copy safety policy
+│   ├── UiaCircuitBreaker.cs           # UIA failure breaker and recovery
 │   ├── CopyShortcut.cs                # Copy shortcut helper
 │   ├── AutoScrollController.cs        # Streaming auto-scroll (pause/resume on user action)
-│   ├── LatestRequestCoordinator.cs    # latest-request-wins coordinator
-│   ├── LatestPresentationCoordinator.cs  # Presentation identity coordinator
-│   ├── FloatingResultSessionCoordinator.cs  # Multi-mode session manager
-│   ├── TrayClickCoordinator.cs        # Tray click coordinator (left/right/scroll actions)
+│   ├── LatestRequestCoordinator.cs    # latest-request-wins request coordination
+│   ├── LatestPresentationCoordinator.cs  # Presentation identity coordination
+│   ├── FloatingResultSessionCoordinator.cs  # Multi-mode session coordination
+│   ├── TranslationDirectionResolver.cs # Auto/manual translation direction decisions
+│   ├── TranslationRouteResolver.cs    # Translation and explanation mode routing
+│   ├── ModelProfileCatalog.cs         # Session-level available model profile catalog
+│   ├── ModelSelectionCoordinator.cs   # Session-level model-switch coordination
+│   ├── TrayClickCoordinator.cs        # Tray interaction coordination (left/right/scroll)
 │   ├── WordLookupSessionCoordinator.cs # Lookup session race-condition guard
 │   ├── WordLookupTextFormatter.cs     # Lookup result text formatter
 │   ├── RecentLookupBuffer.cs          # Recent lookup buffer
-│   └── TtsPlaybackCoordinator.cs      # TTS playback coordinator (multi-owner, busy avoidance)
+│   └── TtsPlaybackCoordinator.cs      # TTS playback coordination (multi-owner, busy avoidance)
 │
-├── Database/                          # Persistence
-│   ├── TranslationRecord.cs           # History model
+├── Database/                          # Persistence layer
+│   ├── TranslationRecord.cs           # Translation history model
 │   └── TranslationDbContext.cs        # EF Core SQLite context
 │
 ├── Services/                          # Business services
 │   ├── ITranslationService.cs         # Translation service interface
-│   ├── OpenAITranslationService.cs    # OpenAI-compatible SSE streaming
-│   ├── ProviderKind.cs                # Official API host and provider resolution
+│   ├── OpenAITranslationService.cs    # OpenAI-compatible streaming translation
+│   ├── ProviderKind.cs                # Official API host and provider parsing
 │   ├── ProviderModelCapabilities.cs   # Shared model capability descriptor
 │   ├── ProviderRequestPolicy.cs       # Provider request parameter policy
 │   ├── ProviderHttpError.cs           # Safe provider HTTP error extraction
-│   ├── BigModelModelCapabilities.cs   # Zhipu thinking capabilities
-│   ├── DeepSeekModelCapabilities.cs   # DeepSeek thinking capabilities
-│   ├── SiliconFlowModelCapabilities.cs # SiliconFlow thinking capabilities
+│   ├── TranslationPromptBuilder.cs    # Translation task and input-protection prompts
+│   ├── TranslationEchoDetector.cs     # Original-text echo quality detection
+│   ├── BigModelModelCapabilities.cs   # Zhipu model-thinking capabilities
+│   ├── DeepSeekModelCapabilities.cs   # DeepSeek model-thinking capabilities
+│   ├── SiliconFlowModelCapabilities.cs # SiliconFlow model-thinking capabilities
 │   ├── OpenAIModelCapabilities.cs     # OpenAI reasoning capabilities
 │   ├── PromptInputContract.cs         # Model input safety and length contract
-│   ├── TranslationCacheService.cs      # Semantic cache (LRU + 30min TTL)
+│   ├── TranslationCacheService.cs     # Semantic cache (LRU + 30 min TTL)
 │   ├── TranslationMetrics.cs          # Metrics (P50/P95/P99)
 │   ├── HistoryExporter.cs             # History export (Anki/CSV)
 │   ├── AnalysisPromptCatalog.cs       # Built-in / custom analysis profiles
-│   ├── UpdateService.cs               # Auto update (GitHub Release + AutoUpdater.NET)
+│   ├── UpdateService.cs               # Auto-updater (GitHub Release + AutoUpdater.NET)
 │   ├── ITtsService.cs                 # TTS service interface
-│   ├── EdgeTtsService.cs              # Edge TTS read-aloud
+│   ├── EdgeTtsService.cs              # Edge TTS read-aloud service
 │   ├── EdgeTtsClient.cs               # Edge TTS WebSocket client
 │   ├── TtsTextSelector.cs             # TTS text selector
 │   ├── TtsSpeakException.cs           # TTS exception class
 │   ├── IWordLookupService.cs          # Word lookup service interface
-│   ├── IWordLookupEnrichmentService.cs # AI lookup enrichment interface
-│   ├── OpenAIWordLookupService.cs     # OpenAI-compatible word lookup
+│   ├── IWordLookupEnrichmentService.cs # AI word lookup enrichment interface
+│   ├── OpenAIWordLookupService.cs     # OpenAI-compatible word lookup service
 │   ├── LocalDictionaryWordLookupService.cs # ECDICT + OEWN local lookup
 │   ├── CompositeWordLookupService.cs   # Local dictionary first, AI fallback
 │   ├── WordLookupPromptBuilder.cs     # Word lookup prompt builder
-│   └── WordPartOfSpeechNormalizer.cs  # Part-of-speech label normalization
+│   └── WordPartOfSpeechNormalizer.cs  # POS label normalization
 │
 ├── Models/                            # Data models
-│   ├── AppSettings.cs                 # Settings (multi-model / hotkeys / profiles / update)
+│   ├── AppSettings.cs                 # Settings (multi-model / hotkeys / profiles / updates)
 │   ├── ProviderPreset.cs              # Credential-free provider preset catalog
 │   ├── TranslationRequest.cs          # Immutable request snapshot
+│   ├── TranslationRequestContext.cs   # Session request semantic snapshot
+│   ├── TranslationDirectionDecision.cs # Translation direction decision result
 │   ├── FloatingResultSession.cs       # Multi-mode session state
 │   ├── AnalysisPromptProfile.cs       # Custom analysis profile
 │   ├── TranslationTriggerMode.cs      # Translation trigger mode enum
-│   └── WordLookupModels.cs            # Word lookup result models (definition/phonetic/example/collocation)
+│   └── WordLookupModels.cs            # Word lookup result models (definition / phonetic / example / collocation)
 │
 ├── Helpers/                           # Utilities
-│   ├── ConfigManager.cs               # JSON config read/write + migration
+│   ├── ConfigManager.cs               # JSON configuration read/write + migration
 │   ├── Logger.cs                      # Async logger (JSON Lines / rotation / cleanup)
 │   ├── LogEvent.cs                    # Structured log event model
 │   ├── MarkdownRenderer.cs            # Safe Markdown renderer
-│   ├── CodeSyntaxHighlighter.cs       # Local fenced-code syntax highlighting
+│   ├── CodeSyntaxHighlighter.cs       # Local code-block syntax highlighting
 │   ├── Win32Api.cs                    # Win32 P/Invoke declarations
-│   ├── DpiHelper.cs                   # DPI scaling coordinate conversion
+│   ├── DpiHelper.cs                   # DPI coordinate conversion
 │   ├── ApiEndpointValidator.cs        # API endpoint format validation
-│   └── AuthenticodeVerifier.cs        # Installer digital signature verification
+│   ├── AuthenticodeVerifier.cs        # Installer digital-signature verification
+│   └── ...
 │
 ├── UI/                                # User interface
-│   ├── FloatingWindow.xaml/.cs        # Floating window (multi-mode/Markdown/TTS/pin)
+│   ├── FloatingWindow.xaml/.cs        # Floating window (multi-mode / Markdown / TTS / pin)
 │   ├── RedDotWindow.xaml/.cs          # Red-dot guidance window
-│   ├── QuickLookupWindow.xaml/.cs     # Quick lookup window (structured definition/speech)
-│   ├── TrayIconManager.cs            # System tray (context menu / toast)
-│   ├── SettingsWindow.xaml/.cs       # Settings (models / hotkeys / profiles / update)
+│   ├── QuickLookupWindow.xaml/.cs     # Quick lookup window (structured definitions / speech)
+│   ├── TrayIconManager.cs             # System tray (context menu / toast)
+│   ├── SettingsWindow.xaml/.cs        # Settings (models / hotkeys / profiles / updates)
 │   ├── DownloadUpdateWindow.xaml/.cs  # Update download window
-│   ├── HistoryWindow.xaml/.cs        # Translation history
-│   ├── LogViewerWindow.xaml/.cs      # Log viewer
-│   ├── LogEntryReader.cs             # Log read & filter
+│   ├── UpdateAvailableWindow.xaml/.cs # Update details and confirmation
+│   ├── ModelSelectorControl.xaml/.cs  # Current-session model selector
+│   ├── HistoryWindow.xaml/.cs         # Translation history viewer
+│   ├── LogViewerWindow.xaml/.cs       # Log viewer
+│   ├── LogEntryReader.cs              # Log reading and filtering
 │   ├── FloatingWindowAnchor.cs        # Window anchor positioning
 │   ├── FloatingWindowPlacement.cs     # Window placement management
-│   ├── TrayPanelPlacement.cs          # Tray panel placement (multi-monitor DPI)
+│   ├── TrayPanelPlacement.cs          # Tray-panel placement for multi-monitor DPI
 │   └── FloatingStatusMessage.cs       # Status messages
 │
 ├── Assets/                            # App icon resources
 ├── app.manifest                       # Windows application manifest
 ├── QuickTranslate.csproj              # .NET 8 project file
 ├── MainWindow.xaml/.cs                # Hidden main window (stable WPF lifecycle)
-└── App.xaml/.cs                       # App entry (single-instance / update / dispatch)
+└── App.xaml/.cs                       # App entry (single-instance / update scheduling / dispatch)
 ```
 
 ### Top-level layout
@@ -299,20 +348,22 @@ QuickTranslate/
 myTool/
 ├── .github/                           # GitHub Actions workflows & issue templates
 ├── QuickTranslate/                    # Main source project
-├── QuickTranslate.Tests/              # xUnit unit tests
+├── QuickTranslate.Tests/              # xUnit test project
 ├── installer/                         # Inno Setup scripts + version.xml
 ├── scripts/                           # Helper scripts
-├── docs/                              # Documentation
-│   ├── images/                        # Screenshots
+├── docs/                              # Project documentation
+│   ├── images/                        # Documentation images
 │   ├── LOGGING.md                     # Logging guide
+│   ├── PR_MERGE_GUIDE.md              # PR creation, review, and merge workflow
 │   ├── RELEASE.md                     # Release process
-│   ├── RELEASE_NOTES_NEXT.md          # Next-release notes draft
+│   ├── RELEASE_NOTES_NEXT.md          # Draft for next-release notes
 │   └── THIRD_PARTY_NOTICES.md         # Third-party notices
-├── .gitignore                         # Git ignore rules
+├── .gitignore                         # Ignore rules
 ├── CONTRIBUTING.md                    # Contribution guide
 ├── LICENSE
 ├── README.en.md                       # English README
-└── README.md
+├── README.md                          # Chinese README
+└── ...
 ```
 
 ---
@@ -321,18 +372,20 @@ myTool/
 
 ### Dual installer
 
-Inno Setup produces two installers:
+Inno Setup generates two installers:
 
 | Edition | Size | Dependency |
 |:-----|:-----|:-----|
-| Standard | ~47 MB | Local dictionary included; requires .NET 8 runtime |
-| Full | ~85 MB | Local dictionary included; self-contained |
+| Standard | ~47 MB | Includes the local dictionary; requires the .NET 8 runtime |
+| Full | ~85 MB | Includes the local dictionary and is self-contained |
 
 ### Auto update
 
-On startup the app silently checks the latest GitHub Release. When a new version is found, a tray toast notifies the user; clicking it opens the update dialog. Download and install are handled by AutoUpdater.NET, with SHA256 integrity verification.
+The app silently checks GitHub Releases on startup. When a new version is available, a tray notification appears. Clicking it opens the update notes inside the app; download and installation are handled by AutoUpdater.NET with SHA256 verification.
 
-See [docs/RELEASE.md](docs/RELEASE.md) for the release process and the [next-release notes draft](docs/RELEASE_NOTES_NEXT.md) for pending user-visible changes.
+The installer also checks for WebView2 Runtime and installs it if needed so the release notes display correctly.
+
+See [docs/RELEASE.md](docs/RELEASE.md) for the full release process, and [docs/RELEASE_NOTES_NEXT.md](docs/RELEASE_NOTES_NEXT.md) for pending user-visible changes.
 
 ---
 
@@ -340,19 +393,30 @@ See [docs/RELEASE.md](docs/RELEASE.md) for the release process and the [next-rel
 
 | Phase | Core work | Status |
 |:----:|:---------|:----:|
-| 1–12 | Skeleton, select-to-translate, tray, history, smart detection, semantic cache, multi-mode sessions, real-time Markdown, syntax highlighting, structured logs, TTS, auto update | done |
-| 13 | Quick lookup panel + independent global hotkey + tray click integration + local dictionary (ECDICT/OEWN) + AI Chinese completion + POS normalization | done |
-| 14 | Contextual analysis follow-ups + streaming answers + history-node navigation | done |
-| 15 | Performance optimization | planned |
-| 16 | UI unification & internationalization | planned |
+| 1 | Basic skeleton + manual translation trigger + streaming output | done |
+| 2 | Select-to-translate + red-dot UI + floating window + UIA positioning + DPI adaptation | done |
+| 3 | System tray + settings persistence + startup auto-launch | done |
+| 4 | Translation history + hotkey customization + language auto-detection + prompt customization | done |
+| 5 | Single-instance protection + signal guard + logging system + zero-pollution clipboard | done |
+| 6 | Smart content detection + regression tests + browser detection + multi-model management | done |
+| 7 | Request lifecycle refactor + semantic cache + latest-request-wins | done |
+| 8 | Multi-mode sessions + real-time Markdown rendering + code highlighting + stream control + draggable window resizing | done |
+| 9 | Structured logging + log viewer + level filtering + P50/P95/P99 metrics | done |
+| 10 | Four prompt behavior contracts + built-in/custom analysis profile management + privacy-safe logs | done |
+| 11 | TTS voice playback + Edge TTS synthesis + automatic language matching | done |
+| 12 | Auto-update + GitHub Release distribution + Inno Setup dual installer | done |
+| 13 | Quick lookup panel + independent global shortcut + tray click integration + local dictionary (ECDICT/OEWN) + AI Chinese completion + POS normalization | done |
+| 14 | Follow-up analysis + multi-turn context + streaming responses + history-node navigation | done |
+| 15 | Terminal-safe extraction + translation direction and smart routing + session model/direction switching + echo-quality gatekeeping | done |
+| 16 | UI unification and internationalization | planned |
 
 ---
 
 ## Open Source Acknowledgements
 
-QuickTranslate uses open-source components including [AutoUpdater.NET](https://github.com/ravibpatel/AutoUpdater.NET), [Markdig](https://github.com/xoofx/markdig), [ColorCode](https://github.com/CommunityToolkit/ColorCode-Universal), [Entity Framework Core](https://github.com/dotnet/efcore), and [SQLitePCLRaw](https://github.com/ericsink/SQLitePCL.raw). Its local dictionary is built from [ECDICT](https://github.com/skywind3000/ECDICT) and [Open English WordNet](https://en-word.net/). We thank their maintainers and contributors.
+QuickTranslate uses components such as [AutoUpdater.NET](https://github.com/ravibpatel/AutoUpdater.NET), [Markdig](https://github.com/xoofx/markdig), [ColorCode](https://github.com/CommunityToolkit/ColorCode-Universal), [Entity Framework Core](https://github.com/dotnet/efcore), and [SQLitePCLRaw](https://github.com/ericsink/SQLitePCL.raw). Its local dictionary is built from [ECDICT](https://github.com/skywind3000/ECDICT) and [Open English WordNet](https://en-word.net/). We thank these projects and their maintainers.
 
-See [Third-Party Notices](docs/THIRD_PARTY_NOTICES.md) for complete sources, versions, attributions, and license terms.
+The complete source, versions, copyright notices, and license terms are listed in [docs/THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md).
 
 ---
 
@@ -362,12 +426,8 @@ See [Third-Party Notices](docs/THIRD_PARTY_NOTICES.md) for complete sources, ver
 
 New versions released on or after 2026-08-06 are licensed under the
 [Mozilla Public License 2.0 (MPL-2.0)](LICENSE).
-MPL-2.0 permits personal, commercial, and redistribution use. When distributing
-MPL-covered files with modifications, the modified source for those files must
-also be made available. New independent files may use other licenses. The
-project name, logo, and icons are not licensed as trademarks.
+MPL-2.0 allows personal and commercial use, modification, and redistribution. When distributing MPL-covered files with modifications, the corresponding source code for those files must also be made available. New standalone files may use other licenses. The project name, logo, and icons are not granted as trademarks.
 
-Versions released before this date remain available under the original MIT
-License included with those releases; this change is not retroactive.
+Versions released before that date remain under their original MIT license, and this change does not retroactively affect earlier releases.
 
 </div>
