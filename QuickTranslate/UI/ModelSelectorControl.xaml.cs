@@ -46,7 +46,9 @@ public partial class ModelSelectorControl : UserControl
         if (!enabled)
             SelectorPopup.IsOpen = false;
         IsEnabled = enabled;
-        Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        // Keep the selector visible while a follow-up owns the current request,
+        // but make it non-interactive until the user can explicitly retry.
+        Visibility = profiles.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         ModelNameText.Text = currentProfile?.SelectorDisplayName ?? "选择模型";
         SelectorButton.ToolTip = currentProfile is null
             ? "选择当前会话模型"

@@ -700,19 +700,27 @@ public partial class App : Application
     private async void OnModelProfileSelected(string profileId)
     {
         if (_settings is null || _floatingWindow is null ||
-            _resultSessions.CurrentSession is not { } session ||
-            session.ActiveMode != ContentType.Translation)
+            _resultSessions.CurrentSession is not { } session)
+        {
+            return;
+        }
+
+        // A running follow-up owns its presentation identity. Do not replace it
+        // from the model menu; the new model takes effect when the user retries.
+        if (session.ActiveMode == ContentType.Analysis &&
+            _resultSessions.ActiveOperation is { Kind: FloatingResultActiveOperationKind.FollowUp })
         {
             return;
         }
 
         var profile = BuildAvailableModelProfiles()
             .FirstOrDefault(candidate => string.Equals(candidate.Id, profileId, StringComparison.Ordinal));
-        var state = session.ModeStates[ContentType.Translation];
-        var previousProfile = _modelSelection.CurrentProfile;
+        var mode = session.ActiveMode;
+        var state = session.ModeStates[mode];
+        var previousProfile = _modelSelection.GetCurrentProfile(mode);
         var decision = _modelSelection.Select(
             session.SessionId,
-            ContentType.Translation,
+            mode,
             profile,
             state.Status == ModeResultStatus.Loading);
         if (decision.Intent == ModelSelectionIntent.NoOp)
@@ -736,6 +744,12 @@ public partial class App : Application
             request_running = state.Status == ModeResultStatus.Loading
         });
         RefreshFloatingModelSelector();
+        if (mode == ContentType.Analysis &&
+            session.AnalysisConversation.Turns.Count > 0)
+        {
+            _floatingWindow.ShowSelectionCaptureFeedback("已切换后续追问模型，重试或下一轮追问时生效");
+            return;
+        }
         await ExecuteSessionTransitionAsync(
             _resultSessions.RefreshMode(),
             "切换模型",
@@ -937,8 +951,7 @@ public partial class App : Application
                 : TranslationRequestKind.Translation,
             session.RequestContext,
             session.TranslationDirectionPreference);
-        if (contentType == ContentType.Translation &&
-            _modelSelection.TryApplyCurrentProfile(
+        if (_modelSelection.TryApplyCurrentProfile(
                 session.SessionId,
                 contentType,
                 semanticRequest,
@@ -953,8 +966,7 @@ public partial class App : Application
 
     private void EnsureModelSelection(FloatingResultSession session, TranslationRequest request)
     {
-        if (session.ActiveMode != ContentType.Translation ||
-            _modelSelection.IsCurrent(session.SessionId, ContentType.Translation))
+        if (_modelSelection.IsCurrent(session.SessionId, session.ActiveMode))
         {
             return;
         }
@@ -964,7 +976,7 @@ public partial class App : Application
             .FirstOrDefault(profile => ModelProfileCatalog.Matches(profile, request));
         _modelSelection.BeginSession(
             session.SessionId,
-            ContentType.Translation,
+            session.ActiveMode,
             savedProfile ?? ModelProfileCatalog.CreateCurrent(request),
             request);
     }
@@ -987,10 +999,11 @@ public partial class App : Application
         if (_floatingWindow is null || _resultSessions.CurrentSession is not { } session)
             return;
 
-        var enabled = session.ActiveMode == ContentType.Translation;
+        var enabled = session.ActiveMode != ContentType.Analysis ||
+            _resultSessions.ActiveOperation is not { Kind: FloatingResultActiveOperationKind.FollowUp };
         _floatingWindow.SetModelProfiles(
             BuildAvailableModelProfiles(),
-            enabled ? _modelSelection.CurrentProfile : null,
+            _modelSelection.GetCurrentProfile(session.ActiveMode),
             enabled);
     }
 
@@ -1307,7 +1320,7 @@ public partial class App : Application
                 transition.Turn.Question,
                 transition.Turn.TurnNumber,
                 identity.RequestId,
-                transition.Session.RequestContext);
+                BuildFollowUpRequestContext(transition.Session));
 
             var presentedText = new StringBuilder();
             var dispatcherMetrics = new StreamingDispatcherMetrics();
@@ -1443,8 +1456,25 @@ public partial class App : Application
 
     private static AnalysisSemanticSnapshot? CreateAnalysisSemanticSnapshot(TranslationRequest request) =>
         request.Kind == TranslationRequestKind.Analysis
-            ? new AnalysisSemanticSnapshot(request.SystemPrompt, request.EffectiveTargetLanguage)
+            ? new AnalysisSemanticSnapshot(
+                request.SystemPrompt,
+                request.EffectiveTargetLanguage,
+                request.ModelName)
             : null;
+
+    private TranslationRequestContext BuildFollowUpRequestContext(FloatingResultSession session)
+    {
+        var context = session.RequestContext;
+        if (_modelSelection.GetCurrentProfile(ContentType.Analysis) is not { IsComplete: true } profile)
+            return context;
+
+        return context with
+        {
+            ApiBaseUrl = profile.ApiBaseUrl,
+            ApiKey = profile.ApiKey,
+            ModelName = profile.ModelName
+        };
+    }
 
     private async Task ShowMessageWithoutReplacingSessionAsync(
         string message,

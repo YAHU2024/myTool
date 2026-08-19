@@ -118,8 +118,9 @@ public sealed class ModelSelectionTests
         Assert.Equal(
             ModelSelectionIntent.OpenSettings,
             coordinator.Select(Guid.NewGuid(), ContentType.Translation, first, false).Intent);
+        coordinator.BeginSession(sessionId, ContentType.Code, first, request);
         Assert.Equal(
-            ModelSelectionIntent.OpenSettings,
+            ModelSelectionIntent.NoOp,
             coordinator.Select(sessionId, ContentType.Code, first, false).Intent);
         Assert.Equal(
             ModelSelectionIntent.OpenSettings,
@@ -197,6 +198,33 @@ public sealed class ModelSelectionTests
         Assert.Equal("English", switched.Request.EffectiveTargetLanguage);
         Assert.Equal(TranslationDirectionReason.UserSelectedFallback, switched.Request.Direction.Reason);
         Assert.Equal("translate to English", switched.Request.SystemPrompt);
+    }
+
+    [Fact]
+    public void Coordinator_KeepsIndependentProfilesForCodeAndTermModes()
+    {
+        var coordinator = new ModelSelectionCoordinator();
+        var sessionId = Guid.NewGuid();
+        var codeRequest = CreateRequest("code-a", "https://a.example/v1", "key-a") with
+        {
+            ContentType = ContentType.Code,
+            SystemPrompt = "code prompt"
+        };
+        var termRequest = codeRequest with
+        {
+            ContentType = ContentType.Term,
+            ModelName = "term-a",
+            SystemPrompt = "term prompt"
+        };
+        var code = new ModelProfile("code", "Code", "code-a", "a", codeRequest.ApiBaseUrl, codeRequest.ApiKey);
+        var term = new ModelProfile("term", "Term", "term-a", "a", termRequest.ApiBaseUrl, termRequest.ApiKey);
+        coordinator.BeginSession(sessionId, ContentType.Code, code, codeRequest);
+        coordinator.BeginSession(sessionId, ContentType.Term, term, termRequest);
+
+        Assert.Equal("code-a", coordinator.GetCurrentProfile(ContentType.Code)!.ModelName);
+        Assert.Equal("term-a", coordinator.GetCurrentProfile(ContentType.Term)!.ModelName);
+        Assert.True(coordinator.TryGetRequest(sessionId, ContentType.Code, out var restoredCode));
+        Assert.Equal(ContentType.Code, restoredCode!.ContentType);
     }
 
     private static TranslationRequest CreateRequest(string model, string apiBaseUrl, string apiKey) => new(

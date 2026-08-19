@@ -4,7 +4,10 @@ public sealed record ChatCompletionMessage(string Role, string Content);
 
 public sealed record AnalysisFollowUpExchange(string Question, string Answer);
 
-public sealed record AnalysisSemanticSnapshot(string SystemPrompt, string TargetLanguage);
+public sealed record AnalysisSemanticSnapshot(
+    string SystemPrompt,
+    string TargetLanguage,
+    string RootModelName = "");
 
 public sealed record AnalysisFollowUpRequest(
     int TurnNumber,
