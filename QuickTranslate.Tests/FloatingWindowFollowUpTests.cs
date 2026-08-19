@@ -222,7 +222,8 @@ public sealed class FloatingWindowFollowUpTests
                 Conversation([loading]));
 
             Assert.False(window.FollowUpTextBox.IsEnabled);
-            Assert.False(window.FollowUpSendButton.IsEnabled);
+            Assert.True(window.FollowUpSendButton.IsEnabled);
+            Assert.Equal("停止生成", AutomationProperties.GetName(window.FollowUpSendButton));
             Assert.Equal(1, window.AnalysisTurnViewCount);
             Assert.Equal(2, window.ConversationNodeCount);
             Assert.True(window.ConversationRailColumn.Width.IsAuto);
@@ -232,7 +233,8 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Collection(
                 questionHeader.ColumnDefinitions,
                 labelColumn => Assert.True(labelColumn.Width.IsAuto),
-                questionColumn => Assert.Equal(GridUnitType.Star, questionColumn.Width.GridUnitType));
+                questionColumn => Assert.Equal(GridUnitType.Star, questionColumn.Width.GridUnitType),
+                editColumn => Assert.True(editColumn.Width.IsAuto));
             var questionLabel = Assert.Single(questionHeader.Children.OfType<TextBlock>());
             var question = Assert.Single(questionHeader.Children.OfType<TextBox>());
             var answer = Assert.Single(turnPanel.Children.OfType<TextBox>());
@@ -679,6 +681,64 @@ public sealed class FloatingWindowFollowUpTests
             PumpDispatcher();
 
             Assert.True(window.FollowUpTextBox.IsKeyboardFocused);
+        });
+    }
+
+    [SkippableFact]
+    public void LoadingSendButton_StopsAndRestoresCurrentTurnForEditing()
+    {
+        RunOnSta(window =>
+        {
+            var loading = new AnalysisFollowUpTurnState(
+                1,
+                "original question",
+                "partial",
+                AnalysisFollowUpTurnStatus.Loading,
+                2);
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([loading]));
+            var stopCount = 0;
+            window.AnalysisFollowUpStopRequested += () => stopCount++;
+
+            window.FollowUpSendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            Assert.Equal(1, stopCount);
+            Assert.Equal("停止生成", window.FollowUpSendButton.ToolTip);
+        });
+    }
+
+    [SkippableFact]
+    public void CompletedQuestion_EditResendsSameTurn()
+    {
+        RunOnSta(window =>
+        {
+            var completed = new AnalysisFollowUpTurnState(
+                1,
+                "original question",
+                "answer",
+                AnalysisFollowUpTurnStatus.Completed,
+                2);
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([completed]));
+            var turnPanel = Assert.IsType<StackPanel>(
+                Assert.IsType<Border>(window.AnalysisTurnsPanel.Children[0]).Child);
+            var questionHeader = Assert.IsType<Grid>(turnPanel.Children[0]);
+            var edit = Assert.Single(questionHeader.Children.OfType<Button>());
+            var replacements = new List<(int TurnNumber, string Question)>();
+            window.AnalysisFollowUpReplaceRequested +=
+                (turnNumber, question) => replacements.Add((turnNumber, question));
+
+            edit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.FollowUpTextBox.Text = "edited question";
+            window.FollowUpSendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            Assert.Equal([(1, "edited question")], replacements);
         });
     }
 

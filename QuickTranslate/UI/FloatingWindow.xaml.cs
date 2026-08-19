@@ -102,6 +102,7 @@ public partial class FloatingWindow : Window
     private bool _isImeComposing;
     private bool _suppressDraftEvent;
     private bool _restoreFollowUpFocusAfterCompletion;
+    private int? _editingFollowUpTurnNumber;
     private bool _wasFollowUpBusy;
     private string _copyText = string.Empty;
     private string _speechText = string.Empty;
@@ -119,6 +120,8 @@ public partial class FloatingWindow : Window
     public event Action? HideRequested;
     public event Action<Guid, ContentType, double, bool>? ScrollStateChanged;
     public event Action<string>? AnalysisFollowUpRequested;
+    public event Action<int, string>? AnalysisFollowUpReplaceRequested;
+    public event Action? AnalysisFollowUpStopRequested;
     public event Action? AnalysisFollowUpRetryRequested;
     public event Action<Guid, string>? AnalysisDraftChanged;
     internal event Action<string>? ModelProfileSelected;
@@ -333,6 +336,7 @@ public partial class FloatingWindow : Window
             _ = StopTtsAsync();
             _restoreFollowUpFocusAfterCompletion = false;
             _wasFollowUpBusy = false;
+            _editingFollowUpTurnNumber = null;
         }
 
         _sessionId = sessionId;
@@ -797,8 +801,11 @@ public partial class FloatingWindow : Window
         if (busy)
             _ = StopTtsAsync();
         FollowUpTextBox.IsEnabled = !busy && !limitReached;
-        FollowUpSendButton.IsEnabled = !busy && !limitReached;
+        FollowUpSendButton.IsEnabled = busy || !limitReached;
         FollowUpSendButton.Opacity = FollowUpSendButton.IsEnabled ? 1.0 : 0.45;
+        FollowUpSendButton.Content = busy ? StopIcon : "\uE724";
+        FollowUpSendButton.ToolTip = busy ? "停止生成" : "发送追问";
+        AutomationProperties.SetName(FollowUpSendButton, busy ? "停止生成" : "发送追问");
         FollowUpInputHint.Text = limitReached
             ? "已达到本次解析的 10 轮追问上限"
             : "继续追问...";
@@ -861,6 +868,7 @@ public partial class FloatingWindow : Window
         };
         questionHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         questionHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        questionHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         container.Children.Add(questionHeader);
 
         var label = new TextBlock
@@ -883,6 +891,25 @@ public partial class FloatingWindow : Window
         Grid.SetColumn(question, 1);
         AutomationProperties.SetName(question, $"Q{turn.TurnNumber} 问题");
         questionHeader.Children.Add(question);
+
+        if (turn.Status == AnalysisFollowUpTurnStatus.Completed)
+        {
+            var edit = new Button
+            {
+                Content = "\uE70F",
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                ToolTip = $"编辑 Q{turn.TurnNumber}",
+                Style = (Style)FindResource("IconToolbarButton"),
+                Width = 24,
+                Height = 24,
+                Margin = new Thickness(4, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Top
+            };
+            Grid.SetColumn(edit, 2);
+            AutomationProperties.SetName(edit, $"编辑 Q{turn.TurnNumber}");
+            edit.Click += (_, _) => BeginEditingFollowUp(turn);
+            questionHeader.Children.Add(edit);
+        }
 
         if (turn.Status == AnalysisFollowUpTurnStatus.Completed &&
             MarkdownRenderer.TryRender(
@@ -928,6 +955,7 @@ public partial class FloatingWindow : Window
             AutomationProperties.SetName(retry, $"重试 Q{turn.TurnNumber}");
             retry.Click += (_, _) =>
             {
+                _editingFollowUpTurnNumber = null;
                 _restoreFollowUpFocusAfterCompletion = true;
                 AnalysisFollowUpRetryRequested?.Invoke();
             };
@@ -1394,6 +1422,7 @@ public partial class FloatingWindow : Window
         _copyText = string.Empty;
         _speechText = string.Empty;
         _analysisConversation = AnalysisConversationState.Empty();
+        _editingFollowUpTurnNumber = null;
         RenderAnalysisConversation();
         _isMarkdownExpanded = false;
         _lastPositionedHeight = 0;
@@ -2090,7 +2119,30 @@ public partial class FloatingWindow : Window
         ResetAutoHideTimer();
     }
 
-    private void FollowUpSendButton_Click(object sender, RoutedEventArgs e) => SubmitFollowUp();
+    private void FollowUpSendButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_analysisConversation.Turns.LastOrDefault()?.Status == AnalysisFollowUpTurnStatus.Loading)
+        {
+            _editingFollowUpTurnNumber = _analysisConversation.Turns[^1].TurnNumber;
+            _restoreFollowUpFocusAfterCompletion = true;
+            AnalysisFollowUpStopRequested?.Invoke();
+            return;
+        }
+
+        SubmitFollowUp();
+    }
+
+    private void BeginEditingFollowUp(AnalysisFollowUpTurnState turn)
+    {
+        _editingFollowUpTurnNumber = turn.TurnNumber;
+        FollowUpTextBox.Text = turn.Question;
+        FollowUpTextBox.CaretIndex = FollowUpTextBox.Text.Length;
+        FollowUpTextBox.Focus();
+        Keyboard.Focus(FollowUpTextBox);
+        if (_analysisConversation.Turns.Count > turn.TurnNumber)
+            ShowTransientStatus($"重新发送 Q{turn.TurnNumber} 后将移除后续追问", FloatingStatusKind.Warning);
+        ResetAutoHideTimer();
+    }
 
     private void FloatingWindow_PreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -2120,7 +2172,15 @@ public partial class FloatingWindow : Window
         {
             var question = AnalysisConversationFormatter.NormalizeQuestion(FollowUpTextBox.Text);
             _restoreFollowUpFocusAfterCompletion = true;
-            AnalysisFollowUpRequested?.Invoke(question);
+            if (_editingFollowUpTurnNumber is { } turnNumber)
+            {
+                AnalysisFollowUpReplaceRequested?.Invoke(turnNumber, question);
+                _editingFollowUpTurnNumber = null;
+            }
+            else
+            {
+                AnalysisFollowUpRequested?.Invoke(question);
+            }
         }
         catch (ArgumentException ex)
         {

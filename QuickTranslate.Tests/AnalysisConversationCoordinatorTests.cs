@@ -133,6 +133,48 @@ public sealed class AnalysisConversationCoordinatorTests
         Assert.False(coordinator.TrySetAnalysisDraft(sessionId, "stale"));
     }
 
+    [Fact]
+    public void StopFollowUp_RestoresQuestionDraftAndExcludesPartialAnswerFromContext()
+    {
+        var coordinator = CompletedAnalysis();
+        var followUp = coordinator.BeginFollowUp("editable question");
+        Assert.True(coordinator.TryUpdateFollowUpStreaming(followUp.RequestIdentity, "partial answer"));
+
+        Assert.True(coordinator.StopActiveFollowUpForEditing());
+
+        var conversation = coordinator.CurrentSession!.AnalysisConversation;
+        var turn = Assert.Single(conversation.Turns);
+        Assert.Equal(AnalysisFollowUpTurnStatus.Cancelled, turn.Status);
+        Assert.Equal("partial answer", turn.AnswerRawText);
+        Assert.Equal("editable question", conversation.Draft);
+        Assert.Empty(coordinator.GetCompletedFollowUpExchanges(coordinator.CurrentSession.SessionId));
+    }
+
+    [Fact]
+    public void ReplaceFollowUp_KeepsTurnNumberAndTruncatesDependentTurns()
+    {
+        var coordinator = CompletedAnalysis();
+        foreach (var (question, answer) in new[] { ("q1", "a1"), ("q2", "a2"), ("q3", "a3") })
+        {
+            var transition = coordinator.BeginFollowUp(question);
+            Assert.True(coordinator.TryCompleteFollowUp(transition.RequestIdentity, answer));
+        }
+
+        var replacement = coordinator.ReplaceFollowUp(2, "edited q2");
+
+        Assert.Equal(2, replacement.Turn.TurnNumber);
+        Assert.Equal("edited q2", replacement.Turn.Question);
+        Assert.Equal(AnalysisFollowUpTurnStatus.Loading, replacement.Turn.Status);
+        Assert.Collection(
+            coordinator.CurrentSession!.AnalysisConversation.Turns,
+            turn => Assert.Equal("q1", turn.Question),
+            turn => Assert.Equal("edited q2", turn.Question));
+        var completed = coordinator.GetCompletedFollowUpExchanges(coordinator.CurrentSession.SessionId);
+        var q1 = Assert.Single(completed);
+        Assert.Equal("q1", q1.Question);
+        Assert.Equal("a1", q1.Answer);
+    }
+
     private static FloatingResultSessionCoordinator CompletedAnalysis()
     {
         var coordinator = new FloatingResultSessionCoordinator();

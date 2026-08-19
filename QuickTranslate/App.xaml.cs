@@ -175,6 +175,8 @@ public partial class App : Application
         _floatingWindow.HideRequested += OnHideRequested;
         _floatingWindow.ScrollStateChanged += OnScrollStateChanged;
         _floatingWindow.AnalysisFollowUpRequested += OnAnalysisFollowUpRequested;
+        _floatingWindow.AnalysisFollowUpReplaceRequested += OnAnalysisFollowUpReplaceRequested;
+        _floatingWindow.AnalysisFollowUpStopRequested += OnAnalysisFollowUpStopRequested;
         _floatingWindow.AnalysisFollowUpRetryRequested += OnAnalysisFollowUpRetryRequested;
         _floatingWindow.AnalysisDraftChanged += OnAnalysisDraftChanged;
         _floatingWindow.ModelProfileSelected += OnModelProfileSelected;
@@ -1475,6 +1477,27 @@ public partial class App : Application
             ApiKey = profile.ApiKey,
             ModelName = profile.ModelName
         };
+    }
+
+    private async void OnAnalysisFollowUpReplaceRequested(int turnNumber, string question)
+    {
+        try
+        {
+            await ExecuteAnalysisFollowUpAsync(_resultSessions.ReplaceFollowUp(turnNumber, question));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            _floatingWindow?.ShowAnalysisFollowUpFeedback(ex.Message);
+        }
+    }
+
+    private void OnAnalysisFollowUpStopRequested()
+    {
+        if (!_resultSessions.StopActiveFollowUpForEditing())
+            return;
+
+        _translationRequests.Cancel();
+        UpdateFloatingSessionView();
     }
 
     private async Task ShowMessageWithoutReplacingSessionAsync(

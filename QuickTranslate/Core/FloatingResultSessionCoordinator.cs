@@ -334,6 +334,34 @@ internal sealed class FloatingResultSessionCoordinator
         }
     }
 
+    public AnalysisFollowUpTransition ReplaceFollowUp(int turnNumber, string question)
+    {
+        lock (_sync)
+        {
+            var session = RequireFollowUpReadySessionLocked();
+            var conversation = session.AnalysisConversation;
+            if (turnNumber < 1 || turnNumber > conversation.Turns.Count)
+                throw new ArgumentOutOfRangeException(nameof(turnNumber));
+
+            var normalizedQuestion = AnalysisConversationFormatter.NormalizeQuestion(question);
+            CancelActiveRequestLocked();
+            var identity = NewFollowUpIdentityLocked(session, conversation, turnNumber);
+            var replacement = new AnalysisFollowUpTurnState(
+                turnNumber,
+                normalizedQuestion,
+                string.Empty,
+                AnalysisFollowUpTurnStatus.Loading,
+                identity.RequestId);
+            session.SetAnalysisConversation(conversation with
+            {
+                Draft = string.Empty,
+                Turns = conversation.Turns.Take(turnNumber - 1).Append(replacement).ToArray()
+            });
+            _activeOperation = FloatingResultActiveOperation.FollowUp(identity);
+            return new AnalysisFollowUpTransition(session, identity, replacement);
+        }
+    }
+
     public bool TryUpdateFollowUpStreaming(AnalysisFollowUpRequestIdentity identity, string rawText) =>
         TryApplyFollowUp(identity, turn => turn with
         {
@@ -367,6 +395,32 @@ internal sealed class FloatingResultSessionCoordinator
             if (_activeOperation is not { Kind: FloatingResultActiveOperationKind.FollowUp })
                 return false;
             CancelActiveRequestLocked();
+            return true;
+        }
+    }
+
+    public bool StopActiveFollowUpForEditing()
+    {
+        lock (_sync)
+        {
+            if (_activeOperation is not
+                {
+                    Kind: FloatingResultActiveOperationKind.FollowUp,
+                    FollowUpIdentity: { } identity
+                } ||
+                _currentSession is null)
+            {
+                return false;
+            }
+
+            var conversation = _currentSession.AnalysisConversation;
+            var turn = conversation.Turns.LastOrDefault();
+            if (turn is null || turn.LastRequestId != identity.RequestId)
+                return false;
+
+            CancelActiveRequestLocked();
+            _currentSession.SetAnalysisConversation(
+                _currentSession.AnalysisConversation with { Draft = turn.Question });
             return true;
         }
     }
