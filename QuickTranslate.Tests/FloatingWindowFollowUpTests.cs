@@ -742,7 +742,7 @@ public sealed class FloatingWindowFollowUpTests
     }
 
     [SkippableFact]
-    public void FollowUpInput_LeavesUpDownNavigationToMultilineTextBox()
+    public void FollowUpInput_UpDownMoveCaretToBoundsForSingleLineText()
     {
         RunOnSta(window =>
         {
@@ -754,13 +754,44 @@ public sealed class FloatingWindowFollowUpTests
             window.Show();
             window.UpdateLayout();
             PumpDispatcher();
-            window.FollowUpTextBox.Text = "first line\nsecond line\nthird line";
+            window.FollowUpTextBox.Text = "question";
             window.FollowUpTextBox.Focus();
+
+            window.FollowUpTextBox.CaretIndex = 3;
+            RaisePreviewKeyDown(window.FollowUpTextBox, Key.Up);
+            Assert.Equal(0, window.FollowUpTextBox.CaretIndex);
+
+            window.FollowUpTextBox.CaretIndex = 3;
+            RaisePreviewKeyDown(window.FollowUpTextBox, Key.Down);
+            Assert.Equal(window.FollowUpTextBox.Text.Length, window.FollowUpTextBox.CaretIndex);
+        });
+    }
+
+    [SkippableTheory]
+    [InlineData("first line\nsecond line\nthird line")]
+    [InlineData("first line\r\nsecond line\r\nthird line")]
+    public void FollowUpInput_LeavesUpDownNavigationToMultilineTextBox(string text)
+    {
+        RunOnSta(window =>
+        {
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([]));
+            window.Show();
+            window.UpdateLayout();
+            PumpDispatcher();
+            window.FollowUpTextBox.Text = text;
+            window.FollowUpTextBox.Focus();
+            window.FollowUpTextBox.CaretIndex = text.IndexOf("second line", StringComparison.Ordinal) + 3;
+            window.FollowUpTextBox.UpdateLayout();
             var source = PresentationSource.FromVisual(window.FollowUpTextBox);
             Assert.NotNull(source);
 
             foreach (var key in new[] { Key.Up, Key.Down })
             {
+                window.FollowUpTextBox.CaretIndex = text.IndexOf("second line", StringComparison.Ordinal) + 3;
                 var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
                 {
                     RoutedEvent = Keyboard.PreviewKeyDownEvent
@@ -768,6 +799,34 @@ public sealed class FloatingWindowFollowUpTests
                 window.FollowUpTextBox.RaiseEvent(args);
                 Assert.False(args.Handled);
             }
+        });
+    }
+
+    [SkippableTheory]
+    [InlineData("first line\nsecond line\nthird line")]
+    [InlineData("first line\r\nsecond line\r\nthird line")]
+    public void FollowUpInput_UpDownMoveCaretToTextBoundsAtMultilineEdges(string text)
+    {
+        RunOnSta(window =>
+        {
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([]));
+            window.Show();
+            window.FollowUpTextBox.Text = text;
+            window.FollowUpTextBox.Focus();
+            window.UpdateLayout();
+            PumpDispatcher();
+
+            window.FollowUpTextBox.CaretIndex = 3;
+            RaisePreviewKeyDown(window.FollowUpTextBox, Key.Up);
+            Assert.Equal(0, window.FollowUpTextBox.CaretIndex);
+
+            window.FollowUpTextBox.CaretIndex = text.LastIndexOf("third line", StringComparison.Ordinal) + 3;
+            RaisePreviewKeyDown(window.FollowUpTextBox, Key.Down);
+            Assert.Equal(text.Length, window.FollowUpTextBox.CaretIndex);
         });
     }
 

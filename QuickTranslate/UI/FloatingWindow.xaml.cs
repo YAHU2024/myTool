@@ -2116,6 +2116,19 @@ public partial class FloatingWindow : Window
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (FollowUpTextBox.IsKeyboardFocusWithin &&
+            !_isImeComposing &&
+            e.ImeProcessedKey == Key.None &&
+            Keyboard.Modifiers == ModifierKeys.None &&
+            e.Key is Key.Up or Key.Down &&
+            ShouldMoveFollowUpCaretToBoundary(e.Key))
+        {
+            FollowUpTextBox.CaretIndex = e.Key == Key.Up ? 0 : FollowUpTextBox.Text.Length;
+            FollowUpTextBox.SelectionLength = 0;
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.Enter &&
             FollowUpTextBox.IsKeyboardFocusWithin &&
             !_isImeComposing &&
@@ -2133,6 +2146,20 @@ public partial class FloatingWindow : Window
         e.Handled = true;
         HideRequested?.Invoke();
         Hide();
+    }
+
+    private bool ShouldMoveFollowUpCaretToBoundary(Key key)
+    {
+        if (FollowUpTextBox.Text.IndexOfAny(['\r', '\n']) < 0)
+            return true;
+
+        var lineIndex = FollowUpTextBox.GetLineIndexFromCharacterIndex(FollowUpTextBox.CaretIndex);
+        if (lineIndex < 0 || FollowUpTextBox.LineCount <= 0)
+            return false;
+
+        return key == Key.Up
+            ? lineIndex == 0
+            : lineIndex == FollowUpTextBox.LineCount - 1;
     }
 
     private void FollowUpTextBox_TextChanged(object sender, TextChangedEventArgs e)
