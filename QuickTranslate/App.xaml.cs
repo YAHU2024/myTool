@@ -737,6 +737,7 @@ public partial class App : Application
         _translationMetrics.RecordModelSwitchRequested();
         Logger.Info("App", "translation.model_switch_requested", new
         {
+            content_type = mode.ToString(),
             from_model = previousProfile?.ModelName ?? "unknown",
             from_provider = previousProfile?.ProviderName ?? "unknown",
             to_model = decision.Profile?.ModelName ?? "unknown",

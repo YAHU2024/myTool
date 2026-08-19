@@ -683,6 +683,53 @@ public sealed class FloatingWindowFollowUpTests
     }
 
     [SkippableFact]
+    public void FollowUpStatusBar_TracksTailTurnLifecycle()
+    {
+        RunOnSta(window =>
+        {
+            var sessionId = Guid.NewGuid();
+            var loading = new AnalysisFollowUpTurnState(
+                1,
+                "continue",
+                string.Empty,
+                AnalysisFollowUpTurnStatus.Loading,
+                1);
+
+            window.SetSessionView(
+                sessionId,
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([loading]));
+            Assert.Equal("正在生成", window.StatusMessageText.Text);
+
+            window.SetSessionView(
+                sessionId,
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([loading with
+                {
+                    AnswerRawText = "completed answer",
+                    Status = AnalysisFollowUpTurnStatus.Completed
+                }]));
+            Assert.Equal("已完成", window.StatusMessageText.Text);
+
+            window.SetSessionView(
+                sessionId,
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([loading with { Status = AnalysisFollowUpTurnStatus.Failed }]));
+            Assert.Equal("追问失败，可重试", window.StatusMessageText.Text);
+
+            window.SetSessionView(
+                sessionId,
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([loading with { Status = AnalysisFollowUpTurnStatus.Cancelled }]));
+            Assert.Equal("追问已取消，可重试", window.StatusMessageText.Text);
+        });
+    }
+
+    [SkippableFact]
     public void CancelledTranslation_PreservesStreamingMarkdownPreview()
     {
         RunOnSta(window =>

@@ -1854,7 +1854,27 @@ public partial class FloatingWindow : Window
             ? $"译为{language}"
             : $"译为 {language}";
 
-    private StatusMessageEntry DefaultStatusEntry() => _modeStatus switch
+    private StatusMessageEntry DefaultStatusEntry()
+    {
+        if (_activeMode == ContentType.Analysis &&
+            _analysisConversation.Turns.LastOrDefault() is { } followUp)
+        {
+            return followUp.Status switch
+            {
+                AnalysisFollowUpTurnStatus.Loading =>
+                    new("follow-up-generation", "正在生成", FloatingStatusKind.Info, null, null),
+                AnalysisFollowUpTurnStatus.Failed =>
+                    new("follow-up-failed", "追问失败，可重试", FloatingStatusKind.Error, null, null),
+                AnalysisFollowUpTurnStatus.Cancelled =>
+                    new("follow-up-cancelled", "追问已取消，可重试", FloatingStatusKind.Warning, null, null),
+                _ => RootStatusEntry()
+            };
+        }
+
+        return RootStatusEntry();
+    }
+
+    private StatusMessageEntry RootStatusEntry() => _modeStatus switch
     {
         ModeResultStatus.Loading when _translationDirectionIsManual &&
             !string.IsNullOrWhiteSpace(_translationEffectiveTargetLanguage) =>

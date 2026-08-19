@@ -45,7 +45,7 @@
 4. `translation.completed` 表示服务响应完成；`translation.presented` 表示最新有效请求已写入当前界面和历史。
 5. 流式卡顿时先看 `average_chunk_gap_ms`、`max_chunk_gap_ms` 和 `stalled_chunk_count`，再看 `max_frame_latency_ms`：前三者高通常表示模型、服务商或网络缓冲，后者高表示本地 UI 呈现延迟。
 6. 如果出现原文回显，搜索 `translation.echo_`。翻译内容保持正常流式显示；`echo_confirmed` 表示完整响应结束后检测到与原文高度一致，正文仍保留供用户判断，但不会缓存或写入历史。应用不会因此自动重试或切换模型。
-7. 用户从悬浮窗切换模型时搜索 `translation.model_switch_requested`。事件只记录切换前后的模型、供应商和切换时请求是否仍在运行。
+7. 用户从悬浮窗切换模型时搜索 `translation.model_switch_requested`。事件记录模式、切换前后的模型和供应商，以及切换时请求是否仍在运行。
 
 快速查词没有结果：
 
@@ -453,7 +453,7 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 |------|-------|-----------------------------|
 | translation.echo_suspected | Info | model, provider, source_len, result_len, similarity, length_ratio, reason |
 | translation.echo_confirmed | Warn | model, provider, source_len, result_len, similarity, length_ratio, reason |
-| translation.model_switch_requested | Info | from_model, from_provider, to_model, to_provider, request_running |
+| translation.model_switch_requested | Info | content_type, from_model, from_provider, to_model, to_provider, request_running |
 
 这些日志不记录源文本、模型输出、系统提示词、完整 API 地址、API Key 或响应正文。`provider` 仅为 API 地址的主机名。回显检测只在完整响应结束后决定是否缓存和写入历史，不阻塞流式展示，也不会撤回已经展示的正文。模型切换只在用户明确选择后用于当前会话，不会静默修改默认模型；旧请求的迟到分片由请求身份门禁丢弃。
 

@@ -39,6 +39,37 @@ public sealed class OpenAITranslationServiceFollowUpTests
     }
 
     [Fact]
+    public void CreateRequest_UsesExplicitFollowUpModelContext()
+    {
+        using var service = CreateService(new RecordingHandler(_ => SseResponse("ok")));
+        var context = new TranslationRequestContext(
+            "https://follow-up.example/v1",
+            "follow-up-key",
+            "follow-up-model",
+            false,
+            "简体中文",
+            "English",
+            false,
+            string.Empty,
+            "builtin:general",
+            Array.Empty<AnalysisPromptProfile>());
+
+        var request = service.CreateAnalysisFollowUpRequest(
+            "source",
+            "root answer",
+            new AnalysisSemanticSnapshot("root prompt", "简体中文", "root-model"),
+            [new AnalysisFollowUpExchange("q1", "a1")],
+            "q2",
+            2,
+            requestContext: context);
+
+        Assert.Equal(context.ApiBaseUrl, request.ApiBaseUrl);
+        Assert.Equal(context.ApiKey, request.ApiKey);
+        Assert.Equal(context.ModelName, request.ModelName);
+        AssertMessage(request.Messages[2], "assistant", "root answer");
+    }
+
+    [Fact]
     public void CreateRequest_RejectsQuestionOverUnicodeScalarLimit()
     {
         using var service = CreateService(new RecordingHandler(_ => SseResponse("ok")));

@@ -11,6 +11,7 @@ public sealed class AnalysisConversationCoordinatorTests
     {
         var coordinator = CompletedAnalysis();
         var session = coordinator.CurrentSession!;
+        Assert.Equal("root-model", session.AnalysisConversation.SemanticSnapshot!.RootModelName);
 
         var followUp = coordinator.BeginFollowUp("  explain more  ");
 
@@ -140,7 +141,7 @@ public sealed class AnalysisConversationCoordinatorTests
         Assert.True(coordinator.TryComplete(
             identity,
             "root analysis",
-            new AnalysisSemanticSnapshot("root prompt", "简体中文")));
+            new AnalysisSemanticSnapshot("root prompt", "简体中文", "root-model")));
         return coordinator;
     }
 }
