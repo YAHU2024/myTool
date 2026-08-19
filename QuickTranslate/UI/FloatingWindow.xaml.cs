@@ -2116,18 +2116,6 @@ public partial class FloatingWindow : Window
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (FollowUpTextBox.IsKeyboardFocusWithin &&
-            !_isImeComposing &&
-            e.ImeProcessedKey == Key.None &&
-            Keyboard.Modifiers == ModifierKeys.None &&
-            e.Key is Key.Up or Key.Down)
-        {
-            FollowUpTextBox.CaretIndex = e.Key == Key.Up ? 0 : FollowUpTextBox.Text.Length;
-            FollowUpTextBox.SelectionLength = 0;
-            e.Handled = true;
-            return;
-        }
-
         if (e.Key == Key.Enter &&
             FollowUpTextBox.IsKeyboardFocusWithin &&
             !_isImeComposing &&

@@ -742,7 +742,7 @@ public sealed class FloatingWindowFollowUpTests
     }
 
     [SkippableFact]
-    public void FollowUpInput_UpDownMoveCaretToTextBounds()
+    public void FollowUpInput_LeavesUpDownNavigationToMultilineTextBox()
     {
         RunOnSta(window =>
         {
@@ -754,15 +754,20 @@ public sealed class FloatingWindowFollowUpTests
             window.Show();
             window.UpdateLayout();
             PumpDispatcher();
-            window.FollowUpTextBox.Text = "question";
+            window.FollowUpTextBox.Text = "first line\nsecond line\nthird line";
             window.FollowUpTextBox.Focus();
-            window.FollowUpTextBox.CaretIndex = 3;
+            var source = PresentationSource.FromVisual(window.FollowUpTextBox);
+            Assert.NotNull(source);
 
-            RaisePreviewKeyDown(window.FollowUpTextBox, Key.Up);
-            Assert.Equal(0, window.FollowUpTextBox.CaretIndex);
-            window.FollowUpTextBox.CaretIndex = 3;
-            RaisePreviewKeyDown(window.FollowUpTextBox, Key.Down);
-            Assert.Equal(window.FollowUpTextBox.Text.Length, window.FollowUpTextBox.CaretIndex);
+            foreach (var key in new[] { Key.Up, Key.Down })
+            {
+                var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
+                {
+                    RoutedEvent = Keyboard.PreviewKeyDownEvent
+                };
+                window.FollowUpTextBox.RaiseEvent(args);
+                Assert.False(args.Handled);
+            }
         });
     }
 
