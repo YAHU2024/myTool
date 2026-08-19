@@ -832,6 +832,8 @@ public partial class FloatingWindow : Window
                 {
                     FollowUpTextBox.Focus();
                     Keyboard.Focus(FollowUpTextBox);
+                    FollowUpTextBox.CaretIndex = FollowUpTextBox.Text.Length;
+                    FollowUpTextBox.SelectionLength = 0;
                 }
             }, DispatcherPriority.Input);
             // 有意在调度后立即消费标志：回调守卫（如窗口已不活动）失败时不重试，
@@ -911,34 +913,58 @@ public partial class FloatingWindow : Window
             questionHeader.Children.Add(edit);
         }
 
+        MarkdownRenderResult? markdownRender = null;
         if (turn.Status == AnalysisFollowUpTurnStatus.Completed &&
             MarkdownRenderer.TryRender(
                 turn.AnswerRawText,
-                out var rendered,
+                out var completedRendered,
                 int.MaxValue,
                 MarkdownRenderer.AnalysisConversationFontSize,
                 isFinal: true) &&
-            !rendered.UsedPlainTextFallback)
+            !completedRendered.UsedPlainTextFallback)
         {
-            var markdown = CreateSelectableMarkdown(rendered.Document, $"Q{turn.TurnNumber} 回答");
+            markdownRender = completedRendered;
+        }
+        else if (turn.Status == AnalysisFollowUpTurnStatus.Cancelled &&
+                 !string.IsNullOrEmpty(turn.AnswerRawText) &&
+                 MarkdownRenderer.TryRender(
+                     turn.AnswerRawText,
+                     out var cancelledRendered,
+                     int.MaxValue,
+                     MarkdownRenderer.AnalysisConversationFontSize,
+                     isFinal: false) &&
+                 !cancelledRendered.UsedPlainTextFallback)
+        {
+            markdownRender = cancelledRendered;
+        }
+
+        if (markdownRender is not null)
+        {
+            var markdown = CreateSelectableMarkdown(
+                markdownRender.Document,
+                $"Q{turn.TurnNumber} 回答");
             container.Children.Add(markdown);
         }
         else
         {
-            var answer = CreateSelectableTextBox(
-                FollowUpStatusText(turn),
-                turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled
-                    ? new SolidColorBrush(Color.FromRgb(0xD8, 0xB4, 0x7A))
-                    : new SolidColorBrush(Color.FromRgb(0xE4, 0xE4, 0xEA)),
-                13);
-            AutomationProperties.SetName(answer, $"Q{turn.TurnNumber} 回答");
-            container.Children.Add(answer);
-            if (turn.Status == AnalysisFollowUpTurnStatus.Loading)
-                _streamingFollowUpAnswers[turn.TurnNumber] = new StreamingFollowUpAnswerView(
-                    turn.TurnNumber,
-                    container,
-                    answer,
-                    turn.AnswerRawText);
+            var answerText = FollowUpStatusText(turn);
+            if (!string.IsNullOrEmpty(answerText) || turn.Status != AnalysisFollowUpTurnStatus.Cancelled)
+            {
+                var answer = CreateSelectableTextBox(
+                    answerText,
+                    turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled
+                        ? new SolidColorBrush(Color.FromRgb(0xD8, 0xB4, 0x7A))
+                        : new SolidColorBrush(Color.FromRgb(0xE4, 0xE4, 0xEA)),
+                    13);
+                AutomationProperties.SetName(answer, $"Q{turn.TurnNumber} 回答");
+                container.Children.Add(answer);
+                if (turn.Status == AnalysisFollowUpTurnStatus.Loading)
+                    _streamingFollowUpAnswers[turn.TurnNumber] = new StreamingFollowUpAnswerView(
+                        turn.TurnNumber,
+                        container,
+                        answer,
+                        turn.AnswerRawText);
+            }
         }
 
         if (isTail && turn.Status is AnalysisFollowUpTurnStatus.Failed or AnalysisFollowUpTurnStatus.Cancelled)
@@ -1231,7 +1257,7 @@ public partial class FloatingWindow : Window
     {
         AnalysisFollowUpTurnStatus.Loading => string.IsNullOrEmpty(turn.AnswerRawText) ? "回答中..." : turn.AnswerRawText,
         AnalysisFollowUpTurnStatus.Failed => "追问失败，请重试本轮。",
-        AnalysisFollowUpTurnStatus.Cancelled => "追问已取消。",
+        AnalysisFollowUpTurnStatus.Cancelled => turn.AnswerRawText,
         _ => turn.AnswerRawText
     };
 
@@ -2090,6 +2116,18 @@ public partial class FloatingWindow : Window
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (FollowUpTextBox.IsKeyboardFocusWithin &&
+            !_isImeComposing &&
+            e.ImeProcessedKey == Key.None &&
+            Keyboard.Modifiers == ModifierKeys.None &&
+            e.Key is Key.Up or Key.Down)
+        {
+            FollowUpTextBox.CaretIndex = e.Key == Key.Up ? 0 : FollowUpTextBox.Text.Length;
+            FollowUpTextBox.SelectionLength = 0;
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.Enter &&
             FollowUpTextBox.IsKeyboardFocusWithin &&
             !_isImeComposing &&
@@ -2136,9 +2174,18 @@ public partial class FloatingWindow : Window
     {
         _editingFollowUpTurnNumber = turn.TurnNumber;
         FollowUpTextBox.Text = turn.Question;
-        FollowUpTextBox.CaretIndex = FollowUpTextBox.Text.Length;
         FollowUpTextBox.Focus();
         Keyboard.Focus(FollowUpTextBox);
+        FollowUpTextBox.CaretIndex = FollowUpTextBox.Text.Length;
+        FollowUpTextBox.SelectionLength = 0;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (FollowUpTextBox.IsKeyboardFocusWithin)
+            {
+                FollowUpTextBox.CaretIndex = FollowUpTextBox.Text.Length;
+                FollowUpTextBox.SelectionLength = 0;
+            }
+        }, DispatcherPriority.Input);
         if (_analysisConversation.Turns.Count > turn.TurnNumber)
             ShowTransientStatus($"重新发送 Q{turn.TurnNumber} 后将移除后续追问", FloatingStatusKind.Warning);
         ResetAutoHideTimer();

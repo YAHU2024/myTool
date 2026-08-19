@@ -711,6 +711,62 @@ public sealed class FloatingWindowFollowUpTests
     }
 
     [SkippableFact]
+    public void CancelledFollowUp_PreservesPartialAnswerAndKeepsCancellationInStatusBar()
+    {
+        RunOnSta(window =>
+        {
+            var cancelled = new AnalysisFollowUpTurnState(
+                1,
+                "question",
+                "**partial** answer",
+                AnalysisFollowUpTurnStatus.Cancelled,
+                2);
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([cancelled]));
+
+            var turnPanel = Assert.IsType<StackPanel>(
+                Assert.IsType<Border>(window.AnalysisTurnsPanel.Children[0]).Child);
+            var answer = Assert.Single(turnPanel.Children.OfType<RichTextBox>());
+            Assert.DoesNotContain(
+                "**partial**",
+                new TextRange(answer.Document.ContentStart, answer.Document.ContentEnd).Text);
+            Assert.Equal(
+                "partial answer",
+                new TextRange(answer.Document.ContentStart, answer.Document.ContentEnd).Text.Trim());
+            Assert.Equal("追问已取消，可重试", window.StatusMessageText.Text);
+            Assert.Single(turnPanel.Children.OfType<Button>());
+        });
+    }
+
+    [SkippableFact]
+    public void FollowUpInput_UpDownMoveCaretToTextBounds()
+    {
+        RunOnSta(window =>
+        {
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([]));
+            window.Show();
+            window.UpdateLayout();
+            PumpDispatcher();
+            window.FollowUpTextBox.Text = "question";
+            window.FollowUpTextBox.Focus();
+            window.FollowUpTextBox.CaretIndex = 3;
+
+            RaisePreviewKeyDown(window.FollowUpTextBox, Key.Up);
+            Assert.Equal(0, window.FollowUpTextBox.CaretIndex);
+            window.FollowUpTextBox.CaretIndex = 3;
+            RaisePreviewKeyDown(window.FollowUpTextBox, Key.Down);
+            Assert.Equal(window.FollowUpTextBox.Text.Length, window.FollowUpTextBox.CaretIndex);
+        });
+    }
+
+    [SkippableFact]
     public void CompletedQuestion_EditResendsSameTurn()
     {
         RunOnSta(window =>
@@ -735,6 +791,10 @@ public sealed class FloatingWindowFollowUpTests
                 (turnNumber, question) => replacements.Add((turnNumber, question));
 
             edit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.Show();
+            window.UpdateLayout();
+            PumpDispatcher();
+            Assert.Equal(window.FollowUpTextBox.Text.Length, window.FollowUpTextBox.CaretIndex);
             window.FollowUpTextBox.Text = "edited question";
             window.FollowUpSendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
