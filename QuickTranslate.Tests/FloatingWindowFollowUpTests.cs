@@ -222,7 +222,8 @@ public sealed class FloatingWindowFollowUpTests
                 Conversation([loading]));
 
             Assert.False(window.FollowUpTextBox.IsEnabled);
-            Assert.False(window.FollowUpSendButton.IsEnabled);
+            Assert.True(window.FollowUpSendButton.IsEnabled);
+            Assert.Equal("停止生成", AutomationProperties.GetName(window.FollowUpSendButton));
             Assert.Equal(1, window.AnalysisTurnViewCount);
             Assert.Equal(2, window.ConversationNodeCount);
             Assert.True(window.ConversationRailColumn.Width.IsAuto);
@@ -232,7 +233,8 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Collection(
                 questionHeader.ColumnDefinitions,
                 labelColumn => Assert.True(labelColumn.Width.IsAuto),
-                questionColumn => Assert.Equal(GridUnitType.Star, questionColumn.Width.GridUnitType));
+                questionColumn => Assert.Equal(GridUnitType.Star, questionColumn.Width.GridUnitType),
+                editColumn => Assert.True(editColumn.Width.IsAuto));
             var questionLabel = Assert.Single(questionHeader.Children.OfType<TextBlock>());
             var question = Assert.Single(questionHeader.Children.OfType<TextBox>());
             var answer = Assert.Single(turnPanel.Children.OfType<TextBox>());
@@ -679,6 +681,235 @@ public sealed class FloatingWindowFollowUpTests
             PumpDispatcher();
 
             Assert.True(window.FollowUpTextBox.IsKeyboardFocused);
+        });
+    }
+
+    [SkippableFact]
+    public void LoadingSendButton_StopsAndRestoresCurrentTurnForEditing()
+    {
+        RunOnSta(window =>
+        {
+            var loading = new AnalysisFollowUpTurnState(
+                1,
+                "original question",
+                "partial",
+                AnalysisFollowUpTurnStatus.Loading,
+                2);
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([loading]));
+            var stopCount = 0;
+            window.AnalysisFollowUpStopRequested += () => stopCount++;
+
+            window.FollowUpSendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            Assert.Equal(1, stopCount);
+            Assert.Equal("停止生成", window.FollowUpSendButton.ToolTip);
+        });
+    }
+
+    [SkippableFact]
+    public void CancelledFollowUp_PreservesPartialAnswerAndKeepsCancellationInStatusBar()
+    {
+        RunOnSta(window =>
+        {
+            var cancelled = new AnalysisFollowUpTurnState(
+                1,
+                "question",
+                "**partial** answer",
+                AnalysisFollowUpTurnStatus.Cancelled,
+                2);
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([cancelled]));
+
+            var turnPanel = Assert.IsType<StackPanel>(
+                Assert.IsType<Border>(window.AnalysisTurnsPanel.Children[0]).Child);
+            var answer = Assert.Single(turnPanel.Children.OfType<RichTextBox>());
+            Assert.DoesNotContain(
+                "**partial**",
+                new TextRange(answer.Document.ContentStart, answer.Document.ContentEnd).Text);
+            Assert.Equal(
+                "partial answer",
+                new TextRange(answer.Document.ContentStart, answer.Document.ContentEnd).Text.Trim());
+            Assert.Equal("追问已取消，可重试", window.StatusMessageText.Text);
+            Assert.Single(turnPanel.Children.OfType<Button>());
+        });
+    }
+
+    [SkippableFact]
+    public void FollowUpInput_UpDownMoveCaretToBoundsForSingleLineText()
+    {
+        RunOnSta(window =>
+        {
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([]));
+            window.Show();
+            window.UpdateLayout();
+            PumpDispatcher();
+            window.FollowUpTextBox.Text = "question";
+            window.FollowUpTextBox.Focus();
+
+            window.FollowUpTextBox.CaretIndex = 3;
+            RaisePreviewKeyDown(window.FollowUpTextBox, Key.Up);
+            Assert.Equal(0, window.FollowUpTextBox.CaretIndex);
+
+            window.FollowUpTextBox.CaretIndex = 3;
+            RaisePreviewKeyDown(window.FollowUpTextBox, Key.Down);
+            Assert.Equal(window.FollowUpTextBox.Text.Length, window.FollowUpTextBox.CaretIndex);
+        });
+    }
+
+    [SkippableTheory]
+    [InlineData("first line\nsecond line\nthird line")]
+    [InlineData("first line\r\nsecond line\r\nthird line")]
+    public void FollowUpInput_LeavesUpDownNavigationToMultilineTextBox(string text)
+    {
+        RunOnSta(window =>
+        {
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([]));
+            window.Show();
+            window.UpdateLayout();
+            PumpDispatcher();
+            window.FollowUpTextBox.Text = text;
+            window.FollowUpTextBox.Focus();
+            window.FollowUpTextBox.CaretIndex = text.IndexOf("second line", StringComparison.Ordinal) + 3;
+            window.FollowUpTextBox.UpdateLayout();
+            var source = PresentationSource.FromVisual(window.FollowUpTextBox);
+            Assert.NotNull(source);
+
+            foreach (var key in new[] { Key.Up, Key.Down })
+            {
+                window.FollowUpTextBox.CaretIndex = text.IndexOf("second line", StringComparison.Ordinal) + 3;
+                var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
+                {
+                    RoutedEvent = Keyboard.PreviewKeyDownEvent
+                };
+                window.FollowUpTextBox.RaiseEvent(args);
+                Assert.False(args.Handled);
+            }
+        });
+    }
+
+    [SkippableTheory]
+    [InlineData("first line\nsecond line\nthird line")]
+    [InlineData("first line\r\nsecond line\r\nthird line")]
+    public void FollowUpInput_UpDownMoveCaretToTextBoundsAtMultilineEdges(string text)
+    {
+        RunOnSta(window =>
+        {
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([]));
+            window.Show();
+            window.FollowUpTextBox.Text = text;
+            window.FollowUpTextBox.Focus();
+            window.UpdateLayout();
+            PumpDispatcher();
+
+            window.FollowUpTextBox.CaretIndex = 3;
+            RaisePreviewKeyDown(window.FollowUpTextBox, Key.Up);
+            Assert.Equal(0, window.FollowUpTextBox.CaretIndex);
+
+            window.FollowUpTextBox.CaretIndex = text.LastIndexOf("third line", StringComparison.Ordinal) + 3;
+            RaisePreviewKeyDown(window.FollowUpTextBox, Key.Down);
+            Assert.Equal(text.Length, window.FollowUpTextBox.CaretIndex);
+        });
+    }
+
+    [SkippableFact]
+    public void CompletedQuestion_EditResendsSameTurn()
+    {
+        RunOnSta(window =>
+        {
+            var completed = new AnalysisFollowUpTurnState(
+                1,
+                "original question",
+                "answer",
+                AnalysisFollowUpTurnStatus.Completed,
+                2);
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([completed]));
+            var turnPanel = Assert.IsType<StackPanel>(
+                Assert.IsType<Border>(window.AnalysisTurnsPanel.Children[0]).Child);
+            var questionHeader = Assert.IsType<Grid>(turnPanel.Children[0]);
+            var edit = Assert.Single(questionHeader.Children.OfType<Button>());
+            var replacements = new List<(int TurnNumber, string Question)>();
+            window.AnalysisFollowUpReplaceRequested +=
+                (turnNumber, question) => replacements.Add((turnNumber, question));
+
+            edit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.Show();
+            window.UpdateLayout();
+            PumpDispatcher();
+            Assert.Equal(window.FollowUpTextBox.Text.Length, window.FollowUpTextBox.CaretIndex);
+            window.FollowUpTextBox.Text = "edited question";
+            window.FollowUpSendButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            Assert.Equal([(1, "edited question")], replacements);
+        });
+    }
+
+    [SkippableFact]
+    public void FollowUpStatusBar_TracksTailTurnLifecycle()
+    {
+        RunOnSta(window =>
+        {
+            var sessionId = Guid.NewGuid();
+            var loading = new AnalysisFollowUpTurnState(
+                1,
+                "continue",
+                string.Empty,
+                AnalysisFollowUpTurnStatus.Loading,
+                1);
+
+            window.SetSessionView(
+                sessionId,
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([loading]));
+            Assert.Equal("正在生成", window.StatusMessageText.Text);
+
+            window.SetSessionView(
+                sessionId,
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([loading with
+                {
+                    AnswerRawText = "completed answer",
+                    Status = AnalysisFollowUpTurnStatus.Completed
+                }]));
+            Assert.Equal("已完成", window.StatusMessageText.Text);
+
+            window.SetSessionView(
+                sessionId,
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([loading with { Status = AnalysisFollowUpTurnStatus.Failed }]));
+            Assert.Equal("追问失败，可重试", window.StatusMessageText.Text);
+
+            window.SetSessionView(
+                sessionId,
+                ContentType.Analysis,
+                Completed("root analysis"),
+                Conversation([loading with { Status = AnalysisFollowUpTurnStatus.Cancelled }]));
+            Assert.Equal("追问已取消，可重试", window.StatusMessageText.Text);
         });
     }
 

@@ -284,16 +284,40 @@ internal static class MarkdownRenderer
         Grid.SetColumn(copyButton, 1);
         header.Children.Add(copyButton);
         DockPanel.SetDock(header, Dock.Top);
-        var text = new TextBlock
+        var codeParagraph = new Paragraph
         {
             FontFamily = new FontFamily("Consolas"),
             FontSize = 13,
             Foreground = TextBrush,
-            TextWrapping = TextWrapping.Wrap,
-            Padding = new Thickness(10)
+            Margin = new Thickness(0)
         };
-        if (!allowHighlighting || !CodeSyntaxHighlighter.TryHighlight(text, code, metadata.Language))
-            text.Text = code;
+        if (!allowHighlighting || !CodeSyntaxHighlighter.TryHighlight(codeParagraph, code, metadata.Language))
+            codeParagraph.Inlines.Add(new Run(code));
+        var codeDocument = new FlowDocument(codeParagraph)
+        {
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 13,
+            Foreground = TextBrush,
+            PagePadding = new Thickness(0)
+        };
+        var text = new RichTextBox
+        {
+            Document = codeDocument,
+            IsReadOnly = true,
+            IsUndoEnabled = false,
+            IsReadOnlyCaretVisible = false,
+            IsDocumentEnabled = false,
+            Focusable = true,
+            IsTabStop = false,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(10),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            SelectionBrush = new SolidColorBrush(Color.FromRgb(0x4D, 0xB6, 0xAC)),
+            SelectionOpacity = 0.45,
+            Cursor = System.Windows.Input.Cursors.IBeam
+        };
         var content = new DockPanel();
         content.Children.Add(header);
         content.Children.Add(text);

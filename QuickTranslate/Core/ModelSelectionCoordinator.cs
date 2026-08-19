@@ -18,11 +18,13 @@ internal sealed record ModelSelectionDecision(
 internal sealed class ModelSelectionCoordinator
 {
     private Guid? _sessionId;
-    private ContentType _mode;
-    private ModelProfile? _currentProfile;
-    private TranslationRequest? _requestTemplate;
+    private readonly Dictionary<ContentType, (ModelProfile Profile, TranslationRequest Request)> _states = [];
+    private ContentType _activeMode;
 
-    public ModelProfile? CurrentProfile => _currentProfile;
+    public ModelProfile? CurrentProfile => GetCurrentProfile(_activeMode);
+
+    public ModelProfile? GetCurrentProfile(ContentType mode) =>
+        _states.TryGetValue(mode, out var state) ? state.Profile : null;
 
     public void BeginSession(
         Guid sessionId,
@@ -31,30 +33,28 @@ internal sealed class ModelSelectionCoordinator
         TranslationRequest requestTemplate)
     {
         _sessionId = sessionId;
-        _mode = mode;
-        _currentProfile = profile;
-        _requestTemplate = requestTemplate;
+        _activeMode = mode;
+        _states[mode] = (profile, requestTemplate);
     }
 
     public bool IsCurrent(Guid sessionId, ContentType mode) =>
-        _sessionId == sessionId && _mode == mode && _currentProfile is not null && _requestTemplate is not null;
+        _sessionId == sessionId && _states.ContainsKey(mode);
 
     public void RefreshCurrentProfile(ModelProfile profile)
     {
-        if (_currentProfile is null || _requestTemplate is null)
+        if (!_states.TryGetValue(_activeMode, out var state))
             return;
-        if (_currentProfile.Id == profile.Id ||
-            (string.Equals(_currentProfile.ApiBaseUrl.TrimEnd('/'), profile.ApiBaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase) &&
-             string.Equals(_currentProfile.ApiKey, profile.ApiKey, StringComparison.Ordinal) &&
-             string.Equals(_currentProfile.ModelName, profile.ModelName, StringComparison.Ordinal)))
+        if (state.Profile.Id == profile.Id ||
+            (string.Equals(state.Profile.ApiBaseUrl.TrimEnd('/'), profile.ApiBaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase) &&
+             string.Equals(state.Profile.ApiKey, profile.ApiKey, StringComparison.Ordinal) &&
+             string.Equals(state.Profile.ModelName, profile.ModelName, StringComparison.Ordinal)))
         {
-            _currentProfile = profile;
-            _requestTemplate = _requestTemplate with
+            _states[_activeMode] = (profile, state.Request with
             {
                 ApiBaseUrl = profile.ApiBaseUrl,
                 ApiKey = profile.ApiKey,
                 ModelName = profile.ModelName
-            };
+            });
         }
     }
 
@@ -64,25 +64,26 @@ internal sealed class ModelSelectionCoordinator
         ModelProfile? profile,
         bool requestIsRunning)
     {
-        if (!IsCurrent(sessionId, mode) || mode != ContentType.Translation || profile is null || !profile.IsComplete)
+        if (!IsCurrent(sessionId, mode) || profile is null || !profile.IsComplete)
             return new(ModelSelectionIntent.OpenSettings, profile, null);
 
-        if (_currentProfile!.Id == profile.Id ||
-            (string.Equals(_currentProfile.ApiBaseUrl.TrimEnd('/'), profile.ApiBaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase) &&
-             string.Equals(_currentProfile.ApiKey, profile.ApiKey, StringComparison.Ordinal) &&
-             string.Equals(_currentProfile.ModelName, profile.ModelName, StringComparison.Ordinal)))
+        _activeMode = mode;
+        var state = _states[mode];
+        if (state.Profile.Id == profile.Id ||
+            (string.Equals(state.Profile.ApiBaseUrl.TrimEnd('/'), profile.ApiBaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase) &&
+             string.Equals(state.Profile.ApiKey, profile.ApiKey, StringComparison.Ordinal) &&
+             string.Equals(state.Profile.ModelName, profile.ModelName, StringComparison.Ordinal)))
         {
-            return new(ModelSelectionIntent.NoOp, _currentProfile, null);
+            return new(ModelSelectionIntent.NoOp, state.Profile, null);
         }
 
-        _currentProfile = profile;
-        var request = _requestTemplate! with
+        var request = state.Request with
         {
             ApiBaseUrl = profile.ApiBaseUrl,
             ApiKey = profile.ApiKey,
             ModelName = profile.ModelName
         };
-        _requestTemplate = request;
+        _states[mode] = (profile, request);
         return new(
             requestIsRunning ? ModelSelectionIntent.CancelAndStart : ModelSelectionIntent.StartWith,
             profile,
@@ -93,7 +94,7 @@ internal sealed class ModelSelectionCoordinator
     {
         if (IsCurrent(sessionId, mode))
         {
-            request = _requestTemplate;
+            request = _states[mode].Request;
             return true;
         }
 
@@ -114,20 +115,20 @@ internal sealed class ModelSelectionCoordinator
             return false;
         }
 
+        _activeMode = mode;
         request = semanticRequest with
         {
-            ApiBaseUrl = _currentProfile!.ApiBaseUrl,
-            ApiKey = _currentProfile.ApiKey,
-            ModelName = _currentProfile.ModelName
+            ApiBaseUrl = _states[mode].Profile.ApiBaseUrl,
+            ApiKey = _states[mode].Profile.ApiKey,
+            ModelName = _states[mode].Profile.ModelName
         };
-        _requestTemplate = request;
+        _states[mode] = (_states[mode].Profile, request);
         return true;
     }
 
     public void Reset()
     {
         _sessionId = null;
-        _currentProfile = null;
-        _requestTemplate = null;
+        _states.Clear();
     }
 }

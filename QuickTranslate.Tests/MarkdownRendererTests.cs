@@ -103,6 +103,11 @@ public sealed class MarkdownRendererTests
             Assert.Same(code, copyButton.Tag);
             Assert.False(copyButton.Focusable);
             Assert.False(copyButton.IsTabStop);
+            var codeHost = Assert.IsType<RichTextBox>(panel.Children[1]);
+            Assert.True(codeHost.IsReadOnly);
+            Assert.True(codeHost.Focusable);
+            Assert.False(codeHost.IsTabStop);
+            Assert.Equal(code.Code, new TextRange(codeHost.Document.ContentStart, codeHost.Document.ContentEnd).Text.TrimEnd('\r', '\n'));
             return true;
         });
     }
@@ -190,8 +195,10 @@ public sealed class MarkdownRendererTests
             var container = Assert.IsType<BlockUIContainer>(Assert.Single(result.Document.Blocks));
             var border = Assert.IsType<Border>(container.Child);
             var panel = Assert.IsType<DockPanel>(border.Child);
-            var codeText = Assert.IsType<TextBlock>(panel.Children[1]);
-            Assert.Equal(code.Code, codeText.Text);
+            var codeText = Assert.IsType<RichTextBox>(panel.Children[1]);
+            Assert.Equal(
+                code.Code,
+                new TextRange(codeText.Document.ContentStart, codeText.Document.ContentEnd).Text.TrimEnd('\r', '\n'));
             return true;
         });
     }
@@ -207,8 +214,9 @@ public sealed class MarkdownRendererTests
             var container = Assert.IsType<BlockUIContainer>(Assert.Single(result.Document.Blocks));
             var border = Assert.IsType<Border>(container.Child);
             var panel = Assert.IsType<DockPanel>(border.Child);
-            var codeText = Assert.IsType<TextBlock>(panel.Children[1]);
-            Assert.True(codeText.Inlines.OfType<Run>().Count() > 1);
+            var codeText = Assert.IsType<RichTextBox>(panel.Children[1]);
+            var paragraph = Assert.IsType<Paragraph>(Assert.Single(codeText.Document.Blocks));
+            Assert.True(paragraph.Inlines.OfType<Run>().Count() > 1);
             return true;
         });
     }
@@ -260,8 +268,9 @@ public sealed class MarkdownRendererTests
             Assert.Equal("python", code.Language);
             var container = Assert.IsType<BlockUIContainer>(Assert.Single(result.Document.Blocks));
             var panel = Assert.IsType<DockPanel>(Assert.IsType<Border>(container.Child).Child);
-            var codeText = Assert.IsType<TextBlock>(panel.Children[1]);
-            Assert.True(codeText.Inlines.OfType<Run>().Count() > 1);
+            var codeText = Assert.IsType<RichTextBox>(panel.Children[1]);
+            var paragraph = Assert.IsType<Paragraph>(Assert.Single(codeText.Document.Blocks));
+            Assert.True(paragraph.Inlines.OfType<Run>().Count() > 1);
             return true;
         });
     }

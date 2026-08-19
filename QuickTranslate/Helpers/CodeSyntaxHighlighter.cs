@@ -50,6 +50,22 @@ internal static class CodeSyntaxHighlighter
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(code);
+        return TryHighlight(target.Inlines, code, language, () => target.Text = code);
+    }
+
+    public static bool TryHighlight(Paragraph target, string code, string? language)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(code);
+        return TryHighlight(target.Inlines, code, language, static () => { });
+    }
+
+    private static bool TryHighlight(
+        InlineCollection target,
+        string code,
+        string? language,
+        Action restorePlainText)
+    {
         if (code.Length > MaxHighlightedCharacters)
             return false;
 
@@ -59,15 +75,15 @@ internal static class CodeSyntaxHighlighter
 
         try
         {
-            target.Inlines.Clear();
+            target.Clear();
             lock (ParserSync)
-                Parser.Parse(code, resolvedLanguage, (text, scopes) => AppendRuns(target.Inlines, text, scopes));
-            return target.Inlines.Count > 0;
+                Parser.Parse(code, resolvedLanguage, (text, scopes) => AppendRuns(target, text, scopes));
+            return target.Count > 0;
         }
         catch (Exception)
         {
-            target.Inlines.Clear();
-            target.Text = code;
+            target.Clear();
+            restorePlainText();
             return false;
         }
     }
