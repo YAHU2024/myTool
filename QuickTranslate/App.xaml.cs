@@ -902,7 +902,11 @@ public partial class App : Application
                 transition.Session.ActiveMode);
             EnsureModelSelection(transition.Session, displayRequest);
             RefreshFloatingModelSelector();
-            var presentationId = _floatingWindow.BeginReplacement(_resultSessions.CurrentPresentationId);
+            var presentationId = _floatingWindow.BeginReplacement(
+                _resultSessions.CurrentPresentationId,
+                string.Equals(operationName, "模式切换", StringComparison.Ordinal)
+                    ? FloatingWindow.ThoughtResetScope.PreserveSession
+                    : FloatingWindow.ThoughtResetScope.ClearActiveMode);
             await ShowRequestResultAsync(
                 displayRequest,
                 state.RawText,
@@ -924,7 +928,11 @@ public partial class App : Application
             return;
         }
 
-        var visualPresentationId = _floatingWindow.BeginReplacement(identity.PresentationId);
+        var visualPresentationId = _floatingWindow.BeginReplacement(
+            identity.PresentationId,
+            string.Equals(operationName, "模式切换", StringComparison.Ordinal)
+                ? FloatingWindow.ThoughtResetScope.PreserveSession
+                : FloatingWindow.ThoughtResetScope.ClearActiveMode);
         var request = requestOverride ?? CreateDisplayRequest(transition.Session, identity.Mode);
         EnsureModelSelection(transition.Session, request);
         RefreshFloatingModelSelector();

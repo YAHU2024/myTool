@@ -51,16 +51,84 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Equal(Visibility.Collapsed, thought.Root.Visibility);
             Assert.True(thought.IsElapsedTimerEnabledForTests);
 
-            window.UpdateRootThought(presentationId, "**private** reasoning", isTruncated: false);
+            window.UpdateRootThought(presentationId, "private reasoning", isTruncated: false);
 
             Assert.Equal(Visibility.Visible, thought.Root.Visibility);
             Assert.True(thought.IsExpandedForTests);
             Assert.StartsWith("正在思考… ", thought.StatusTextForTests.Text, StringComparison.Ordinal);
             Assert.Equal("收起思考", AutomationProperties.GetName(thought.ToggleButtonForTests));
             Assert.Equal("final answer", window.CopyTextForTests);
+            Assert.True(thought.StableMarkdownHostForTests.IsReadOnly);
+            Assert.True(thought.StableMarkdownHostForTests.Focusable);
+            Assert.False(thought.StableMarkdownHostForTests.IsTabStop);
+            thought.ActiveTextHostForTests.SelectAll();
+            Assert.True(ApplicationCommands.Copy.CanExecute(null, thought.ActiveTextHostForTests));
 
             window.CompleteRootThought(presentationId, isTruncated: false);
             Assert.False(thought.IsElapsedTimerEnabledForTests);
+        });
+    }
+
+    [SkippableFact]
+    public void RootThought_PreservesPerModeStateAcrossModeSwitchButClearsOnRegeneration()
+    {
+        RunOnSta(window =>
+        {
+            var sessionId = Guid.NewGuid();
+            var firstPresentation = window.BeginReplacement();
+            window.SetSessionView(
+                sessionId,
+                ContentType.Translation,
+                Completed("translation"),
+                Conversation(turns: []));
+            window.BeginRootThought(firstPresentation);
+            window.UpdateRootThought(firstPresentation, "translation reasoning", isTruncated: false);
+            window.CompleteRootThought(firstPresentation, isTruncated: false);
+
+            var codePresentation = window.BeginReplacement(firstPresentation + 1, preserveThoughts: true);
+            window.SetSessionView(
+                sessionId,
+                ContentType.Code,
+                Completed("code"),
+                Conversation(turns: []));
+            window.BeginRootThought(codePresentation);
+            window.UpdateRootThought(codePresentation, "code reasoning", isTruncated: false);
+            window.CompleteRootThought(codePresentation, isTruncated: false);
+
+            var restoredPresentation = window.BeginReplacement(codePresentation + 1, preserveThoughts: true);
+            window.SetSessionView(
+                sessionId,
+                ContentType.Translation,
+                Completed("translation"),
+                Conversation(turns: []));
+            Assert.Equal(Visibility.Visible, window.RootThoughtBlockForTests!.Root.Visibility);
+
+            var regeneratedPresentation = window.BeginReplacement(
+                restoredPresentation + 1,
+                FloatingWindow.ThoughtResetScope.ClearActiveMode);
+            window.SetSessionView(
+                sessionId,
+                ContentType.Translation,
+                new ModeResultState(
+                    ModeResultStatus.Loading,
+                    string.Empty,
+                    null,
+                    3,
+                    0,
+                    true),
+                Conversation(turns: []));
+            window.BeginRootThought(regeneratedPresentation);
+            Assert.Equal(Visibility.Collapsed, window.RootThoughtBlockForTests!.Root.Visibility);
+
+            var codeAgainPresentation = window.BeginReplacement(
+                regeneratedPresentation + 1,
+                FloatingWindow.ThoughtResetScope.PreserveSession);
+            window.SetSessionView(
+                sessionId,
+                ContentType.Code,
+                Completed("code"),
+                Conversation(turns: []));
+            Assert.Equal(Visibility.Visible, window.RootThoughtBlockForTests!.Root.Visibility);
         });
     }
 
