@@ -69,7 +69,11 @@ public partial class FloatingWindow : Window
     private const string SpeakIcon = "\uE768";
     private const string RefreshIcon = "\uE72C";
     private const string StopIcon = "\uE71A";
+    private static readonly TimeSpan GenerationElapsedRefreshInterval = TimeSpan.FromSeconds(1);
     private DispatcherTimer? _statusMessageTimer;
+    private readonly DispatcherTimer _generationElapsedTimer;
+    private long _generationStartedTimestamp;
+    private bool _generationActivityActive;
     private StatusMessageEntry? _persistentStatus;
     private StatusMessageEntry? _transientStatus;
     private Action? _statusAction;
@@ -180,6 +184,14 @@ public partial class FloatingWindow : Window
             if (CanAutoHide())
                 Hide();
             _autoHideTimer.Stop();
+        };
+        _generationElapsedTimer = new DispatcherTimer { Interval = GenerationElapsedRefreshInterval };
+        _generationElapsedTimer.Tick += (_, _) =>
+        {
+            if (_generationActivityActive)
+                RenderStatusBar();
+            else
+                _generationElapsedTimer.Stop();
         };
         FollowUpTextBox.GotKeyboardFocus += (_, _) => _autoHideTimer.Stop();
         FollowUpTextBox.LostKeyboardFocus += (_, _) => ResetAutoHideTimer();
@@ -390,11 +402,14 @@ public partial class FloatingWindow : Window
     {
         if (isLoading)
         {
+            SetGenerationActivity(true);
             _modeStatus = ModeResultStatus.Loading;
             _ = StopTtsAsync();
         }
 
         _isLoading = isLoading;
+        if (!isLoading)
+            SetGenerationActivity(_analysisConversation.Turns.LastOrDefault()?.Status == AnalysisFollowUpTurnStatus.Loading);
         LoadingIndicator.Visibility = isLoading ? Visibility.Visible : Visibility.Collapsed;
         RefreshButton.Content = isLoading ? StopIcon : RefreshIcon;
         RefreshButton.ToolTip = isLoading ? "停止生成" : "重新生成";
@@ -766,6 +781,7 @@ public partial class FloatingWindow : Window
 
         if (!canFollowUp)
         {
+            SetGenerationActivity(_isLoading);
             _restoreFollowUpFocusAfterCompletion = false;
             _wasFollowUpBusy = false;
             _currentConversationNodeKey = null;
@@ -797,6 +813,7 @@ public partial class FloatingWindow : Window
             AddFollowUpTurn(turn, turn == turns[^1]);
 
         var busy = turns.LastOrDefault()?.Status == AnalysisFollowUpTurnStatus.Loading;
+        SetGenerationActivity(_isLoading || busy);
         var limitReached = turns.Count >= 10;
         if (busy)
             _ = StopTtsAsync();
@@ -1212,6 +1229,7 @@ public partial class FloatingWindow : Window
     private void FloatingWindow_Closed(object? sender, EventArgs e)
     {
         CompositionTarget.Rendering -= CompositionTarget_Rendering;
+        _generationElapsedTimer.Stop();
         Closed -= FloatingWindow_Closed;
     }
 
@@ -1917,7 +1935,7 @@ public partial class FloatingWindow : Window
             return followUp.Status switch
             {
                 AnalysisFollowUpTurnStatus.Loading =>
-                    new("follow-up-generation", "正在生成", FloatingStatusKind.Info, null, null),
+                    new("follow-up-generation", FormatGenerationStatus("正在生成"), FloatingStatusKind.Info, null, null),
                 AnalysisFollowUpTurnStatus.Failed =>
                     new("follow-up-failed", "追问失败，可重试", FloatingStatusKind.Error, null, null),
                 AnalysisFollowUpTurnStatus.Cancelled =>
@@ -1933,8 +1951,10 @@ public partial class FloatingWindow : Window
     {
         ModeResultStatus.Loading when _translationDirectionIsManual &&
             !string.IsNullOrWhiteSpace(_translationEffectiveTargetLanguage) =>
-            new("generation", $"正在译为 {_translationEffectiveTargetLanguage}", FloatingStatusKind.Info, null, null),
-        ModeResultStatus.Loading => new("generation", "正在生成", FloatingStatusKind.Info, null, null),
+            new("generation", FormatGenerationStatus($"正在译为 {_translationEffectiveTargetLanguage}"), FloatingStatusKind.Info, null, null),
+        ModeResultStatus.Loading when _activeMode == ContentType.Analysis =>
+            new("generation", FormatGenerationStatus("正在分析"), FloatingStatusKind.Info, null, null),
+        ModeResultStatus.Loading => new("generation", FormatGenerationStatus("正在生成"), FloatingStatusKind.Info, null, null),
         ModeResultStatus.Completed when _modeQuality == ModeResultQuality.EchoWarning =>
             new("echo-warning", "结果与原文高度一致", FloatingStatusKind.Warning, null, null),
         ModeResultStatus.Completed => new("completed", "已完成", FloatingStatusKind.Success, null, null),
@@ -1942,6 +1962,33 @@ public partial class FloatingWindow : Window
         ModeResultStatus.Failed => new("failed", "生成失败，可重试", FloatingStatusKind.Error, null, null),
         _ => new("ready", "就绪", FloatingStatusKind.Info, null, null)
     };
+
+    private string FormatGenerationStatus(string prefix)
+    {
+        if (!_generationActivityActive || _generationStartedTimestamp == 0)
+            return prefix;
+
+        var elapsed = Stopwatch.GetElapsedTime(_generationStartedTimestamp);
+        return elapsed < GenerationElapsedRefreshInterval
+            ? prefix
+            : $"{prefix} · {elapsed.TotalSeconds:0} 秒";
+    }
+
+    private void SetGenerationActivity(bool active)
+    {
+        if (active)
+        {
+            if (!_generationActivityActive)
+                _generationStartedTimestamp = Stopwatch.GetTimestamp();
+            _generationActivityActive = true;
+            _generationElapsedTimer.Start();
+            return;
+        }
+
+        _generationActivityActive = false;
+        _generationStartedTimestamp = 0;
+        _generationElapsedTimer.Stop();
+    }
 
     private void RestartStatusScroll()
     {
