@@ -110,9 +110,9 @@ public partial class FloatingWindow : Window
     private bool _wasFollowUpBusy;
     private string _copyText = string.Empty;
     private string _speechText = string.Empty;
-    private string _reasoningSummary = string.Empty;
-    private bool _reasoningSummaryTruncated;
-    private long _reasoningSummaryPresentationId;
+    private ThoughtBlockView? _rootThoughtBlock;
+    private long _rootThoughtPresentationId;
+    private readonly Dictionary<int, ThoughtBlockView> _followUpThoughtBlocks = new();
     private readonly List<ConversationNodeView> _conversationNodes = [];
     private string? _currentConversationNodeKey;
     private string? _clickedConversationNodeKey;
@@ -143,6 +143,7 @@ public partial class FloatingWindow : Window
     internal bool IsGenerationStopVisibleForTests => Equals(RefreshButton.Content, StopIcon);
     internal bool IsAutoHideSuppressedForTests => _autoHideSuppressionCount > 0;
     internal string CopyTextForTests => _copyText;
+    internal ThoughtBlockView? RootThoughtBlockForTests => _rootThoughtBlock;
 
     internal StreamingMarkdownRenderStats GetStreamingMarkdownStats() =>
         _streamingMarkdown?.GetStats() ?? StreamingMarkdownRenderStats.Empty;
@@ -333,34 +334,146 @@ public partial class FloatingWindow : Window
 
     public bool IsPresentationCurrent(long presentationId) => _presentations.IsCurrent(presentationId);
 
-    internal void BeginReasoningSummary(long presentationId)
+    internal void BeginRootThought(long presentationId)
     {
         if (!IsPresentationCurrent(presentationId))
             return;
 
-        _reasoningSummaryPresentationId = presentationId;
-        _reasoningSummary = string.Empty;
-        _reasoningSummaryTruncated = false;
-        ReasoningSummaryText.Text = string.Empty;
-        ReasoningSummaryExpander.IsExpanded = false;
-        RenderReasoningSummary();
+        _rootThoughtPresentationId = presentationId;
+        _rootThoughtBlock ??= new ThoughtBlockView();
+        if (!RootThoughtBlockHost.Children.Contains(_rootThoughtBlock.Root))
+            RootThoughtBlockHost.Children.Add(_rootThoughtBlock.Root);
+        _rootThoughtBlock.Begin();
     }
 
-    internal void UpdateReasoningSummary(
+    internal void UpdateRootThought(
         long presentationId,
-        string summary,
-        bool isTruncated)
+        string thought,
+        bool isTruncated,
+        ThoughtBlockStatus status = ThoughtBlockStatus.Streaming)
     {
         if (!IsPresentationCurrent(presentationId) ||
-            _reasoningSummaryPresentationId != presentationId)
+            _rootThoughtPresentationId != presentationId ||
+            _rootThoughtBlock is null)
         {
             return;
         }
 
-        _reasoningSummary = summary ?? string.Empty;
-        _reasoningSummaryTruncated = isTruncated;
-        ReasoningSummaryText.Text = FormatReasoningSummaryText();
-        RenderReasoningSummary();
+        _rootThoughtBlock.Update(thought, isTruncated, status);
+        RefreshThoughtLayout();
+    }
+
+    internal void CompleteRootThought(long presentationId, bool isTruncated)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            _rootThoughtPresentationId != presentationId ||
+            _rootThoughtBlock is null)
+            return;
+
+        _rootThoughtBlock.Complete(isTruncated);
+        _rootThoughtBlock.HideIfEmpty();
+        RefreshThoughtLayout();
+    }
+
+    internal void CancelRootThought(long presentationId, bool isTruncated)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            _rootThoughtPresentationId != presentationId ||
+            _rootThoughtBlock is null)
+            return;
+
+        _rootThoughtBlock.Cancel(isTruncated);
+        _rootThoughtBlock.HideIfEmpty();
+        RefreshThoughtLayout();
+    }
+
+    internal void FailRootThought(long presentationId, bool isTruncated)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            _rootThoughtPresentationId != presentationId ||
+            _rootThoughtBlock is null)
+            return;
+
+        _rootThoughtBlock.Fail(isTruncated);
+        _rootThoughtBlock.HideIfEmpty();
+        RefreshThoughtLayout();
+    }
+
+    internal ThoughtBlockView BeginFollowUpThought(int turnNumber)
+    {
+        if (!_followUpThoughtBlocks.TryGetValue(turnNumber, out var thought))
+        {
+            thought = new ThoughtBlockView();
+            _followUpThoughtBlocks[turnNumber] = thought;
+        }
+        thought.Begin();
+        return thought;
+    }
+
+    internal void UpdateFollowUpThought(
+        long presentationId,
+        int turnNumber,
+        string thoughtText,
+        bool isTruncated,
+        ThoughtBlockStatus status = ThoughtBlockStatus.Streaming)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            !_followUpThoughtBlocks.TryGetValue(turnNumber, out var thought))
+            return;
+
+        thought.Update(thoughtText, isTruncated, status);
+        RefreshThoughtLayout();
+    }
+
+    internal void CompleteFollowUpThought(
+        long presentationId,
+        int turnNumber,
+        bool isTruncated)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            !_followUpThoughtBlocks.TryGetValue(turnNumber, out var thought))
+            return;
+
+        thought.Complete(isTruncated);
+        thought.HideIfEmpty();
+        RefreshThoughtLayout();
+    }
+
+    internal void CancelFollowUpThought(long presentationId, int turnNumber, bool isTruncated)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            !_followUpThoughtBlocks.TryGetValue(turnNumber, out var thought))
+            return;
+
+        thought.Cancel(isTruncated);
+        thought.HideIfEmpty();
+        RefreshThoughtLayout();
+    }
+
+    internal void FailFollowUpThought(long presentationId, int turnNumber, bool isTruncated)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            !_followUpThoughtBlocks.TryGetValue(turnNumber, out var thought))
+            return;
+
+        thought.Fail(isTruncated);
+        thought.HideIfEmpty();
+        RefreshThoughtLayout();
+    }
+
+    private void ClearThoughts()
+    {
+        _rootThoughtBlock?.Dispose();
+        foreach (var thought in _followUpThoughtBlocks.Values)
+            thought.Dispose();
+        _rootThoughtPresentationId = 0;
+        _rootThoughtBlock = null;
+        _followUpThoughtBlocks.Clear();
+        RootThoughtBlockHost.Children.Clear();
+    }
+
+    private void RefreshThoughtLayout()
+    {
         EnsureFooterFitsWindow();
         UpdateLayout();
         var nowTimestamp = Stopwatch.GetTimestamp();
@@ -374,32 +487,6 @@ public partial class FloatingWindow : Window
             PositionWindowAtAnchor();
         }
         ResetAutoHideTimer();
-    }
-
-    private string FormatReasoningSummaryText() =>
-        _reasoningSummaryTruncated
-            ? $"{_reasoningSummary}\n\n（摘要已截断）"
-            : _reasoningSummary;
-
-    private void RenderReasoningSummary()
-    {
-        var visible = _activeMode == ContentType.Analysis &&
-            !string.IsNullOrWhiteSpace(_reasoningSummary);
-        ReasoningSummaryExpander.Visibility = visible
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        if (!visible)
-            ReasoningSummaryExpander.IsExpanded = false;
-    }
-
-    private void ClearReasoningSummary()
-    {
-        _reasoningSummary = string.Empty;
-        _reasoningSummaryTruncated = false;
-        _reasoningSummaryPresentationId = 0;
-        ReasoningSummaryText.Text = string.Empty;
-        ReasoningSummaryExpander.IsExpanded = false;
-        ReasoningSummaryExpander.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>
@@ -418,7 +505,7 @@ public partial class FloatingWindow : Window
 
         if (_sessionId != sessionId || _activeMode != mode)
         {
-            ClearReasoningSummary();
+            ClearThoughts();
             _ = StopTtsAsync();
             _restoreFollowUpFocusAfterCompletion = false;
             _wasFollowUpBusy = false;
@@ -457,7 +544,6 @@ public partial class FloatingWindow : Window
             ShowPlainText();
         SetLoading(state.Status == ModeResultStatus.Loading);
         RenderAnalysisConversation();
-        RenderReasoningSummary();
         RefreshSpeakButton();
         RenderStatusBar();
 
@@ -836,6 +922,18 @@ public partial class FloatingWindow : Window
     private void RenderAnalysisConversation()
     {
         StopConversationNodeAnimations();
+        foreach (var thought in _followUpThoughtBlocks.Values)
+            thought.DetachFromParent();
+        var activeTurnNumbers = _analysisConversation.Turns
+            .Select(turn => turn.TurnNumber)
+            .ToHashSet();
+        foreach (var turnNumber in _followUpThoughtBlocks.Keys
+                     .Where(turnNumber => !activeTurnNumbers.Contains(turnNumber))
+                     .ToArray())
+        {
+            _followUpThoughtBlocks[turnNumber].Dispose();
+            _followUpThoughtBlocks.Remove(turnNumber);
+        }
         _streamingFollowUpAnswers.Clear();
         _streamingFollowUpMarkdownHosts.Clear();
         AnalysisTurnsPanel.Children.Clear();
@@ -1003,6 +1101,16 @@ public partial class FloatingWindow : Window
             AutomationProperties.SetName(edit, $"编辑 Q{turn.TurnNumber}");
             edit.Click += (_, _) => BeginEditingFollowUp(turn);
             questionHeader.Children.Add(edit);
+        }
+
+        if (_followUpThoughtBlocks.TryGetValue(turn.TurnNumber, out var thoughtBlock) ||
+            turn.Status == AnalysisFollowUpTurnStatus.Loading)
+        {
+            thoughtBlock ??= new ThoughtBlockView();
+            _followUpThoughtBlocks[turn.TurnNumber] = thoughtBlock;
+            if (turn.Status == AnalysisFollowUpTurnStatus.Loading && !thoughtBlock.IsVisible)
+                thoughtBlock.Begin();
+            container.Children.Add(thoughtBlock.Root);
         }
 
         MarkdownRenderResult? markdownRender = null;
@@ -1501,23 +1609,6 @@ public partial class FloatingWindow : Window
         ShowCompletedMarkdown();
     }
 
-    private void ReasoningSummaryExpander_Expanded(object sender, RoutedEventArgs e) =>
-        RefreshReasoningSummaryLayout();
-
-    private void ReasoningSummaryExpander_Collapsed(object sender, RoutedEventArgs e) =>
-        RefreshReasoningSummaryLayout();
-
-    private void RefreshReasoningSummaryLayout()
-    {
-        if (!IsLoaded)
-            return;
-
-        UpdateLayout();
-        PositionWindowAtAnchor();
-        UpdateAutoScrollAffordance();
-        ResetAutoHideTimer();
-    }
-
     private void MarkdownLink_RequestNavigate(object sender, RequestNavigateEventArgs e)
     {
         e.Handled = true;
@@ -1557,7 +1648,7 @@ public partial class FloatingWindow : Window
         _streamingMarkdown = null;
         _copyText = string.Empty;
         _speechText = string.Empty;
-        ClearReasoningSummary();
+        ClearThoughts();
         _analysisConversation = AnalysisConversationState.Empty();
         _editingFollowUpTurnNumber = null;
         RenderAnalysisConversation();

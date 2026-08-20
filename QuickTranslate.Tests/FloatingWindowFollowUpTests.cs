@@ -35,7 +35,7 @@ public sealed class FloatingWindowFollowUpTests
     }
 
     [SkippableFact]
-    public void ReasoningSummary_IsCollapsedAndExcludedFromCopyText()
+    public void RootThought_UsesMarkdownViewAndIsExcludedFromCopyText()
     {
         RunOnSta(window =>
         {
@@ -45,20 +45,27 @@ public sealed class FloatingWindowFollowUpTests
                 ContentType.Analysis,
                 Completed("final answer"),
                 Conversation(turns: []));
-            window.BeginReasoningSummary(presentationId);
+            window.BeginRootThought(presentationId);
 
-            window.UpdateReasoningSummary(presentationId, "private reasoning", isTruncated: false);
+            var thought = Assert.IsType<ThoughtBlockView>(window.RootThoughtBlockForTests);
+            Assert.Equal(Visibility.Collapsed, thought.Root.Visibility);
+            Assert.True(thought.IsElapsedTimerEnabledForTests);
 
-            Assert.Equal(Visibility.Visible, window.ReasoningSummaryExpander.Visibility);
-            Assert.False(window.ReasoningSummaryExpander.IsExpanded);
-            Assert.Equal("分析摘要", AutomationProperties.GetName(window.ReasoningSummaryExpander));
-            Assert.Equal("private reasoning", window.ReasoningSummaryText.Text);
+            window.UpdateRootThought(presentationId, "**private** reasoning", isTruncated: false);
+
+            Assert.Equal(Visibility.Visible, thought.Root.Visibility);
+            Assert.True(thought.IsExpandedForTests);
+            Assert.StartsWith("正在思考… ", thought.StatusTextForTests.Text, StringComparison.Ordinal);
+            Assert.Equal("收起思考", AutomationProperties.GetName(thought.ToggleButtonForTests));
             Assert.Equal("final answer", window.CopyTextForTests);
+
+            window.CompleteRootThought(presentationId, isTruncated: false);
+            Assert.False(thought.IsElapsedTimerEnabledForTests);
         });
     }
 
     [SkippableFact]
-    public void ReasoningSummary_RejectsStalePresentationAndShowsTruncation()
+    public void RootThought_RejectsStalePresentationAndCollapsesOnCompletion()
     {
         RunOnSta(window =>
         {
@@ -69,14 +76,50 @@ public sealed class FloatingWindowFollowUpTests
                 ContentType.Analysis,
                 Completed("final answer"),
                 Conversation(turns: []));
-            window.BeginReasoningSummary(currentPresentationId);
+            window.BeginRootThought(currentPresentationId);
 
-            window.UpdateReasoningSummary(stalePresentationId, "stale", isTruncated: false);
-            Assert.Equal(Visibility.Collapsed, window.ReasoningSummaryExpander.Visibility);
+            window.UpdateRootThought(stalePresentationId, "stale", isTruncated: false);
+            Assert.Equal(Visibility.Collapsed, window.RootThoughtBlockForTests!.Root.Visibility);
 
-            window.UpdateReasoningSummary(currentPresentationId, "bounded", isTruncated: true);
-            Assert.Equal(Visibility.Visible, window.ReasoningSummaryExpander.Visibility);
-            Assert.Equal("bounded\n\n（摘要已截断）", window.ReasoningSummaryText.Text);
+            window.UpdateRootThought(currentPresentationId, "bounded", isTruncated: true);
+            window.CompleteRootThought(currentPresentationId, isTruncated: true);
+            var thought = window.RootThoughtBlockForTests!;
+            Assert.Equal(Visibility.Visible, thought.Root.Visibility);
+            Assert.False(thought.IsExpandedForTests);
+            Assert.StartsWith("思考了 ", thought.StatusTextForTests.Text, StringComparison.Ordinal);
+            Assert.EndsWith("· 内容已截断", thought.StatusTextForTests.Text, StringComparison.Ordinal);
+            Assert.Equal("展开思考", AutomationProperties.GetName(thought.ToggleButtonForTests));
+        });
+    }
+
+    [SkippableFact]
+    public void FollowUpThoughts_AreIndependentAndArrowTogglesVisibility()
+    {
+        RunOnSta(window =>
+        {
+            var sessionId = Guid.NewGuid();
+            window.SetSessionView(
+                sessionId,
+                ContentType.Analysis,
+                Completed("root"),
+                Conversation([
+                    new AnalysisFollowUpTurnState(1, "one", "answer one", AnalysisFollowUpTurnStatus.Completed, 1),
+                    new AnalysisFollowUpTurnState(2, "two", "answer two", AnalysisFollowUpTurnStatus.Completed, 2)]));
+
+            var first = window.BeginFollowUpThought(1);
+            first.Update("first thought", false, ThoughtBlockStatus.Completed);
+            var second = window.BeginFollowUpThought(2);
+            second.Update("second thought", false, ThoughtBlockStatus.Completed);
+
+            Assert.NotSame(first, second);
+            Assert.Equal(Visibility.Visible, first.Root.Visibility);
+            Assert.Equal(Visibility.Visible, second.Root.Visibility);
+            Assert.False(first.IsExpandedForTests);
+            Assert.False(second.IsExpandedForTests);
+
+            second.ToggleButtonForTests.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.True(second.IsExpandedForTests);
+            Assert.False(first.IsExpandedForTests);
         });
     }
 

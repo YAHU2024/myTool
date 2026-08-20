@@ -1158,7 +1158,7 @@ public partial class App : Application
                         if (IsCurrentRequest(requestScope) &&
                             _floatingWindow?.IsPresentationCurrent(presentationId) == true)
                         {
-                            _floatingWindow.UpdateReasoningSummary(
+                            _floatingWindow.UpdateRootThought(
                                 presentationId,
                                 reasoningPresentedText.ToString(),
                                 reasoningAccumulator.IsTruncated);
@@ -1172,8 +1172,7 @@ public partial class App : Application
                     {
                         presentationPump.Publish(streamEvent.Text ?? string.Empty);
                     }
-                    else if (streamEvent.Kind == TranslationStreamEventKind.ReasoningDelta &&
-                        request.ContentType == ContentType.Analysis)
+                    else if (streamEvent.Kind == TranslationStreamEventKind.ReasoningDelta)
                     {
                         var accepted = reasoningAccumulator.Append(streamEvent.Text);
                         reasoningPump.Publish(accepted);
@@ -1182,21 +1181,16 @@ public partial class App : Application
                 requestScope.Token);
             var presentationStats = await presentationPump.CompleteAsync();
             await reasoningPump.CompleteAsync();
-            if (request.ContentType == ContentType.Analysis &&
-                !string.IsNullOrWhiteSpace(reasoningAccumulator.Snapshot()))
+            await Dispatcher.InvokeAsync(() =>
             {
-                await Dispatcher.InvokeAsync(() =>
+                if (IsCurrentRequest(requestScope) &&
+                    _floatingWindow?.IsPresentationCurrent(presentationId) == true)
                 {
-                    if (IsCurrentRequest(requestScope) &&
-                        _floatingWindow?.IsPresentationCurrent(presentationId) == true)
-                    {
-                        _floatingWindow.UpdateReasoningSummary(
-                            presentationId,
-                            reasoningAccumulator.Snapshot(),
-                            reasoningAccumulator.IsTruncated);
-                    }
-                }, StreamingDispatcherMetrics.PresentationPriority, requestScope.Token);
-            }
+                    _floatingWindow.CompleteRootThought(
+                        presentationId,
+                        reasoningAccumulator.IsTruncated);
+                }
+            }, StreamingDispatcherMetrics.PresentationPriority, requestScope.Token);
             var dispatcherStats = dispatcherMetrics.GetStats();
             var markdownStats = _floatingWindow.GetStreamingMarkdownStats();
             var compositionStats = _floatingWindow.GetStreamingCompositionStats();
@@ -1306,12 +1300,14 @@ public partial class App : Application
         }
         catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))
         {
+            _floatingWindow.CancelRootThought(presentationId, false);
             _resultSessions.TryCancel(sessionIdentity);
             _translationMetrics.RecordCancelled();
             Logger.Debug("App", "translation.cancelled", new { operation = operationName, request_id = requestScope.RequestId });
         }
         catch (Exception ex)
         {
+            _floatingWindow.FailRootThought(presentationId, false);
             if (isModelSwitch)
                 _translationMetrics.RecordModelSwitchFailed();
             if (IsCurrentRequest(requestScope))
@@ -1355,7 +1351,7 @@ public partial class App : Application
         try
         {
             requestScope.Token.ThrowIfCancellationRequested();
-            _floatingWindow.BeginReasoningSummary(presentationId);
+            _floatingWindow.BeginFollowUpThought(transition.Turn.TurnNumber);
             var conversation = transition.Session.AnalysisConversation;
             var semanticSnapshot = conversation.SemanticSnapshot
                 ?? throw new InvalidOperationException("当前解析结果不能追问");
@@ -1415,8 +1411,9 @@ public partial class App : Application
                         if (IsCurrentRequest(requestScope) &&
                             _floatingWindow?.IsPresentationCurrent(presentationId) == true)
                         {
-                            _floatingWindow.UpdateReasoningSummary(
+                            _floatingWindow.UpdateFollowUpThought(
                                 presentationId,
+                                identity.TurnNumber,
                                 reasoningPresentedText.ToString(),
                                 reasoningAccumulator.IsTruncated);
                         }
@@ -1438,20 +1435,17 @@ public partial class App : Application
                 requestScope.Token);
             var presentationStats = await presentationPump.CompleteAsync();
             await reasoningPump.CompleteAsync();
-            if (!string.IsNullOrWhiteSpace(reasoningAccumulator.Snapshot()))
+            await Dispatcher.InvokeAsync(() =>
             {
-                await Dispatcher.InvokeAsync(() =>
+                if (IsCurrentRequest(requestScope) &&
+                    _floatingWindow?.IsPresentationCurrent(presentationId) == true)
                 {
-                    if (IsCurrentRequest(requestScope) &&
-                        _floatingWindow?.IsPresentationCurrent(presentationId) == true)
-                    {
-                        _floatingWindow.UpdateReasoningSummary(
-                            presentationId,
-                            reasoningAccumulator.Snapshot(),
-                            reasoningAccumulator.IsTruncated);
-                    }
-                }, StreamingDispatcherMetrics.PresentationPriority, requestScope.Token);
-            }
+                    _floatingWindow.CompleteFollowUpThought(
+                        presentationId,
+                        identity.TurnNumber,
+                        reasoningAccumulator.IsTruncated);
+                }
+            }, StreamingDispatcherMetrics.PresentationPriority, requestScope.Token);
             var dispatcherStats = dispatcherMetrics.GetStats();
             var markdownStats = _floatingWindow.GetAnalysisFollowUpStreamingStats(identity.TurnNumber);
             var compositionStats = _floatingWindow.GetAnalysisFollowUpCompositionStats(identity.TurnNumber);
@@ -1501,6 +1495,7 @@ public partial class App : Application
         }
         catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))
         {
+            _floatingWindow.CancelFollowUpThought(presentationId, identity.TurnNumber, false);
             if (_resultSessions.TryCancelFollowUp(identity) &&
                 _floatingWindow.IsPresentationCurrent(presentationId))
             {
@@ -1509,6 +1504,7 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
+            _floatingWindow.FailFollowUpThought(presentationId, identity.TurnNumber, false);
             if (IsCurrentRequest(requestScope) &&
                 _resultSessions.TryFailFollowUp(identity) &&
                 _floatingWindow.IsPresentationCurrent(presentationId))
@@ -1641,7 +1637,7 @@ public partial class App : Application
             request.ContentType,
             request.FallbackUsed ? request.Text : null);
         if (shown)
-            _floatingWindow.BeginReasoningSummary(presentationId);
+            _floatingWindow.BeginRootThought(presentationId);
         return shown;
     }
 
