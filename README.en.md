@@ -59,6 +59,8 @@ Select text to open a red-dot guide and route it into translation, code, or term
 
 After deep analysis, you can continue asking questions in the same floating window, with up to 10 turns of context retained. Answers stream in place, and you can revisit, locate, or retry the last turn from history nodes.
 
+When a model explicitly returns a reasoning field during deep analysis or a follow-up, the floating window shows a collapsed **Analysis summary (for reference only)** section. It is capped at 8,000 Unicode scalar values, exists only for the current session, and is excluded from Copy All, history, cache, and logs. The section stays hidden when the provider does not support it.
+
 ---
 
 ### Settings window · multi-model and shortcut management

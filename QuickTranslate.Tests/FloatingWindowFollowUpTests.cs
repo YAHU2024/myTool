@@ -35,6 +35,52 @@ public sealed class FloatingWindowFollowUpTests
     }
 
     [SkippableFact]
+    public void ReasoningSummary_IsCollapsedAndExcludedFromCopyText()
+    {
+        RunOnSta(window =>
+        {
+            var presentationId = window.BeginReplacement();
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("final answer"),
+                Conversation(turns: []));
+            window.BeginReasoningSummary(presentationId);
+
+            window.UpdateReasoningSummary(presentationId, "private reasoning", isTruncated: false);
+
+            Assert.Equal(Visibility.Visible, window.ReasoningSummaryExpander.Visibility);
+            Assert.False(window.ReasoningSummaryExpander.IsExpanded);
+            Assert.Equal("分析摘要", AutomationProperties.GetName(window.ReasoningSummaryExpander));
+            Assert.Equal("private reasoning", window.ReasoningSummaryText.Text);
+            Assert.Equal("final answer", window.CopyTextForTests);
+        });
+    }
+
+    [SkippableFact]
+    public void ReasoningSummary_RejectsStalePresentationAndShowsTruncation()
+    {
+        RunOnSta(window =>
+        {
+            var stalePresentationId = window.BeginReplacement();
+            var currentPresentationId = window.BeginReplacement();
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("final answer"),
+                Conversation(turns: []));
+            window.BeginReasoningSummary(currentPresentationId);
+
+            window.UpdateReasoningSummary(stalePresentationId, "stale", isTruncated: false);
+            Assert.Equal(Visibility.Collapsed, window.ReasoningSummaryExpander.Visibility);
+
+            window.UpdateReasoningSummary(currentPresentationId, "bounded", isTruncated: true);
+            Assert.Equal(Visibility.Visible, window.ReasoningSummaryExpander.Visibility);
+            Assert.Equal("bounded\n\n（摘要已截断）", window.ReasoningSummaryText.Text);
+        });
+    }
+
+    [SkippableFact]
     public void AnalysisCompleted_ShowsAccessibleFollowUpControls()
     {
         RunOnSta(window =>

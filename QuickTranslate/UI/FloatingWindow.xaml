@@ -134,6 +134,36 @@
                 <StackPanel x:Name="ConversationNodeRail" Grid.Column="0" Margin="0,2,4,0" Visibility="Collapsed"/>
                 <ScrollViewer x:Name="TranslationScroller" Grid.Column="1" Style="{StaticResource Win11ScrollViewer}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxWidth="870" MinHeight="40" ScrollChanged="TranslationScroller_ScrollChanged" PreviewMouseWheel="TranslationScroller_PreviewMouseWheel" PreviewKeyDown="TranslationScroller_PreviewKeyDown" PreviewMouseLeftButtonDown="TranslationScroller_PreviewMouseLeftButtonDown">
                     <StackPanel x:Name="ConversationContentPanel">
+                        <Expander x:Name="ReasoningSummaryExpander"
+                                  Visibility="Collapsed"
+                                  IsExpanded="False"
+                                  Margin="0,0,0,8"
+                                  Padding="0"
+                                  Foreground="#C8C8D8"
+                                  Background="#242535"
+                                  BorderBrush="#3A3B49"
+                                  BorderThickness="1"
+                                  Expanded="ReasoningSummaryExpander_Expanded"
+                                  Collapsed="ReasoningSummaryExpander_Collapsed"
+                                  AutomationProperties.Name="分析摘要">
+                            <Expander.Header>
+                                <TextBlock Text="分析摘要（仅供参考）"
+                                           FontFamily="Microsoft YaHei UI"
+                                           FontSize="11"
+                                           Foreground="#B7C5FF"/>
+                            </Expander.Header>
+                            <ScrollViewer MaxHeight="150"
+                                          Padding="8,0,8,8"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <TextBlock x:Name="ReasoningSummaryText"
+                                           FontFamily="Microsoft YaHei UI"
+                                           FontSize="11"
+                                           Foreground="#BDBDCA"
+                                           TextWrapping="Wrap"
+                                           AutomationProperties.Name="分析摘要内容"/>
+                            </ScrollViewer>
+                        </Expander>
                         <TextBlock x:Name="AnalysisRootLabel" Text="解析" Foreground="#B7C5FF" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" Visibility="Collapsed" Focusable="True" AutomationProperties.Name="初始解析"/>
                         <Grid x:Name="RootResultHost">
                             <TextBox x:Name="TranslationTextBlock" Foreground="#F0F0F0" FontSize="16" FontFamily="Microsoft YaHei UI" TextWrapping="Wrap" Padding="0,0,6,0" Text="" IsReadOnly="True" IsReadOnlyCaretVisible="False" Focusable="True" IsTabStop="False" AcceptsReturn="True" BorderThickness="0" Background="Transparent" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" SelectionBrush="#4DB6AC" SelectionOpacity="0.45" Cursor="IBeam"/>

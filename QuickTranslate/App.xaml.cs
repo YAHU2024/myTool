@@ -1119,6 +1119,8 @@ public partial class App : Application
             }
 
             var presentedText = new StringBuilder();
+            var reasoningPresentedText = new StringBuilder();
+            var reasoningAccumulator = new ReasoningSummaryAccumulator();
             var dispatcherMetrics = new StreamingDispatcherMetrics();
             var runtimeStart = StreamingRuntimeStats.Capture();
             await using var presentationPump = new StreamingPresentationPump(
@@ -1148,11 +1150,53 @@ public partial class App : Application
                         }
                     }, StreamingDispatcherMetrics.PresentationPriority, cancellationToken).Task;
                 });
-            var result = await _translationService.ExecuteStreamingAsync(
+            await using var reasoningPump = new StreamingPresentationPump(
+                (frame, cancellationToken) =>
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        reasoningPresentedText.Append(frame.Delta);
+                        if (IsCurrentRequest(requestScope) &&
+                            _floatingWindow?.IsPresentationCurrent(presentationId) == true)
+                        {
+                            _floatingWindow.UpdateReasoningSummary(
+                                presentationId,
+                                reasoningPresentedText.ToString(),
+                                reasoningAccumulator.IsTruncated);
+                        }
+                    }, StreamingDispatcherMetrics.PresentationPriority, cancellationToken).Task);
+            var result = await _translationService.ExecuteStreamingEventsAsync(
                 request,
-                delta => presentationPump.Publish(delta),
+                streamEvent =>
+                {
+                    if (streamEvent.Kind == TranslationStreamEventKind.ContentDelta)
+                    {
+                        presentationPump.Publish(streamEvent.Text ?? string.Empty);
+                    }
+                    else if (streamEvent.Kind == TranslationStreamEventKind.ReasoningDelta &&
+                        request.ContentType == ContentType.Analysis)
+                    {
+                        var accepted = reasoningAccumulator.Append(streamEvent.Text);
+                        reasoningPump.Publish(accepted);
+                    }
+                },
                 requestScope.Token);
             var presentationStats = await presentationPump.CompleteAsync();
+            await reasoningPump.CompleteAsync();
+            if (request.ContentType == ContentType.Analysis &&
+                !string.IsNullOrWhiteSpace(reasoningAccumulator.Snapshot()))
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (IsCurrentRequest(requestScope) &&
+                        _floatingWindow?.IsPresentationCurrent(presentationId) == true)
+                    {
+                        _floatingWindow.UpdateReasoningSummary(
+                            presentationId,
+                            reasoningAccumulator.Snapshot(),
+                            reasoningAccumulator.IsTruncated);
+                    }
+                }, StreamingDispatcherMetrics.PresentationPriority, requestScope.Token);
+            }
             var dispatcherStats = dispatcherMetrics.GetStats();
             var markdownStats = _floatingWindow.GetStreamingMarkdownStats();
             var compositionStats = _floatingWindow.GetStreamingCompositionStats();
@@ -1311,6 +1355,7 @@ public partial class App : Application
         try
         {
             requestScope.Token.ThrowIfCancellationRequested();
+            _floatingWindow.BeginReasoningSummary(presentationId);
             var conversation = transition.Session.AnalysisConversation;
             var semanticSnapshot = conversation.SemanticSnapshot
                 ?? throw new InvalidOperationException("当前解析结果不能追问");
@@ -1326,6 +1371,8 @@ public partial class App : Application
                 BuildFollowUpRequestContext(transition.Session));
 
             var presentedText = new StringBuilder();
+            var reasoningPresentedText = new StringBuilder();
+            var reasoningAccumulator = new ReasoningSummaryAccumulator();
             var dispatcherMetrics = new StreamingDispatcherMetrics();
             var runtimeStart = StreamingRuntimeStats.Capture();
             await using var presentationPump = new StreamingPresentationPump(
@@ -1360,11 +1407,51 @@ public partial class App : Application
                         }
                     }, StreamingDispatcherMetrics.PresentationPriority, cancellationToken).Task;
                 });
-            var result = await _translationService.ExecuteAnalysisFollowUpStreamingAsync(
+            await using var reasoningPump = new StreamingPresentationPump(
+                (frame, cancellationToken) =>
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        reasoningPresentedText.Append(frame.Delta);
+                        if (IsCurrentRequest(requestScope) &&
+                            _floatingWindow?.IsPresentationCurrent(presentationId) == true)
+                        {
+                            _floatingWindow.UpdateReasoningSummary(
+                                presentationId,
+                                reasoningPresentedText.ToString(),
+                                reasoningAccumulator.IsTruncated);
+                        }
+                    }, StreamingDispatcherMetrics.PresentationPriority, cancellationToken).Task);
+            var result = await _translationService.ExecuteAnalysisFollowUpStreamingEventsAsync(
                 request,
-                delta => presentationPump.Publish(delta),
+                streamEvent =>
+                {
+                    if (streamEvent.Kind == TranslationStreamEventKind.ContentDelta)
+                    {
+                        presentationPump.Publish(streamEvent.Text ?? string.Empty);
+                    }
+                    else if (streamEvent.Kind == TranslationStreamEventKind.ReasoningDelta)
+                    {
+                        var accepted = reasoningAccumulator.Append(streamEvent.Text);
+                        reasoningPump.Publish(accepted);
+                    }
+                },
                 requestScope.Token);
             var presentationStats = await presentationPump.CompleteAsync();
+            await reasoningPump.CompleteAsync();
+            if (!string.IsNullOrWhiteSpace(reasoningAccumulator.Snapshot()))
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (IsCurrentRequest(requestScope) &&
+                        _floatingWindow?.IsPresentationCurrent(presentationId) == true)
+                    {
+                        _floatingWindow.UpdateReasoningSummary(
+                            presentationId,
+                            reasoningAccumulator.Snapshot(),
+                            reasoningAccumulator.IsTruncated);
+                    }
+                }, StreamingDispatcherMetrics.PresentationPriority, requestScope.Token);
+            }
             var dispatcherStats = dispatcherMetrics.GetStats();
             var markdownStats = _floatingWindow.GetAnalysisFollowUpStreamingStats(identity.TurnNumber);
             var compositionStats = _floatingWindow.GetAnalysisFollowUpCompositionStats(identity.TurnNumber);
@@ -1538,7 +1625,7 @@ public partial class App : Application
         UpdateFloatingSessionView();
     }
 
-    private Task<bool> ShowRequestLoadingAsync(
+    private async Task<bool> ShowRequestLoadingAsync(
         TranslationRequest request,
         FloatingWindowAnchor floatingAnchor,
         long presentationId)
@@ -1547,12 +1634,15 @@ public partial class App : Application
         var loadingText = request.Kind == TranslationRequestKind.Analysis
             ? "解析中..."
             : "翻译中...";
-        return _floatingWindow!.ShowTranslationAsync(
+        var shown = await _floatingWindow!.ShowTranslationAsync(
             presentationId,
             loadingText,
             floatingAnchor,
             request.ContentType,
             request.FallbackUsed ? request.Text : null);
+        if (shown)
+            _floatingWindow.BeginReasoningSummary(presentationId);
+        return shown;
     }
 
     private Task<bool> ShowRequestResultAsync(

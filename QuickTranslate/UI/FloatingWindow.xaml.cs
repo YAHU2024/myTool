@@ -110,6 +110,9 @@ public partial class FloatingWindow : Window
     private bool _wasFollowUpBusy;
     private string _copyText = string.Empty;
     private string _speechText = string.Empty;
+    private string _reasoningSummary = string.Empty;
+    private bool _reasoningSummaryTruncated;
+    private long _reasoningSummaryPresentationId;
     private readonly List<ConversationNodeView> _conversationNodes = [];
     private string? _currentConversationNodeKey;
     private string? _clickedConversationNodeKey;
@@ -139,6 +142,7 @@ public partial class FloatingWindow : Window
     internal bool IsAutoScrollEnabledForTests => _autoScroll.IsAutoScrollEnabled;
     internal bool IsGenerationStopVisibleForTests => Equals(RefreshButton.Content, StopIcon);
     internal bool IsAutoHideSuppressedForTests => _autoHideSuppressionCount > 0;
+    internal string CopyTextForTests => _copyText;
 
     internal StreamingMarkdownRenderStats GetStreamingMarkdownStats() =>
         _streamingMarkdown?.GetStats() ?? StreamingMarkdownRenderStats.Empty;
@@ -329,6 +333,75 @@ public partial class FloatingWindow : Window
 
     public bool IsPresentationCurrent(long presentationId) => _presentations.IsCurrent(presentationId);
 
+    internal void BeginReasoningSummary(long presentationId)
+    {
+        if (!IsPresentationCurrent(presentationId))
+            return;
+
+        _reasoningSummaryPresentationId = presentationId;
+        _reasoningSummary = string.Empty;
+        _reasoningSummaryTruncated = false;
+        ReasoningSummaryText.Text = string.Empty;
+        ReasoningSummaryExpander.IsExpanded = false;
+        RenderReasoningSummary();
+    }
+
+    internal void UpdateReasoningSummary(
+        long presentationId,
+        string summary,
+        bool isTruncated)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            _reasoningSummaryPresentationId != presentationId)
+        {
+            return;
+        }
+
+        _reasoningSummary = summary ?? string.Empty;
+        _reasoningSummaryTruncated = isTruncated;
+        ReasoningSummaryText.Text = FormatReasoningSummaryText();
+        RenderReasoningSummary();
+        EnsureFooterFitsWindow();
+        UpdateLayout();
+        var nowTimestamp = Stopwatch.GetTimestamp();
+        if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5 &&
+            ShouldRunStreamingAction(
+                ref _lastStreamingPositionTimestamp,
+                nowTimestamp,
+                StreamingPositionInterval))
+        {
+            _lastPositionedHeight = ActualHeight;
+            PositionWindowAtAnchor();
+        }
+        ResetAutoHideTimer();
+    }
+
+    private string FormatReasoningSummaryText() =>
+        _reasoningSummaryTruncated
+            ? $"{_reasoningSummary}\n\n（摘要已截断）"
+            : _reasoningSummary;
+
+    private void RenderReasoningSummary()
+    {
+        var visible = _activeMode == ContentType.Analysis &&
+            !string.IsNullOrWhiteSpace(_reasoningSummary);
+        ReasoningSummaryExpander.Visibility = visible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        if (!visible)
+            ReasoningSummaryExpander.IsExpanded = false;
+    }
+
+    private void ClearReasoningSummary()
+    {
+        _reasoningSummary = string.Empty;
+        _reasoningSummaryTruncated = false;
+        _reasoningSummaryPresentationId = 0;
+        ReasoningSummaryText.Text = string.Empty;
+        ReasoningSummaryExpander.IsExpanded = false;
+        ReasoningSummaryExpander.Visibility = Visibility.Collapsed;
+    }
+
     /// <summary>
     /// Applies the current mode state from the session coordinator, including its saved scroll state.
     /// This method does not start work or mutate coordinator state.
@@ -345,6 +418,7 @@ public partial class FloatingWindow : Window
 
         if (_sessionId != sessionId || _activeMode != mode)
         {
+            ClearReasoningSummary();
             _ = StopTtsAsync();
             _restoreFollowUpFocusAfterCompletion = false;
             _wasFollowUpBusy = false;
@@ -383,6 +457,7 @@ public partial class FloatingWindow : Window
             ShowPlainText();
         SetLoading(state.Status == ModeResultStatus.Loading);
         RenderAnalysisConversation();
+        RenderReasoningSummary();
         RefreshSpeakButton();
         RenderStatusBar();
 
@@ -1426,6 +1501,23 @@ public partial class FloatingWindow : Window
         ShowCompletedMarkdown();
     }
 
+    private void ReasoningSummaryExpander_Expanded(object sender, RoutedEventArgs e) =>
+        RefreshReasoningSummaryLayout();
+
+    private void ReasoningSummaryExpander_Collapsed(object sender, RoutedEventArgs e) =>
+        RefreshReasoningSummaryLayout();
+
+    private void RefreshReasoningSummaryLayout()
+    {
+        if (!IsLoaded)
+            return;
+
+        UpdateLayout();
+        PositionWindowAtAnchor();
+        UpdateAutoScrollAffordance();
+        ResetAutoHideTimer();
+    }
+
     private void MarkdownLink_RequestNavigate(object sender, RequestNavigateEventArgs e)
     {
         e.Handled = true;
@@ -1465,6 +1557,7 @@ public partial class FloatingWindow : Window
         _streamingMarkdown = null;
         _copyText = string.Empty;
         _speechText = string.Empty;
+        ClearReasoningSummary();
         _analysisConversation = AnalysisConversationState.Empty();
         _editingFollowUpTurnNumber = null;
         RenderAnalysisConversation();

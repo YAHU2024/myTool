@@ -259,6 +259,7 @@ quicktranslate-2026-07-23-2.log
 - 用户选中的原文；
 - 快速查词的查询词、释义、音标、例句和搭配；
 - 翻译、解析或模型响应正文；
+- 模型返回的 reasoning、分析摘要或推理过程；
 - 系统提示词和自定义提示词；
 - API Key；
 - Authorization 请求头；
@@ -468,7 +469,8 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 | analysis.follow_up.failed | Warn | turn, error_type, status_code, request_id |
 | analysis.follow_up.limit_reached | Info | turn_count, context_chars, limit_kind, request_id |
 
-These events never contain the selected source text, questions, answers, summaries,
+These events never contain the selected source text, questions, answers, reasoning
+summaries,
 message bodies, system prompts, API keys, Authorization headers, endpoint/model
 configuration, provider response bodies, or exception messages.
 
