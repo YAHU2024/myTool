@@ -156,6 +156,9 @@ public partial class FloatingWindow : Window
     internal bool IsAutoHideSuppressedForTests => _autoHideSuppressionCount > 0;
     internal string CopyTextForTests => _copyText;
     internal ThoughtBlockView? RootThoughtBlockForTests => _rootThoughtBlock;
+    internal bool IsGenerationBusyForSecondaryRequest =>
+        _isLoading || _analysisConversation.Turns.Any(turn =>
+            turn.Status == AnalysisFollowUpTurnStatus.Loading);
 
     internal StreamingMarkdownRenderStats GetStreamingMarkdownStats() =>
         _streamingMarkdown?.GetStats() ?? StreamingMarkdownRenderStats.Empty;
@@ -250,6 +253,75 @@ public partial class FloatingWindow : Window
     }
 
     internal FloatingWindowAnchor CurrentAnchor => _anchor;
+
+    internal bool TryGetSecondarySelection(
+        out string selectedText,
+        out FloatingWindowAnchor anchor)
+    {
+        selectedText = string.Empty;
+        anchor = default;
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero || Win32Api.GetForegroundWindow() != hwnd)
+            return false;
+
+        if (!TryGetSecondarySelectionFromFocusedElement(
+                Keyboard.FocusedElement as DependencyObject,
+                out selectedText))
+            return false;
+
+        Win32Api.GetCursorPos(out var cursor);
+        anchor = new FloatingWindowAnchor(
+            new Point(cursor.X, cursor.Y),
+            Rect.Empty);
+        return true;
+    }
+
+    internal bool TryGetSecondarySelectionFromFocusedElement(
+        DependencyObject? focusedElement,
+        out string selectedText)
+    {
+        selectedText = string.Empty;
+        var host = FindSelectionHost(focusedElement);
+        if (host is null ||
+            (!IsDescendantOf(host, RootResultHost) &&
+             !IsDescendantOf(host, AnalysisTurnsPanel)) ||
+            IsThoughtContent(host))
+        {
+            return false;
+        }
+
+        var text = host switch
+        {
+            TextBox textBox when textBox.SelectionLength > 0 => textBox.SelectedText,
+            RichTextBox markdown when !markdown.Selection.IsEmpty =>
+                new TextRange(markdown.Selection.Start, markdown.Selection.End).Text,
+            _ => string.Empty
+        };
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        selectedText = text.Trim();
+        return true;
+    }
+
+    private static Control? FindSelectionHost(DependencyObject? focusedElement)
+    {
+        for (var current = focusedElement; current is not null; current = GetParent(current))
+        {
+            if (current is TextBox or RichTextBox)
+                return (Control)current;
+        }
+        return null;
+    }
+
+    private bool IsThoughtContent(DependencyObject element)
+    {
+        if (_rootThoughtBlock is not null && IsDescendantOf(element, _rootThoughtBlock.Root))
+            return true;
+        return _followUpThoughtBlocks.Values.Any(thought =>
+            IsDescendantOf(element, thought.Root));
+    }
 
     internal void AttachTts(TtsPlaybackCoordinator tts)
     {

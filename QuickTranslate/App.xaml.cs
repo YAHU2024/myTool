@@ -376,17 +376,42 @@ public partial class App : Application
 
         FloatingWindowAnchor? floatingAnchor = null;
 
-        var sourceWindow = await TerminalDetector.CaptureForegroundWindowWithFocusAsync();
-
-        // 浏览器中禁用翻译：避免与浏览器翻译插件冲突
-        if (!_settings.EnableInBrowser && BrowserDetector.IsForegroundBrowser(_settings.CustomBrowserProcesses))
-        {
-            Logger.Debug("App", "热键触发但前台为浏览器，已跳过（浏览器翻译已禁用）");
-            return;
-        }
-
         try
         {
+            // A selection inside our own result window is an explicit follow-up
+            // request. Read it directly from WPF instead of routing it through
+            // UIA or simulated Ctrl+C.
+            if (_floatingWindow.TryGetSecondarySelection(
+                    out var secondaryText,
+                    out var secondaryAnchor))
+            {
+                if (_floatingWindow.IsGenerationBusyForSecondaryRequest)
+                {
+                    _floatingWindow.ShowSelectionCaptureFeedback("请等待当前生成完成");
+                    return;
+                }
+
+                var secondaryRoute = TranslationRouteResolver.Resolve(
+                    secondaryText,
+                    _settings.SmartContentType);
+                await StartSessionRequestAsync(
+                    secondaryText,
+                    secondaryRoute.InitialMode,
+                    secondaryAnchor,
+                    "悬浮窗二次翻译",
+                    secondaryRoute.ContentDecision);
+                return;
+            }
+
+            var sourceWindow = await TerminalDetector.CaptureForegroundWindowWithFocusAsync();
+
+            // 浏览器中禁用翻译：避免与浏览器翻译插件冲突
+            if (!_settings.EnableInBrowser && BrowserDetector.IsForegroundBrowser(_settings.CustomBrowserProcesses))
+            {
+                Logger.Debug("App", "热键触发但前台为浏览器，已跳过（浏览器翻译已禁用）");
+                return;
+            }
+
             var location = await SelectionLocator.TryGetSelectionBoundsAsync(750);
             var evidence = location is { IsValid: true }
                 ? SelectionEvidenceKind.UiaTextSelectionBounds
@@ -522,6 +547,7 @@ public partial class App : Application
 
             var sourceWindow = await TerminalDetector.CaptureForegroundWindowWithFocusAsync(cancellationToken: token);
             if (sourceWindow == null) return;
+            if (sourceWindow.ProcessId == Environment.ProcessId) return;
 
             var intent = new SelectionIntent(gestureKind, startPos, endPos, DateTimeOffset.UtcNow);
 
@@ -567,14 +593,13 @@ public partial class App : Application
             }
             if (location == null || !location.IsValid)
             {
-                // Fallback: physical drag end point, same coordinate contract as UIA.
-                var mid = endPos;
-                location = new SelectionLocation
-                {
-                    IsValid = false,
-                    FallbackPoint = mid
-                };
+                // Automatic red-dot activation requires a confirmed text
+                // selection. The explicit hotkey path still supports apps
+                // that do not expose UIA selection bounds.
+                return;
             }
+            if (!IsSelectionGestureConsistent(location, intent))
+                return;
 
             // Defer clipboard access until the user deliberately hovers the red dot.
             // 显示红点
@@ -1708,6 +1733,27 @@ public partial class App : Application
         return new FloatingWindowAnchor(
             new Point(cursorPoint.X, cursorPoint.Y),
             Rect.Empty);
+    }
+
+    internal static bool IsSelectionGestureConsistent(
+        SelectionLocation location,
+        SelectionIntent intent)
+    {
+        if (!location.IsValid || location.Bounds.IsEmpty)
+            return false;
+
+        // UIA and low-level mouse hooks both use physical screen pixels here.
+        // A small expansion tolerates glyph edges without accepting a window
+        // drag whose stale focused selection is elsewhere on the screen.
+        var bounds = location.Bounds;
+        bounds.Inflate(24, 24);
+        return intent.GestureKind switch
+        {
+            SelectionGestureKind.MultiClick => bounds.Contains(intent.StartPoint),
+            SelectionGestureKind.Drag =>
+                bounds.Contains(intent.StartPoint) || bounds.Contains(intent.EndPoint),
+            _ => true
+        };
     }
 
     /// <summary>

@@ -71,6 +71,65 @@ public sealed class FloatingWindowFollowUpTests
     }
 
     [SkippableFact]
+    public void SecondarySelection_UsesOnlyFocusedAnswerHostAndExcludesThoughts()
+    {
+        RunOnSta(window =>
+        {
+            window.TranslationTextBlock.Text = "first selected answer";
+            window.TranslationTextBlock.Select(6, 8);
+
+            Assert.True(window.TryGetSecondarySelectionFromFocusedElement(
+                window.TranslationTextBlock,
+                out var selectedText));
+            Assert.Equal("selected", selectedText);
+
+            // A selection retained by another control must not be reused when
+            // focus has moved elsewhere.
+            Assert.False(window.TryGetSecondarySelectionFromFocusedElement(
+                window.FollowUpTextBox,
+                out _));
+
+            var presentationId = window.BeginReplacement();
+            window.BeginRootThought(presentationId);
+            window.UpdateRootThought(presentationId, "private reasoning", isTruncated: false);
+            var thought = Assert.IsType<ThoughtBlockView>(window.RootThoughtBlockForTests);
+            thought.ActiveTextHostForTests.Text = "private reasoning";
+            thought.ActiveTextHostForTests.SelectAll();
+
+            Assert.False(window.TryGetSecondarySelectionFromFocusedElement(
+                thought.ActiveTextHostForTests,
+                out _));
+        });
+    }
+
+    [Theory]
+    [InlineData(SelectionGestureKind.MultiClick, 120, 120, 120, 120, true)]
+    [InlineData(SelectionGestureKind.MultiClick, 500, 500, 500, 500, false)]
+    [InlineData(SelectionGestureKind.Drag, 80, 120, 180, 120, true)]
+    [InlineData(SelectionGestureKind.Drag, 500, 500, 650, 500, false)]
+    public void SelectionGestureConsistency_RequiresGestureNearConfirmedSelection(
+        SelectionGestureKind gesture,
+        double startX,
+        double startY,
+        double endX,
+        double endY,
+        bool expected)
+    {
+        var location = new SelectionLocation
+        {
+            IsValid = true,
+            Bounds = new Rect(100, 100, 100, 40)
+        };
+        var intent = new SelectionIntent(
+            gesture,
+            new Point(startX, startY),
+            new Point(endX, endY),
+            DateTimeOffset.UtcNow);
+
+        Assert.Equal(expected, App.IsSelectionGestureConsistent(location, intent));
+    }
+
+    [SkippableFact]
     public void RootThought_PreservesPerModeStateAcrossModeSwitchButClearsOnRegeneration()
     {
         RunOnSta(window =>
