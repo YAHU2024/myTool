@@ -67,7 +67,10 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             settings.ApiBaseUrl,
             settings.ApiKey,
             settings.ModelName,
-            settings.EnableThinking,
+            ProviderRequestPolicy.ResolveThinkingRequestValue(
+                settings.ApiBaseUrl,
+                settings.ModelName,
+                settings.ThinkingMode),
             targetLang,
             settings.FallbackLanguage,
             settings.AutoDetectLanguage,
@@ -497,7 +500,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         string modelName,
         IReadOnlyList<ChatCompletionMessage> messages,
         string apiBaseUrl,
-        bool enableThinking,
+        bool? enableThinking,
         bool stream)
     {
         var body = new Dictionary<string, object>

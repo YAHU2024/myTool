@@ -36,7 +36,7 @@ public sealed record WordLookupProviderSettings(
     string ApiKey,
     string ModelName,
     string ExplanationLanguage,
-    bool EnableThinking = false);
+    bool? EnableThinking = null);
 
 public sealed class WordLookupNotFoundException : Exception
 {

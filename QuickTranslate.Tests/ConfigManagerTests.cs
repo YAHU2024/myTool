@@ -360,6 +360,40 @@ public class ConfigManagerTests : IDisposable
     // =========================================================================
 
     [Fact]
+    public void NewSettings_DefaultThinkingModeFollowsProvider()
+    {
+        Assert.Equal(
+            ThinkingModePreference.FollowProviderDefault,
+            new AppSettings().ThinkingMode);
+    }
+
+    [Theory]
+    [InlineData(true, ThinkingModePreference.Enabled)]
+    [InlineData(false, ThinkingModePreference.Disabled)]
+    public void MigrateThinkingMode_PreservesLegacyBooleanForAllSavedConfigs(
+        bool legacyValue,
+        ThinkingModePreference expected)
+    {
+        using var document = JsonDocument.Parse($$"""
+            {
+              "EnableThinking": {{legacyValue.ToString().ToLowerInvariant()}},
+              "SavedConfigs": [
+                { "ModelName": "model-a" },
+                { "ModelName": "model-b" }
+              ]
+            }
+            """);
+        var settings = new AppSettings
+        {
+            SavedConfigs = [new SavedConfig(), new SavedConfig()]
+        };
+
+        Assert.True(ConfigManager.MigrateThinkingMode(settings, document.RootElement));
+        Assert.Equal(expected, settings.ThinkingMode);
+        Assert.All(settings.SavedConfigs, config => Assert.Equal(expected, config.ThinkingMode));
+    }
+
+    [Fact]
     public void SaveAndLoad_RoundTrip_PreservesAllFields()
     {
         var mgr = CreateManager();
@@ -406,6 +440,7 @@ public class ConfigManagerTests : IDisposable
         Assert.Equal(original.AutoDetectLanguage, loaded.AutoDetectLanguage);
         Assert.Equal(original.SmartContentType, loaded.SmartContentType);
         Assert.Equal(original.EnableThinking, loaded.EnableThinking);
+        Assert.Equal(ThinkingModePreference.Enabled, loaded.ThinkingMode);
         Assert.Equal(original.CustomTranslationPrompt, loaded.CustomTranslationPrompt);
         Assert.Equal(original.TtsEnabled, loaded.TtsEnabled);
         Assert.Equal(original.TtsRate, loaded.TtsRate);

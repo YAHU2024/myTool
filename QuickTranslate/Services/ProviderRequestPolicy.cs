@@ -1,3 +1,5 @@
+using QuickTranslate.Models;
+
 namespace QuickTranslate.Services;
 
 internal static class ProviderRequestPolicy
@@ -22,27 +24,46 @@ internal static class ProviderRequestPolicy
         };
     }
 
+    public static bool? ResolveThinkingRequestValue(
+        string apiBaseUrl,
+        string modelName,
+        ThinkingModePreference preference) =>
+        ResolveThinkingRequestValue(
+            ThinkingModePreferences.Normalize(preference),
+            ResolveCapabilities(apiBaseUrl, modelName));
+
+    private static bool? ResolveThinkingRequestValue(
+        ThinkingModePreference preference,
+        ProviderModelCapabilities capabilities) => preference switch
+        {
+            ThinkingModePreference.Enabled when capabilities.CanEnableThinking => true,
+            ThinkingModePreference.Disabled when capabilities.CanDisableThinking => false,
+            _ => null
+        };
+
     public static ProviderModelCapabilities Apply(
         Dictionary<string, object> body,
         string apiBaseUrl,
         string modelName,
-        bool enableThinking)
+        bool? enableThinking)
     {
         ArgumentNullException.ThrowIfNull(body);
         var capabilities = ResolveCapabilities(apiBaseUrl, modelName);
-        if (!capabilities.SupportsThinking)
+        if (!capabilities.SupportsThinking || enableThinking is null)
             return capabilities;
+
+        var shouldEnable = enableThinking.Value;
 
         switch (capabilities.ThinkingStyle)
         {
             case ThinkingParameterStyle.ThinkingObject:
-                body["thinking"] = new { type = enableThinking ? "enabled" : "disabled" };
+                body["thinking"] = new { type = shouldEnable ? "enabled" : "disabled" };
                 break;
             case ThinkingParameterStyle.EnableThinkingBoolean:
-                body["enable_thinking"] = enableThinking;
+                body["enable_thinking"] = shouldEnable;
                 break;
             case ThinkingParameterStyle.ReasoningEffort:
-                var effort = enableThinking
+                var effort = shouldEnable
                     ? capabilities.EnabledReasoningEffort
                     : capabilities.DisabledReasoningEffort;
                 if (!string.IsNullOrWhiteSpace(effort))
@@ -50,7 +71,7 @@ internal static class ProviderRequestPolicy
                 break;
         }
 
-        if (enableThinking && capabilities.OmitSamplingParametersWhenThinking)
+        if (shouldEnable && capabilities.OmitSamplingParametersWhenThinking)
         {
             foreach (var parameter in SamplingParameters)
                 body.Remove(parameter);

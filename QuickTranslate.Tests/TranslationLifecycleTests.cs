@@ -54,19 +54,20 @@ public class TranslationLifecycleTests
     {
         var settings = new AppSettings
         {
+            ApiBaseUrl = "https://api.openai.com/v1",
             ApiKey = "key",
-            ModelName = "model-a",
+            ModelName = "gpt-5.4",
             EnableThinking = true,
             CustomTranslationPrompt = "Use {targetLang}."
         };
         using var service = new OpenAITranslationService(settings);
 
         var first = service.CreateRequest("hello", "English", ContentType.Translation);
-        settings.ModelName = "model-b";
+        settings.ModelName = "gpt-5.5";
         settings.EnableThinking = false;
         settings.CustomTranslationPrompt = "Changed {targetLang}.";
 
-        Assert.Equal("model-a", first.ModelName);
+        Assert.Equal("gpt-5.4", first.ModelName);
         Assert.True(first.EnableThinking);
         Assert.StartsWith("Translate the user text into English.", first.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("Additional requirements (do not replace the translation task): Use English.", first.SystemPrompt);

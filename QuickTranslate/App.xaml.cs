@@ -2022,7 +2022,10 @@ public partial class App : Application
         settings.ApiKey,
         settings.ModelName,
         settings.TargetLanguage,
-        settings.EnableThinking);
+        ProviderRequestPolicy.ResolveThinkingRequestValue(
+            settings.ApiBaseUrl,
+            settings.ModelName,
+            settings.ThinkingMode));
 
     private LocalDictionaryWordLookupService? TryCreateLocalDictionaryWordLookupService()
     {
