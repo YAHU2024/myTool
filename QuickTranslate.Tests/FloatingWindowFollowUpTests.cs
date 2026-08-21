@@ -716,6 +716,9 @@ public sealed class FloatingWindowFollowUpTests
 
             Assert.Equal(Visibility.Visible, window.StatusMessageBar.Visibility);
             Assert.Equal("已完成", window.StatusMessageText.Text);
+            Assert.Equal(TextTrimming.CharacterEllipsis, window.StatusMessageText.TextTrimming);
+            Assert.Equal(Visibility.Collapsed, window.StatusElapsedText.Visibility);
+            Assert.Equal(48d, window.StatusElapsedText.MinWidth);
             Assert.Equal(Visibility.Collapsed, window.StatusMessageActionButton.Visibility);
             Assert.Equal(Color.FromRgb(0x20, 0x21, 0x2B), ((SolidColorBrush)window.StatusMessageBar.Background).Color);
             Assert.Equal(
@@ -743,6 +746,21 @@ public sealed class FloatingWindowFollowUpTests
                 scrollableHeight: 41,
                 currentBottomReserve: 40));
         });
+    }
+
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(0.999, null)]
+    [InlineData(1, "1 秒")]
+    [InlineData(9.999, "9 秒")]
+    [InlineData(65.4, "65 秒")]
+    public void GenerationElapsed_UsesStableWholeSecondSuffix(
+        double totalSeconds,
+        string? expected)
+    {
+        Assert.Equal(
+            expected,
+            FloatingWindow.FormatGenerationElapsed(TimeSpan.FromSeconds(totalSeconds)));
     }
 
     [SkippableFact]
@@ -793,8 +811,8 @@ public sealed class FloatingWindowFollowUpTests
 
             window.SetModelProfiles([profile], profile, enabled: true);
 
-            Assert.Equal(176d, window.ModelSelector.Width);
-            Assert.Equal(176d, window.ModelSelector.MaxWidth);
+            Assert.Equal(144d, window.ModelSelector.Width);
+            Assert.Equal(144d, window.ModelSelector.MaxWidth);
             Assert.Equal("Qwen3-8B", window.ModelSelector.ModelNameText.Text);
             Assert.Equal(312d, window.ModelSelector.PopupContainer.Width);
             Assert.Equal(312d, window.ModelSelector.ProfileList.MaxHeight);
@@ -807,7 +825,7 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Same(window.ModelSelector.SelectorButton, window.ModelSelector.SelectorPopup.PlacementTarget);
             Assert.Equal(PlacementMode.Top, window.ModelSelector.SelectorPopup.Placement);
             Assert.Equal(0d, window.ModelSelector.SelectorPopup.HorizontalOffset);
-            Assert.Equal(82d, window.ModelSelector.PopupAnchor.Margin.Right);
+            Assert.Equal(66d, window.ModelSelector.PopupAnchor.Margin.Right);
             var modelListScrollBarStyle = Assert.IsType<Style>(
                 window.ModelSelector.ProfileList.Resources[typeof(ScrollBar)]);
             var baseScrollBarStyle = Assert.IsType<Style>(window.ModelSelector.FindResource("Win11VerticalScrollBar"));

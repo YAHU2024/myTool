@@ -90,6 +90,7 @@ public partial class FloatingWindow : Window
     private bool _translationDirectionIsManual;
     private bool _translationDirectionEnabled;
     private Storyboard? _statusScrollStoryboard;
+    private int _statusScrollGeneration;
     private bool _returnButtonSuppressesAutoHide;
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
@@ -2247,15 +2248,31 @@ public partial class FloatingWindow : Window
 
     private void RenderStatusBar()
     {
-        if (StatusMessageBar is null || StatusIndicator is null || StatusMessageText is null || StatusMessageActionButton is null)
+        if (StatusMessageBar is null || StatusIndicator is null || StatusMessageText is null ||
+            StatusElapsedText is null || StatusMessageActionButton is null)
             return;
 
         var entry = _transientStatus ?? _persistentStatus ?? DefaultStatusEntry();
+        var messageChanged = !string.Equals(StatusMessageText.Text, entry.Message, StringComparison.Ordinal);
 
         var (indicator, fg) = FloatingStatusMessage.GetAccentColors(entry.Kind);
         StatusIndicator.Fill = new SolidColorBrush(indicator);
         StatusMessageText.Foreground = new SolidColorBrush(fg);
         StatusMessageText.Text = entry.Message;
+        StatusElapsedText.Foreground = new SolidColorBrush(fg);
+
+        var elapsedText = GetGenerationElapsedText(entry);
+        StatusElapsedText.Text = elapsedText ?? string.Empty;
+        StatusElapsedText.Visibility = elapsedText is null
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
+        var fullStatusText = elapsedText is null
+            ? entry.Message
+            : $"{entry.Message} {elapsedText}";
+        StatusMessageViewport.ToolTip = fullStatusText;
+        StatusElapsedText.ToolTip = fullStatusText;
+        AutomationProperties.SetName(StatusMessageBar, fullStatusText);
 
         var actionText = entry.ActionText;
         var action = entry.Action;
@@ -2289,7 +2306,8 @@ public partial class FloatingWindow : Window
         }
 
         EnsureFooterFitsWindow();
-        RestartStatusScroll();
+        if (messageChanged)
+            RestartStatusScroll();
     }
 
     private bool CanShowTranslationDirectionAction() =>
@@ -2310,7 +2328,7 @@ public partial class FloatingWindow : Window
             return followUp.Status switch
             {
                 AnalysisFollowUpTurnStatus.Loading =>
-                    new("follow-up-generation", FormatGenerationStatus("正在生成"), FloatingStatusKind.Info, null, null),
+                    new("follow-up-generation", "正在生成", FloatingStatusKind.Info, null, null),
                 AnalysisFollowUpTurnStatus.Failed =>
                     new("follow-up-failed", "追问失败，可重试", FloatingStatusKind.Error, null, null),
                 AnalysisFollowUpTurnStatus.Cancelled =>
@@ -2326,10 +2344,10 @@ public partial class FloatingWindow : Window
     {
         ModeResultStatus.Loading when _translationDirectionIsManual &&
             !string.IsNullOrWhiteSpace(_translationEffectiveTargetLanguage) =>
-            new("generation", FormatGenerationStatus($"正在译为 {_translationEffectiveTargetLanguage}"), FloatingStatusKind.Info, null, null),
+            new("generation", $"正在译为 {_translationEffectiveTargetLanguage}", FloatingStatusKind.Info, null, null),
         ModeResultStatus.Loading when _activeMode == ContentType.Analysis =>
-            new("generation", FormatGenerationStatus("正在分析"), FloatingStatusKind.Info, null, null),
-        ModeResultStatus.Loading => new("generation", FormatGenerationStatus("正在生成"), FloatingStatusKind.Info, null, null),
+            new("generation", "正在分析", FloatingStatusKind.Info, null, null),
+        ModeResultStatus.Loading => new("generation", "正在生成", FloatingStatusKind.Info, null, null),
         ModeResultStatus.Completed when _modeQuality == ModeResultQuality.EchoWarning =>
             new("echo-warning", "结果与原文高度一致", FloatingStatusKind.Warning, null, null),
         ModeResultStatus.Completed => new("completed", "已完成", FloatingStatusKind.Success, null, null),
@@ -2338,16 +2356,19 @@ public partial class FloatingWindow : Window
         _ => new("ready", "就绪", FloatingStatusKind.Info, null, null)
     };
 
-    private string FormatGenerationStatus(string prefix)
+    private string? GetGenerationElapsedText(StatusMessageEntry entry)
     {
-        if (!_generationActivityActive || _generationStartedTimestamp == 0)
-            return prefix;
+        if (!_generationActivityActive || _generationStartedTimestamp == 0 ||
+            entry.Token is not ("generation" or "follow-up-generation"))
+            return null;
 
-        var elapsed = Stopwatch.GetElapsedTime(_generationStartedTimestamp);
-        return elapsed < GenerationElapsedRefreshInterval
-            ? prefix
-            : $"{prefix} · {elapsed.TotalSeconds:0} 秒";
+        return FormatGenerationElapsed(Stopwatch.GetElapsedTime(_generationStartedTimestamp));
     }
+
+    internal static string? FormatGenerationElapsed(TimeSpan elapsed) =>
+        elapsed < GenerationElapsedRefreshInterval
+            ? null
+            : $"{(int)Math.Floor(elapsed.TotalSeconds)} 秒";
 
     private void SetGenerationActivity(bool active)
     {
@@ -2367,16 +2388,23 @@ public partial class FloatingWindow : Window
 
     private void RestartStatusScroll()
     {
+        var generation = ++_statusScrollGeneration;
         _statusScrollStoryboard?.Remove(this);
         _statusScrollStoryboard = null;
         StatusMessageTransform.X = 0;
+        StatusMessageText.TextTrimming = TextTrimming.CharacterEllipsis;
         Dispatcher.BeginInvoke(() =>
         {
-            StatusMessageText.Measure(new Size(double.PositiveInfinity, StatusMessageViewport.ActualHeight));
-            var distance = StatusMessageText.DesiredSize.Width - StatusMessageViewport.ActualWidth;
-            if (distance <= 0.5 || StatusMessageViewport.ActualWidth <= 0)
+            if (generation != _statusScrollGeneration)
                 return;
 
+            StatusMessageText.Measure(new Size(double.PositiveInfinity, StatusMessageViewport.ActualHeight));
+            var distance = StatusMessageText.DesiredSize.Width - StatusMessageViewport.ActualWidth;
+            if (distance <= 0.5 || StatusMessageViewport.ActualWidth <= 0 ||
+                !SystemParameters.ClientAreaAnimation)
+                return;
+
+            StatusMessageText.TextTrimming = TextTrimming.None;
             var animation = new DoubleAnimationUsingKeyFrames
             {
                 RepeatBehavior = RepeatBehavior.Forever

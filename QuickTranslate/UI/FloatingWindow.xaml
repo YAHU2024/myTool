@@ -224,16 +224,18 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <Ellipse x:Name="StatusIndicator" Grid.Column="0" Width="7" Height="7" Margin="0,0,8,0" VerticalAlignment="Center" Fill="#6796E8"/>
-                        <Border x:Name="StatusMessageViewport" Grid.Column="1" ClipToBounds="True" ToolTip="{Binding Text, ElementName=StatusMessageText}">
-                            <TextBlock x:Name="StatusMessageText" FontFamily="Microsoft YaHei UI" FontSize="11" TextWrapping="NoWrap" VerticalAlignment="Center" Foreground="#B7C5FF" Text="就绪">
+                        <Border x:Name="StatusMessageViewport" Grid.Column="1" ClipToBounds="True">
+                            <TextBlock x:Name="StatusMessageText" FontFamily="Microsoft YaHei UI" FontSize="11" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="#B7C5FF" Text="就绪">
                                 <TextBlock.RenderTransform>
                                     <TranslateTransform x:Name="StatusMessageTransform"/>
                                 </TextBlock.RenderTransform>
                             </TextBlock>
                         </Border>
-                        <Button x:Name="StatusMessageActionButton" Grid.Column="2" Height="22" Margin="8,0,0,0" Padding="6,0" VerticalAlignment="Center" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#343644" Content="" Visibility="Collapsed" Click="StatusMessageActionButton_Click"/>
+                        <TextBlock x:Name="StatusElapsedText" Grid.Column="2" MinWidth="48" Margin="6,0,0,0" FontFamily="Microsoft YaHei UI" FontSize="11" TextAlignment="Right" TextWrapping="NoWrap" VerticalAlignment="Center" Foreground="#B7C5FF" Visibility="Collapsed"/>
+                        <Button x:Name="StatusMessageActionButton" Grid.Column="3" Height="22" Margin="8,0,0,0" Padding="6,0" VerticalAlignment="Center" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#343644" Content="" Visibility="Collapsed" Click="StatusMessageActionButton_Click"/>
                     </Grid>
                     <ui:ModelSelectorControl x:Name="ModelSelector" Grid.Column="1"/>
                 </Grid>
