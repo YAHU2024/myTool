@@ -143,6 +143,7 @@ internal sealed class ThoughtBlockView
             Padding = new Thickness(0)
         };
         _scrollViewer.SetResourceReference(FrameworkElement.StyleProperty, "Win11ScrollViewer");
+        _scrollViewer.Tag = true;
         _scrollViewer.ScrollChanged += ScrollViewer_ScrollChanged;
         _scrollViewer.PreviewMouseWheel += ScrollViewer_PreviewMouseWheel;
         _scrollViewer.PreviewMouseLeftButtonDown += ScrollViewer_PreviewMouseLeftButtonDown;
@@ -155,6 +156,8 @@ internal sealed class ThoughtBlockView
     }
 
     public Border Root { get; }
+
+    public event Action<int>? BoundaryWheelRequested;
 
     public void DetachFromParent()
     {
@@ -177,6 +180,8 @@ internal sealed class ThoughtBlockView
     internal ScrollViewer ScrollViewerForTests => _scrollViewer;
 
     internal bool IsAutoFollowEnabledForTests => _autoFollow;
+
+    internal bool ShowsScrollbarHintForTests => Equals(_scrollViewer.Tag, true);
 
     public bool IsVisible => Root.Visibility == Visibility.Visible;
 
@@ -407,6 +412,18 @@ internal sealed class ThoughtBlockView
 
     private void ScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        if (_scrollViewer.ScrollableHeight > 0)
+        {
+            var atTop = _scrollViewer.VerticalOffset <= 1;
+            var atBottom = _scrollViewer.VerticalOffset >= _scrollViewer.ScrollableHeight - 1;
+            if (e.Delta > 0 ? atTop : atBottom)
+            {
+                BoundaryWheelRequested?.Invoke(e.Delta);
+                e.Handled = true;
+                return;
+            }
+        }
+
         if (e.Delta > 0)
             _autoFollow = false;
         else if (_scrollViewer.VerticalOffset >= _scrollViewer.ScrollableHeight - 1)

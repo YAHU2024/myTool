@@ -61,6 +61,7 @@ public sealed class FloatingWindowFollowUpTests
             Assert.True(thought.StableMarkdownHostForTests.IsReadOnly);
             Assert.True(thought.StableMarkdownHostForTests.Focusable);
             Assert.False(thought.StableMarkdownHostForTests.IsTabStop);
+            Assert.True(thought.ShowsScrollbarHintForTests);
             thought.ActiveTextHostForTests.SelectAll();
             Assert.True(ApplicationCommands.Copy.CanExecute(null, thought.ActiveTextHostForTests));
 

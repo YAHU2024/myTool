@@ -32,6 +32,7 @@ public partial class FloatingWindow : Window
     private const double PlacementGapDip = 12;
     private const double DefaultWindowMinHeight = 120;
     private const double ReturnToLatestContentReserveDip = 40;
+    private const double EstimatedWheelLineHeightDip = 16;
     private static readonly TimeSpan StreamingScrollInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan StreamingPositionInterval = TimeSpan.FromMilliseconds(125);
     private readonly DispatcherTimer _autoHideTimer;
@@ -360,6 +361,7 @@ public partial class FloatingWindow : Window
         ClearThoughtForCurrentRequest(_activeMode);
         _rootThoughtPresentationId = presentationId;
         _rootThoughtBlock ??= new ThoughtBlockView();
+        ConfigureThoughtBlock(_rootThoughtBlock);
         if (!RootThoughtBlockHost.Children.Contains(_rootThoughtBlock.Root))
             RootThoughtBlockHost.Children.Add(_rootThoughtBlock.Root);
         _rootThoughtBlock.Begin();
@@ -424,6 +426,7 @@ public partial class FloatingWindow : Window
         if (!_followUpThoughtBlocks.TryGetValue(turnNumber, out var thought))
         {
             thought = new ThoughtBlockView();
+            ConfigureThoughtBlock(thought);
             _followUpThoughtBlocks[turnNumber] = thought;
         }
         thought.Begin();
@@ -530,9 +533,39 @@ public partial class FloatingWindow : Window
         }
 
         _rootThoughtBlock ??= new ThoughtBlockView();
+        ConfigureThoughtBlock(_rootThoughtBlock);
         if (!RootThoughtBlockHost.Children.Contains(_rootThoughtBlock.Root))
             RootThoughtBlockHost.Children.Add(_rootThoughtBlock.Root);
         _rootThoughtBlock.Restore(snapshot);
+    }
+
+    private void ConfigureThoughtBlock(ThoughtBlockView thought)
+    {
+        thought.BoundaryWheelRequested -= ThoughtBlock_BoundaryWheelRequested;
+        thought.BoundaryWheelRequested += ThoughtBlock_BoundaryWheelRequested;
+    }
+
+    private void ThoughtBlock_BoundaryWheelRequested(int wheelDelta)
+    {
+        if (TranslationScroller.ScrollableHeight <= 0 || wheelDelta == 0)
+            return;
+
+        _clickedConversationNodeKey = null;
+        RevealScrollBarTemporarily();
+        if (wheelDelta > 0)
+            _autoScroll.PauseForUpwardNavigation();
+
+        var wheelNotches = Math.Max(1, Math.Abs(wheelDelta) / Mouse.MouseWheelDeltaForOneLine);
+        var lines = SystemParameters.WheelScrollLines;
+        var offsetDelta = lines < 0
+            ? TranslationScroller.ViewportHeight
+            : Math.Max(1, lines) * EstimatedWheelLineHeightDip * wheelNotches;
+        var targetOffset = wheelDelta > 0
+            ? TranslationScroller.VerticalOffset - offsetDelta
+            : TranslationScroller.VerticalOffset + offsetDelta;
+        TranslationScroller.ScrollToVerticalOffset(targetOffset);
+        UpdateAutoScrollAffordance();
+        RaiseScrollStateChanged();
     }
 
     private void ClearThoughtForCurrentRequest(ContentType mode, int? turnNumber = null)
@@ -1202,6 +1235,7 @@ public partial class FloatingWindow : Window
                 out var thoughtSnapshot))
         {
             var restoredThought = new ThoughtBlockView();
+            ConfigureThoughtBlock(restoredThought);
             restoredThought.Restore(thoughtSnapshot);
             _followUpThoughtBlocks[turn.TurnNumber] = restoredThought;
         }
@@ -1210,6 +1244,7 @@ public partial class FloatingWindow : Window
             turn.Status == AnalysisFollowUpTurnStatus.Loading)
         {
             thoughtBlock ??= new ThoughtBlockView();
+            ConfigureThoughtBlock(thoughtBlock);
             _followUpThoughtBlocks[turn.TurnNumber] = thoughtBlock;
             if (turn.Status == AnalysisFollowUpTurnStatus.Loading && !thoughtBlock.IsVisible)
                 thoughtBlock.Begin();
