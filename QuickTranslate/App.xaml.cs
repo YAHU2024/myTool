@@ -562,7 +562,11 @@ public partial class App : Application
             }
 
             // 尝试 UIA 异步精确定位（不阻塞 UI 线程）
-            var location = await SelectionLocator.TryGetSelectionBoundsAsync(2000, token);
+            var location = await SelectionLocator.TryGetSelectionBoundsAsync(
+                startPos,
+                endPos,
+                2000,
+                token);
             token.ThrowIfCancellationRequested();
             if (generation != Volatile.Read(ref _selectionGeneration)) return;
             if (Win32Api.GetForegroundWindow() != sourceWindow.Handle) return;

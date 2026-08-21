@@ -129,6 +129,41 @@ public sealed class FloatingWindowFollowUpTests
         Assert.Equal(expected, App.IsSelectionGestureConsistent(location, intent));
     }
 
+    [Fact]
+    public void SelectionProbePoints_PrioritizeReleasePointAndDeduplicateMultiClick()
+    {
+        var dragPoints = SelectionLocator.CreateGestureProbePoints(
+            new Point(10, 20),
+            new Point(80, 40));
+        var clickPoints = SelectionLocator.CreateGestureProbePoints(
+            new Point(30, 50),
+            new Point(30, 50));
+
+        Assert.Equal([new Point(80, 40), new Point(10, 20)], dragPoints);
+        Assert.Equal([new Point(30, 50)], clickPoints);
+    }
+
+    [Theory]
+    [InlineData(120, 120, true)]
+    [InlineData(76, 120, true)]
+    [InlineData(75, 120, false)]
+    [InlineData(500, 500, false)]
+    public void SelectionProbeMatch_RequiresConfirmedBoundsNearGesture(
+        double x,
+        double y,
+        bool expected)
+    {
+        var location = new SelectionLocation
+        {
+            IsValid = true,
+            Bounds = new Rect(100, 100, 100, 40)
+        };
+
+        Assert.Equal(
+            expected,
+            SelectionLocator.IsSelectionNearProbePoints(location, [new Point(x, y)]));
+    }
+
     [SkippableFact]
     public void RootThought_PreservesPerModeStateAcrossModeSwitchButClearsOnRegeneration()
     {
