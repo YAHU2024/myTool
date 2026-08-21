@@ -1,3 +1,4 @@
+using QuickTranslate.Models;
 using QuickTranslate.Services;
 using Xunit;
 
@@ -40,6 +41,7 @@ public sealed class ProviderRequestPolicyTests
             "deepseek-chat");
 
         Assert.False(capabilities.SupportsThinking);
+        Assert.Equal(ThinkingControlAvailability.Unknown, capabilities.ThinkingControlAvailability);
     }
 
     [Fact]
@@ -82,6 +84,50 @@ public sealed class ProviderRequestPolicyTests
     }
 
     [Fact]
+    public void Apply_FollowProviderDefault_OmitsThinkingParameters()
+    {
+        var body = new Dictionary<string, object> { ["temperature"] = 0.3 };
+
+        ProviderRequestPolicy.Apply(
+            body,
+            "https://api.openai.com/v1",
+            "gpt-5.4",
+            enableThinking: null);
+
+        Assert.DoesNotContain("reasoning_effort", body.Keys);
+        Assert.Contains("temperature", body.Keys);
+    }
+
+    [Theory]
+    [InlineData(ThinkingModePreference.FollowProviderDefault, null)]
+    [InlineData(ThinkingModePreference.Enabled, true)]
+    [InlineData(ThinkingModePreference.Disabled, false)]
+    public void ResolveThinkingRequestValue_MapsControllablePreference(
+        ThinkingModePreference preference,
+        bool? expected)
+    {
+        Assert.Equal(
+            expected,
+            ProviderRequestPolicy.ResolveThinkingRequestValue(
+                "https://api.openai.com/v1",
+                "gpt-5.4",
+                preference));
+    }
+
+    [Theory]
+    [InlineData(ThinkingModePreference.FollowProviderDefault)]
+    [InlineData(ThinkingModePreference.Enabled)]
+    [InlineData(ThinkingModePreference.Disabled)]
+    public void ResolveThinkingRequestValue_UnknownModelFallsBackToProviderDefault(
+        ThinkingModePreference preference)
+    {
+        Assert.Null(ProviderRequestPolicy.ResolveThinkingRequestValue(
+            "https://compatible.example.com/v1",
+            "default-thinking-model",
+            preference));
+    }
+
+    [Fact]
     public void ResolveCapabilities_DescribesCurrentOpenAIReasoningModels()
     {
         var capabilities = ProviderRequestPolicy.ResolveCapabilities(
@@ -93,6 +139,9 @@ public sealed class ProviderRequestPolicyTests
         Assert.Equal("medium", capabilities.EnabledReasoningEffort);
         Assert.Equal("none", capabilities.DisabledReasoningEffort);
         Assert.True(capabilities.OmitSamplingParametersWhenThinking);
+        Assert.Equal(ThinkingControlAvailability.Controllable, capabilities.ThinkingControlAvailability);
+        Assert.True(capabilities.CanEnableThinking);
+        Assert.True(capabilities.CanDisableThinking);
     }
 
     [Theory]

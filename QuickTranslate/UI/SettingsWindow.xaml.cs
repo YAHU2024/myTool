@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using Microsoft.Win32;
 using QuickTranslate.Core;
@@ -18,6 +19,7 @@ namespace QuickTranslate.UI
         private bool _isDirty = false;
         private bool _isApiKeyVisible = false;
         private readonly bool _origAutoStart;
+        private ThinkingModePreference _thinkingModePreference;
 
         private readonly List<AnalysisPromptProfile> _analysisPromptProfiles = new();
         private string _selectedAnalysisPromptId = AnalysisPromptCatalog.GeneralId;
@@ -32,6 +34,7 @@ namespace QuickTranslate.UI
             _settings = settings;
             _onSettingsSaved = onSettingsSaved;
             _origAutoStart = settings.AutoStart;
+            _thinkingModePreference = ThinkingModePreferences.Normalize(settings.ThinkingMode);
             InitializeComponent();
             LoadSettings();
             _isInitializing = false;
@@ -65,7 +68,6 @@ namespace QuickTranslate.UI
 
             // 智能内容识别
             SmartContentTypeCheckBox.IsChecked = _settings.SmartContentType;
-            ThinkingModeCheckBox.IsChecked = _settings.EnableThinking;
             RefreshThinkingModeAvailability();
 
             // 自定义翻译提示词
@@ -315,6 +317,7 @@ namespace QuickTranslate.UI
                 ApiKeyPasswordBox.Password = string.Empty;
                 ApiKeyVisibleTextBox.Text = string.Empty;
                 ModelAliasTextBox.Text = string.Empty;
+                _thinkingModePreference = ThinkingModePreference.FollowProviderDefault;
                 ShowModelFeedback($"已选择 {preset.DisplayName}，请填写 API Key", autoHide: false);
                 _isDirty = true;
             }
@@ -324,6 +327,7 @@ namespace QuickTranslate.UI
                 ApiKeyPasswordBox.Password = config.ApiKey;
                 ApiKeyVisibleTextBox.Text = config.ApiKey;
                 ModelAliasTextBox.Text = ModelProfileCatalog.ResolveLegacyAlias(config);
+                _thinkingModePreference = ThinkingModePreferences.Normalize(config.ThinkingMode);
 
                 var domain = ExtractDomainShortName(config.ApiBaseUrl);
                 ShowModelFeedback($"已切换到 {config.ModelName}（{domain}）", autoHide: true);
@@ -370,11 +374,70 @@ namespace QuickTranslate.UI
         {
             var capabilities = ProviderRequestPolicy.ResolveCapabilities(
                 ApiBaseUrlTextBox.Text?.Trim() ?? string.Empty,
-                ModelComboBox.Text?.Trim() ?? string.Empty);
-            ThinkingModeCheckBox.IsEnabled = capabilities.SupportsThinking;
-            ThinkingModeCheckBox.ToolTip = capabilities.SupportsThinking
-                ? "控制当前模型的思考模式"
-                : "当前供应商或模型未声明支持思考模式";
+                ResolveCurrentThinkingModelName());
+            IReadOnlyList<ThinkingModeChoice> choices;
+            string hint;
+            switch (capabilities.ThinkingControlAvailability)
+            {
+                case ThinkingControlAvailability.Controllable:
+                    choices = BuildThinkingModeChoices(capabilities);
+                    _thinkingModePreference = ThinkingModePreferences.Normalize(_thinkingModePreference);
+                    if (!choices.Any(choice => choice.Value == _thinkingModePreference))
+                        _thinkingModePreference = ThinkingModePreference.FollowProviderDefault;
+                    ThinkingModeComboBox.IsEnabled = true;
+                    hint = "当前模型已适配，可明确开启、关闭或交由服务端决定。";
+                    break;
+                case ThinkingControlAvailability.Unsupported:
+                    choices = [new(ThinkingModePreference.FollowProviderDefault, "不支持思考")];
+                    _thinkingModePreference = ThinkingModePreference.FollowProviderDefault;
+                    ThinkingModeComboBox.IsEnabled = false;
+                    hint = "当前模型已确认不支持思考模式。";
+                    break;
+                default:
+                    choices = [new(ThinkingModePreference.FollowProviderDefault, "跟随模型默认")];
+                    _thinkingModePreference = ThinkingModePreference.FollowProviderDefault;
+                    ThinkingModeComboBox.IsEnabled = false;
+                    hint = "尚未适配该模型的思考参数；实际行为由服务端决定，返回的思考内容仍会正常展示。";
+                    break;
+            }
+
+            ThinkingModeComboBox.ItemsSource = choices;
+            ThinkingModeComboBox.SelectedValue = _thinkingModePreference;
+            ThinkingModeComboBox.ToolTip = hint;
+            ThinkingModeHintText.Text = hint;
+            AutomationProperties.SetHelpText(ThinkingModeComboBox, hint);
+        }
+
+        private string ResolveCurrentThinkingModelName() =>
+            ModelComboBox.SelectedItem is ComboBoxItem item
+                ? item.Tag switch
+                {
+                    ProviderPreset preset => preset.ModelName,
+                    SavedConfig config => config.ModelName,
+                    _ => ModelComboBox.Text?.Trim() ?? string.Empty
+                }
+                : ModelComboBox.Text?.Trim() ?? string.Empty;
+
+        private static IReadOnlyList<ThinkingModeChoice> BuildThinkingModeChoices(
+            ProviderModelCapabilities capabilities)
+        {
+            var choices = new List<ThinkingModeChoice>
+            {
+                new(ThinkingModePreference.FollowProviderDefault, "跟随模型默认")
+            };
+            if (capabilities.CanEnableThinking)
+                choices.Add(new(ThinkingModePreference.Enabled, "开启思考"));
+            if (capabilities.CanDisableThinking)
+                choices.Add(new(ThinkingModePreference.Disabled, "关闭思考"));
+            return choices;
+        }
+
+        private void ThinkingModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (ThinkingModeComboBox.SelectedValue is ThinkingModePreference preference)
+                _thinkingModePreference = preference;
+            if (!_isInitializing)
+                _isDirty = true;
         }
 
         /// <summary>
@@ -684,7 +747,7 @@ namespace QuickTranslate.UI
             _settings.AutoDetectLanguage = AutoDetectLanguageCheckBox.IsChecked ?? true;
 
             _settings.SmartContentType = SmartContentTypeCheckBox.IsChecked ?? false;
-            _settings.EnableThinking = ThinkingModeCheckBox.IsChecked ?? false;
+            _settings.ThinkingMode = _thinkingModePreference;
 
             if (FallbackLanguageComboBox.SelectedItem != null)
                 _settings.FallbackLanguage = FallbackLanguageComboBox.SelectedItem.ToString() ?? _settings.FallbackLanguage;
@@ -756,6 +819,7 @@ namespace QuickTranslate.UI
                 };
                 saved.Alias = alias;
                 saved.DisplayName = string.IsNullOrWhiteSpace(alias) ? saved.ModelName : alias;
+                saved.ThinkingMode = _settings.ThinkingMode;
                 _settings.SavedConfigs.Insert(0, saved);
 
                 while (_settings.SavedConfigs.Count > 10)
@@ -785,6 +849,8 @@ namespace QuickTranslate.UI
 
             return normalizedEditorText;
         }
+
+        private sealed record ThinkingModeChoice(ThinkingModePreference Value, string Label);
 
         private void LoadTranslationTriggerModeComboBox()
         {

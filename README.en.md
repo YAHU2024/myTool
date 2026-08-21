@@ -59,6 +59,8 @@ Select text to open a red-dot guide and route it into translation, code, or term
 
 After deep analysis, you can continue asking questions in the same floating window, with up to 10 turns of context retained. Answers stream in place, and you can revisit, locate, or retry the last turn from history nodes.
 
+When a model explicitly returns a reasoning field for any streamed answer, the floating window shows a ChatGPT-style **Thinking** block below that answer. It stays expanded while generating and collapses when complete; arrow controls reveal or hide it. Thinking is capped at 8,000 Unicode scalar values. The block supports the same deliberate Markdown selection, code-block copy, and safe-link behavior as the answer, while **Copy all** still copies only the final answer. Thinking exists only for the current session and is excluded from the final answer, speech, history, cache, logs, and later follow-up context. Switching modes preserves the session's per-mode thinking state; a regeneration clears the replaced mode's previous thinking. The block stays hidden when the provider does not support it.
+
 ---
 
 ### Settings window · multi-model and shortcut management
@@ -144,7 +146,7 @@ Structured JSON Lines logs, multi-file switching, level and keyword filtering, *
 | Translation history | SQLite local persistence · time/language search and filtering · pagination · double-click copy · Anki export |
 | System integration | Two independent global shortcut sets (selection translation / quick lookup) · lookup shortcut has enable/disable switch off by default · tray click quick lookup · right-click restore latest translation · startup auto-launch · browser trigger · single-instance protection |
 | Deep analysis | 4 built-in presets (general / language learning / literary appreciation / business) · create / duplicate / edit / delete custom profiles · multi-turn profile management |
-| Model access | Built-in presets for four vendors · custom OpenAI-compatible Base URL and Model · saved configurations support notes and grouping · floating window can temporarily switch the current-session model · thinking mode off by default · send thinking parameters only when the provider model is verified compatible |
+| Model access | Built-in presets for four vendors · custom OpenAI-compatible Base URL and Model · saved configurations support notes and grouping · floating window can temporarily switch the current-session model · three-state thinking control · send thinking parameters only when the provider model is verified compatible |
 | Performance | LRU + TTL semantic cache · latest-request-wins protection · request snapshot isolation · changing settings does not affect in-flight requests |
 | Result quality | Original-text echo detection and status hints · suspicious results are never cached or archived · no silent retry or automatic model switching |
 | Auto update | GitHub Releases distribution · silent startup check · in-app update changelog · system proxy support · Inno Setup dual installer · SHA256 verification |
@@ -204,7 +206,7 @@ Right-click the tray icon to open the settings window:
 | API Key | Your secret key | `sk-xxxxxxxxxxxxxxxx` |
 | Model | Model name | `Qwen/Qwen3-8B` |
 
-The model dropdown groups saved configs by domain and auto-fills the URL and key on selection. Each saved profile can store a note up to 32 characters long. Saved profiles also appear in the floating window model menu so you can temporarily switch the current text session without changing the global default. Thinking mode is off by default. Zhipu and DeepSeek use `thinking.type`, SiliconFlow uses `enable_thinking`, and verified OpenAI GPT-5.2/5.4/5.5/5.6 series models use `reasoning_effort`. Unsupported or unverified models do not receive thinking parameters automatically.
+The model dropdown groups saved configs by domain and auto-fills the URL and key on selection. Each saved profile can store a note up to 32 characters long. Saved profiles also appear in the floating window model menu so you can temporarily switch the current text session without changing the global default. Thinking control offers **Follow model default**, **Enable thinking**, and **Disable thinking**. New profiles do not send provider-specific thinking parameters by default. Zhipu and DeepSeek use `thinking.type`, SiliconFlow uses `enable_thinking`, and verified OpenAI GPT-5.2/5.4/5.5/5.6 series models use `reasoning_effort`. Models without an adapted thinking contract are locked to Follow model default: their actual behavior is determined by the service, while any returned reasoning is still displayed normally.
 
 On first launch, Settings opens automatically with SiliconFlow `Qwen/Qwen3-8B` preselected. The model dropdown includes built-in no-key presets for SiliconFlow, Zhipu, DeepSeek, and OpenAI; you still need to fill in your own API key. Existing configs load as-is without being overwritten by new defaults. If the config file cannot be read, QuickTranslate preserves the original file, loads safe defaults, and prompts you to confirm the settings.
 

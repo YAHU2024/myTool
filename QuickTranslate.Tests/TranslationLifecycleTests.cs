@@ -54,19 +54,20 @@ public class TranslationLifecycleTests
     {
         var settings = new AppSettings
         {
+            ApiBaseUrl = "https://api.openai.com/v1",
             ApiKey = "key",
-            ModelName = "model-a",
+            ModelName = "gpt-5.4",
             EnableThinking = true,
             CustomTranslationPrompt = "Use {targetLang}."
         };
         using var service = new OpenAITranslationService(settings);
 
         var first = service.CreateRequest("hello", "English", ContentType.Translation);
-        settings.ModelName = "model-b";
+        settings.ModelName = "gpt-5.5";
         settings.EnableThinking = false;
         settings.CustomTranslationPrompt = "Changed {targetLang}.";
 
-        Assert.Equal("model-a", first.ModelName);
+        Assert.Equal("gpt-5.4", first.ModelName);
         Assert.True(first.EnableThinking);
         Assert.StartsWith("Translate the user text into English.", first.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("Additional requirements (do not replace the translation task): Use English.", first.SystemPrompt);
@@ -165,6 +166,37 @@ public class TranslationLifecycleTests
 
         Assert.Equal("你好", result);
         Assert.Equal(new[] { "你", "好" }, chunks);
+    }
+
+    [Fact]
+    public async Task ExecuteStreamingEventsAsync_SeparatesReasoningFromAnswer()
+    {
+        const string sse =
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"先判断语境\",\"content\":\"你好\"}}]}\n\n" +
+            "data: {\"choices\":[{\"delta\":{\"reasoning\":\"再生成答案\"}}]}\n\n" +
+            "data: [DONE]\n\n";
+        using var service = new OpenAITranslationService(
+            new AppSettings { ApiKey = "key" },
+            new ResponseHandler(new MemoryStream(Encoding.UTF8.GetBytes(sse))));
+        var request = service.CreateRequest("hello", "简体中文", ContentType.Translation);
+        var events = new List<TranslationStreamEvent>();
+
+        var result = await service.ExecuteStreamingEventsAsync(request, events.Add);
+
+        Assert.Equal("你好", result);
+        Assert.Equal(
+            new[]
+            {
+                TranslationStreamEventKind.Started,
+                TranslationStreamEventKind.ReasoningDelta,
+                TranslationStreamEventKind.ContentDelta,
+                TranslationStreamEventKind.ReasoningDelta,
+                TranslationStreamEventKind.Completed
+            },
+            events.Select(streamEvent => streamEvent.Kind));
+        Assert.Equal("先判断语境", events[1].Text);
+        Assert.Equal("你好", events[2].Text);
+        Assert.Equal("再生成答案", events[3].Text);
     }
 
     [Fact]

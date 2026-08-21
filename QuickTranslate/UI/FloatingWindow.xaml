@@ -135,7 +135,8 @@
                 <ScrollViewer x:Name="TranslationScroller" Grid.Column="1" Style="{StaticResource Win11ScrollViewer}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxWidth="870" MinHeight="40" ScrollChanged="TranslationScroller_ScrollChanged" PreviewMouseWheel="TranslationScroller_PreviewMouseWheel" PreviewKeyDown="TranslationScroller_PreviewKeyDown" PreviewMouseLeftButtonDown="TranslationScroller_PreviewMouseLeftButtonDown">
                     <StackPanel x:Name="ConversationContentPanel">
                         <TextBlock x:Name="AnalysisRootLabel" Text="解析" Foreground="#B7C5FF" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,5" Visibility="Collapsed" Focusable="True" AutomationProperties.Name="初始解析"/>
-                        <Grid x:Name="RootResultHost">
+                        <StackPanel x:Name="RootResultHost">
+                            <StackPanel x:Name="RootThoughtBlockHost"/>
                             <TextBox x:Name="TranslationTextBlock" Foreground="#F0F0F0" FontSize="16" FontFamily="Microsoft YaHei UI" TextWrapping="Wrap" Padding="0,0,6,0" Text="" IsReadOnly="True" IsReadOnlyCaretVisible="False" Focusable="True" IsTabStop="False" AcceptsReturn="True" BorderThickness="0" Background="Transparent" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" SelectionBrush="#4DB6AC" SelectionOpacity="0.45" Cursor="IBeam"/>
                             <RichTextBox x:Name="MarkdownDocumentHost" Visibility="Collapsed" IsReadOnly="True" IsUndoEnabled="False" IsReadOnlyCaretVisible="False" IsDocumentEnabled="True" Focusable="True" IsTabStop="False" BorderThickness="0" Background="Transparent" Padding="0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" SelectionBrush="#4DB6AC" SelectionOpacity="0.45" Cursor="IBeam"/>
                             <StackPanel x:Name="StreamingMarkdownHost" Visibility="Collapsed">
@@ -143,7 +144,7 @@
                                 <TextBox x:Name="StreamingActiveTextHost" Visibility="Collapsed" Foreground="#E8E8E8" FontSize="16" FontFamily="Microsoft YaHei UI" TextWrapping="Wrap" Margin="0,2,0,7" Padding="0" Text="" IsReadOnly="True" IsReadOnlyCaretVisible="False" Focusable="True" IsTabStop="False" AcceptsReturn="True" BorderThickness="0" Background="Transparent" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" SelectionBrush="#4DB6AC" SelectionOpacity="0.45" Cursor="IBeam"/>
                                 <RichTextBox x:Name="StreamingActiveMarkdownHost" Visibility="Collapsed" IsReadOnly="True" IsUndoEnabled="False" IsReadOnlyCaretVisible="False" IsDocumentEnabled="True" Focusable="True" IsTabStop="False" BorderThickness="0" Background="Transparent" Padding="0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" SelectionBrush="#4DB6AC" SelectionOpacity="0.45" Cursor="IBeam"/>
                             </StackPanel>
-                        </Grid>
+                        </StackPanel>
                         <StackPanel x:Name="AnalysisTurnsPanel" Visibility="Collapsed"/>
                     </StackPanel>
                 </ScrollViewer>
@@ -223,16 +224,18 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <Ellipse x:Name="StatusIndicator" Grid.Column="0" Width="7" Height="7" Margin="0,0,8,0" VerticalAlignment="Center" Fill="#6796E8"/>
-                        <Border x:Name="StatusMessageViewport" Grid.Column="1" ClipToBounds="True" ToolTip="{Binding Text, ElementName=StatusMessageText}">
-                            <TextBlock x:Name="StatusMessageText" FontFamily="Microsoft YaHei UI" FontSize="11" TextWrapping="NoWrap" VerticalAlignment="Center" Foreground="#B7C5FF" Text="就绪">
+                        <Border x:Name="StatusMessageViewport" Grid.Column="1" ClipToBounds="True">
+                            <TextBlock x:Name="StatusMessageText" FontFamily="Microsoft YaHei UI" FontSize="11" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="#B7C5FF" Text="就绪">
                                 <TextBlock.RenderTransform>
                                     <TranslateTransform x:Name="StatusMessageTransform"/>
                                 </TextBlock.RenderTransform>
                             </TextBlock>
                         </Border>
-                        <Button x:Name="StatusMessageActionButton" Grid.Column="2" Height="22" Margin="8,0,0,0" Padding="6,0" VerticalAlignment="Center" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#343644" Content="" Visibility="Collapsed" Click="StatusMessageActionButton_Click"/>
+                        <TextBlock x:Name="StatusElapsedText" Grid.Column="2" MinWidth="48" Margin="6,0,0,0" FontFamily="Microsoft YaHei UI" FontSize="11" TextAlignment="Right" TextWrapping="NoWrap" VerticalAlignment="Center" Foreground="#B7C5FF" Visibility="Collapsed"/>
+                        <Button x:Name="StatusMessageActionButton" Grid.Column="3" Height="22" Margin="8,0,0,0" Padding="6,0" VerticalAlignment="Center" FontSize="10" Style="{StaticResource ToolbarButton}" Background="#343644" Content="" Visibility="Collapsed" Click="StatusMessageActionButton_Click"/>
                     </Grid>
                     <ui:ModelSelectorControl x:Name="ModelSelector" Grid.Column="1"/>
                 </Grid>

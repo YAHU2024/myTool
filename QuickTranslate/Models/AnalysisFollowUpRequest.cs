@@ -18,4 +18,4 @@ public sealed record AnalysisFollowUpRequest(
     int QuestionLength,
     int ContextCharacters,
     long RequestId = 0,
-    bool EnableThinking = false);
+    bool? EnableThinking = null);

@@ -200,12 +200,35 @@ public sealed class OpenAITranslationServiceFollowUpTests
     }
 
     [Fact]
-    public async Task ExecuteStreaming_PreservesProviderCompatibilityFields()
+    public async Task ExecuteStreaming_FollowsProviderDefaultWhenNoPreferenceIsSet()
     {
         var handler = new RecordingHandler(_ => SseResponse("ok"));
         using var service = new OpenAITranslationService(
             Settings("https://open.bigmodel.cn/api/paas/v4", "secret", "glm-4.7-flash"),
             handler);
+        var request = service.CreateAnalysisFollowUpRequest(
+            "source",
+            "root",
+            new AnalysisSemanticSnapshot("prompt", "简体中文"),
+            [],
+            "question",
+            1);
+
+        await service.ExecuteAnalysisFollowUpStreamingAsync(request, _ => { }, CancellationToken.None);
+
+        Assert.Null(handler.ThinkingType);
+    }
+
+    [Fact]
+    public async Task ExecuteStreaming_DisablesThinkingWhenExplicitlyConfigured()
+    {
+        var handler = new RecordingHandler(_ => SseResponse("ok"));
+        var settings = Settings(
+            "https://open.bigmodel.cn/api/paas/v4",
+            "secret",
+            "glm-4.7-flash");
+        settings.ThinkingMode = ThinkingModePreference.Disabled;
+        using var service = new OpenAITranslationService(settings, handler);
         var request = service.CreateAnalysisFollowUpRequest(
             "source",
             "root",

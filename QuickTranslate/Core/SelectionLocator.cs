@@ -47,6 +47,9 @@ namespace QuickTranslate.Core
     /// </summary>
     public static class SelectionLocator
     {
+        private const int MaxAncestorDepth = 8;
+        private const int MaxCandidateCount = 32;
+        private const double GestureMatchTolerance = 24;
         private static readonly UiaCircuitBreaker SelectionCircuit = new("selection");
         private static readonly UiaCircuitBreaker FocusCircuit = new("focus");
 
@@ -62,6 +65,26 @@ namespace QuickTranslate.Core
             }
             return RunOnSTAThread(
                 () => TryGetSelectionBounds(),
+                timeoutMs,
+                cancellationToken,
+                SelectionCircuit);
+        }
+
+        internal static Task<SelectionLocation?> TryGetSelectionBoundsAsync(
+            Point startPoint,
+            Point endPoint,
+            int timeoutMs = 2000,
+            CancellationToken cancellationToken = default)
+        {
+            if (SelectionCircuit.IsDisabled)
+            {
+                Logger.Debug("SelectionLocator", "uia.selection_circuit_open");
+                return Task.FromResult<SelectionLocation?>(null);
+            }
+
+            var probePoints = CreateGestureProbePoints(startPoint, endPoint);
+            return RunOnSTAThread(
+                () => TryGetSelectionBounds(probePoints),
                 timeoutMs,
                 cancellationToken,
                 SelectionCircuit);
@@ -166,44 +189,97 @@ namespace QuickTranslate.Core
         /// </summary>
         public static SelectionLocation? TryGetSelectionBounds()
         {
-            // 获取当前焦点控件
-            var focusedElement = AutomationElement.FocusedElement;
-            if (focusedElement == null)
+            return TryGetSelectionBounds(probePoints: null);
+        }
+
+        internal static IReadOnlyList<Point> CreateGestureProbePoints(Point startPoint, Point endPoint)
+        {
+            if (startPoint == endPoint)
+                return [endPoint];
+
+            // The release point most often belongs to the text container that
+            // owns the selection, so probe it before the drag origin.
+            return [endPoint, startPoint];
+        }
+
+        internal static bool IsSelectionNearProbePoints(
+            SelectionLocation location,
+            IReadOnlyList<Point> probePoints)
+        {
+            if (!location.IsValid || location.Bounds.IsEmpty || probePoints.Count == 0)
+                return false;
+
+            var bounds = location.Bounds;
+            bounds.Inflate(GestureMatchTolerance, GestureMatchTolerance);
+            return probePoints.Any(bounds.Contains);
+        }
+
+        private static SelectionLocation? TryGetSelectionBounds(IReadOnlyList<Point>? probePoints)
+        {
+            var candidates = GetSelectionCandidates(probePoints);
+            if (candidates.Count == 0)
             {
-                Logger.Debug("SelectionLocator", "无法获取焦点元素");
+                Logger.Debug("SelectionLocator", "uia.selection_candidates_empty");
                 return null;
             }
 
-            // 检查是否支持 TextPattern。能力缺失不是 UIA 故障，不触发熔断。
-            if (!focusedElement.TryGetCurrentPattern(TextPattern.Pattern, out object patternObj))
+            var textPatternCandidates = 0;
+            foreach (var candidate in candidates)
             {
-                Logger.Debug("SelectionLocator", "焦点元素不支持 TextPattern");
-                return null;
+                SelectionLocation? location;
+                try
+                {
+                    location = TryGetSelectionBounds(candidate, out var supportsTextPattern);
+                    if (supportsTextPattern)
+                        textPatternCandidates++;
+                }
+                catch (ElementNotAvailableException)
+                {
+                    continue;
+                }
+
+                if (location == null)
+                    continue;
+                if (probePoints is { Count: > 0 } &&
+                    !IsSelectionNearProbePoints(location, probePoints))
+                    continue;
+
+                Logger.Debug("SelectionLocator", "uia.selection_bounds_found", new
+                {
+                    candidate_count = candidates.Count,
+                    text_pattern_candidates = textPatternCandidates,
+                    probe_count = probePoints?.Count ?? 0
+                });
+                return location;
             }
 
-            var textPattern = patternObj as TextPattern;
-            if (textPattern == null)
+            Logger.Debug("SelectionLocator", "uia.selection_bounds_missing", new
             {
-                Logger.Debug("SelectionLocator", "TextPattern 获取失败");
-                return null;
-            }
+                candidate_count = candidates.Count,
+                text_pattern_candidates = textPatternCandidates,
+                probe_count = probePoints?.Count ?? 0
+            });
+            return null;
+        }
 
-            // 获取选区
+        private static SelectionLocation? TryGetSelectionBounds(
+            AutomationElement element,
+            out bool supportsTextPattern)
+        {
+            supportsTextPattern = element.TryGetCurrentPattern(
+                TextPattern.Pattern,
+                out var patternObject);
+            if (!supportsTextPattern || patternObject is not TextPattern textPattern)
+                return null;
+
             var selections = textPattern.GetSelection();
             if (selections == null || selections.Length == 0)
-            {
-                Logger.Debug("SelectionLocator", "无选区");
                 return null;
-            }
 
-            // 取第一个选区的边界矩形
             var selection = selections[0];
             var rects = selection.GetBoundingRectangles();
             if (rects == null || rects.Length == 0)
-            {
-                Logger.Debug("SelectionLocator", "无边界矩形");
                 return null;
-            }
 
             // 解析所有行的矩形，计算整体边界和最后一行末端
             double minX = double.MaxValue, minY = double.MaxValue;
@@ -227,10 +303,7 @@ namespace QuickTranslate.Core
             }
 
             if (lastLineRect == null || minX == double.MaxValue)
-            {
-                Logger.Debug("SelectionLocator", "无有效矩形");
                 return null;
-            }
 
             // 最后一行末端右上角外侧坐标（右上角上方）。
             // UIA returns physical screen pixels; keep that contract for the
@@ -239,8 +312,6 @@ namespace QuickTranslate.Core
 
             var bounds = new Rect(minX, minY, maxX - minX, maxY - minY);
 
-            Logger.Debug("SelectionLocator", $"UIA 定位成功: EndPoint=({endPoint.X:F0},{endPoint.Y:F0}), Bounds={bounds}");
-
             return new SelectionLocation
             {
                 IsValid = true,
@@ -248,6 +319,116 @@ namespace QuickTranslate.Core
                 EndPoint = endPoint,
                 FallbackPoint = endPoint
             };
+        }
+
+        private static List<AutomationElement> GetSelectionCandidates(
+            IReadOnlyList<Point>? probePoints)
+        {
+            var candidates = new List<AutomationElement>();
+            var runtimeIds = new HashSet<string>(StringComparer.Ordinal);
+            var seeds = new List<AutomationElement>();
+
+            if (probePoints != null)
+            {
+                foreach (var point in probePoints)
+                {
+                    try
+                    {
+                        AddSeed(AutomationElement.FromPoint(point), seeds);
+                    }
+                    catch (ElementNotAvailableException)
+                    {
+                    }
+                }
+            }
+
+            try
+            {
+                AddSeed(AutomationElement.FocusedElement, seeds);
+            }
+            catch (ElementNotAvailableException)
+            {
+            }
+
+            // Preserve all direct candidates before ancestor expansion can
+            // consume the bounded candidate budget.
+            foreach (var seed in seeds)
+                AddCandidate(seed, candidates, runtimeIds);
+            foreach (var seed in seeds)
+                AddCandidateAncestors(seed, candidates, runtimeIds);
+
+            return candidates;
+        }
+
+        private static void AddSeed(
+            AutomationElement? seed,
+            List<AutomationElement> seeds)
+        {
+            if (seed != null)
+                seeds.Add(seed);
+        }
+
+        private static void AddCandidateAncestors(
+            AutomationElement seed,
+            List<AutomationElement> candidates,
+            HashSet<string> runtimeIds)
+        {
+            if (candidates.Count >= MaxCandidateCount)
+                return;
+
+            AddAncestorChain(seed, TreeWalker.ControlViewWalker, candidates, runtimeIds);
+            AddAncestorChain(seed, TreeWalker.RawViewWalker, candidates, runtimeIds);
+        }
+
+        private static void AddAncestorChain(
+            AutomationElement seed,
+            TreeWalker walker,
+            List<AutomationElement> candidates,
+            HashSet<string> runtimeIds)
+        {
+            AutomationElement? current;
+            try
+            {
+                current = walker.GetParent(seed);
+            }
+            catch (ElementNotAvailableException)
+            {
+                return;
+            }
+
+            for (var depth = 1;
+                 current != null && depth <= MaxAncestorDepth && candidates.Count < MaxCandidateCount;
+                 depth++)
+            {
+                try
+                {
+                    AddCandidate(current, candidates, runtimeIds);
+                    current = walker.GetParent(current);
+                }
+                catch (ElementNotAvailableException)
+                {
+                    return;
+                }
+            }
+        }
+
+        private static void AddCandidate(
+            AutomationElement candidate,
+            List<AutomationElement> candidates,
+            HashSet<string> runtimeIds)
+        {
+            if (candidates.Count >= MaxCandidateCount)
+                return;
+
+            try
+            {
+                var runtimeId = candidate.GetRuntimeId();
+                if (runtimeId.Length == 0 || runtimeIds.Add(string.Join('.', runtimeId)))
+                    candidates.Add(candidate);
+            }
+            catch (ElementNotAvailableException)
+            {
+            }
         }
 
     }

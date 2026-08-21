@@ -44,7 +44,8 @@ public sealed class SettingsWindowModelSelectionTests
             DisplayName = "长文专用",
             ApiBaseUrl = "https://api.siliconflow.cn/v1",
             ApiKey = "saved-key",
-            ModelName = "Qwen/Qwen3-8B"
+            ModelName = "Qwen/Qwen3-8B",
+            ThinkingMode = ThinkingModePreference.Disabled
         };
         var settings = new AppSettings
         {
@@ -73,6 +74,7 @@ public sealed class SettingsWindowModelSelectionTests
             Assert.Equal("saved-key", window.ApiKeyPasswordBox.Password);
             Assert.Equal("saved-key", window.ApiKeyVisibleTextBox.Text);
             Assert.Equal("长文专用", window.ModelAliasTextBox.Text);
+            Assert.Equal(ThinkingModePreference.Disabled, window.ThinkingModeComboBox.SelectedValue);
         });
     }
 
@@ -89,6 +91,46 @@ public sealed class SettingsWindowModelSelectionTests
             PumpDispatcher();
 
             Assert.True(window.FallbackLanguagePanel.IsEnabled);
+        });
+    }
+
+    [SkippableFact]
+    public void ThinkingControl_OffersThreeStatesForAdaptedModel()
+    {
+        Skip.If(IsRunningOnCI, "WPF window tests require a real message pump, unavailable on headless CI.");
+
+        RunOnSta(new AppSettings
+        {
+            ApiBaseUrl = "https://api.openai.com/v1",
+            ModelName = "gpt-5.4",
+            ThinkingMode = ThinkingModePreference.Enabled
+        }, window =>
+        {
+            Assert.True(window.ThinkingModeComboBox.IsEnabled);
+            Assert.Equal(3, window.ThinkingModeComboBox.Items.Count);
+            Assert.Equal(ThinkingModePreference.Enabled, window.ThinkingModeComboBox.SelectedValue);
+            Assert.Contains("已适配", window.ThinkingModeHintText.Text, StringComparison.Ordinal);
+        });
+    }
+
+    [SkippableFact]
+    public void ThinkingControl_UnknownModelLocksToProviderDefault()
+    {
+        Skip.If(IsRunningOnCI, "WPF window tests require a real message pump, unavailable on headless CI.");
+
+        RunOnSta(new AppSettings
+        {
+            ApiBaseUrl = "https://compatible.example.com/v1",
+            ModelName = "default-thinking-model",
+            ThinkingMode = ThinkingModePreference.Disabled
+        }, window =>
+        {
+            Assert.False(window.ThinkingModeComboBox.IsEnabled);
+            Assert.Single(window.ThinkingModeComboBox.Items);
+            Assert.Equal(
+                ThinkingModePreference.FollowProviderDefault,
+                window.ThinkingModeComboBox.SelectedValue);
+            Assert.Contains("由服务端决定", window.ThinkingModeHintText.Text, StringComparison.Ordinal);
         });
     }
 

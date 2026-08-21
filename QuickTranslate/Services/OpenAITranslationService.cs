@@ -67,7 +67,10 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             settings.ApiBaseUrl,
             settings.ApiKey,
             settings.ModelName,
-            settings.EnableThinking,
+            ProviderRequestPolicy.ResolveThinkingRequestValue(
+                settings.ApiBaseUrl,
+                settings.ModelName,
+                settings.ThinkingMode),
             targetLang,
             settings.FallbackLanguage,
             settings.AutoDetectLanguage,
@@ -147,7 +150,27 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         Action<string> onDelta,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(onDelta);
+        return await ExecuteStreamingEventsAsync(
+            request,
+            streamEvent =>
+            {
+                if (streamEvent.Kind == TranslationStreamEventKind.ContentDelta &&
+                    !string.IsNullOrEmpty(streamEvent.Text))
+                {
+                    onDelta(streamEvent.Text);
+                }
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string> ExecuteStreamingEventsAsync(
+        TranslationRequest request,
+        Action<TranslationStreamEvent> onEvent,
+        CancellationToken cancellationToken = default)
+    {
         ValidateRequest(request);
+        ArgumentNullException.ThrowIfNull(onEvent);
         cancellationToken.ThrowIfCancellationRequested();
 
         var operation = request.Kind == TranslationRequestKind.Analysis ? "analysis" : "translation";
@@ -170,7 +193,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             request.ApiKey,
             BuildRequestBody(request, stream: true),
             operation,
-            onDelta,
+            onEvent,
             cancellationToken).ConfigureAwait(false);
         var result = execution.Result;
         Logger.Info("TranslationService", "translation.completed", new
@@ -192,6 +215,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             max_chunk_gap_ms = execution.MaxChunkGapMs,
             stalled_chunk_count = execution.StalledChunkCount
         });
+        onEvent(new TranslationStreamEvent(TranslationStreamEventKind.Completed));
         return result;
     }
 
@@ -265,7 +289,27 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         Action<string> onDelta,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(onDelta);
+        return await ExecuteAnalysisFollowUpStreamingEventsAsync(
+            request,
+            streamEvent =>
+            {
+                if (streamEvent.Kind == TranslationStreamEventKind.ContentDelta &&
+                    !string.IsNullOrEmpty(streamEvent.Text))
+                {
+                    onDelta(streamEvent.Text);
+                }
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string> ExecuteAnalysisFollowUpStreamingEventsAsync(
+        AnalysisFollowUpRequest request,
+        Action<TranslationStreamEvent> onEvent,
+        CancellationToken cancellationToken = default)
+    {
         ValidateFollowUpRequest(request);
+        ArgumentNullException.ThrowIfNull(onEvent);
         cancellationToken.ThrowIfCancellationRequested();
         var startedAt = Stopwatch.GetTimestamp();
         Logger.Info("TranslationService", "analysis.follow_up.started", new
@@ -288,7 +332,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                     request.EnableThinking,
                     stream: true),
                 "analysis follow-up",
-                onDelta,
+                onEvent,
                 cancellationToken).ConfigureAwait(false);
             var result = execution.Result;
             if (string.IsNullOrWhiteSpace(result))
@@ -306,6 +350,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 stalled_chunk_count = execution.StalledChunkCount,
                 request_id = request.RequestId
             });
+            onEvent(new TranslationStreamEvent(TranslationStreamEventKind.Completed));
             return result;
         }
         catch (OperationCanceledException)
@@ -455,7 +500,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         string modelName,
         IReadOnlyList<ChatCompletionMessage> messages,
         string apiBaseUrl,
-        bool enableThinking,
+        bool? enableThinking,
         bool stream)
     {
         var body = new Dictionary<string, object>
@@ -476,10 +521,12 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         string apiKey,
         Dictionary<string, object> requestBody,
         string operation,
-        Action<string> onDelta,
+        Action<TranslationStreamEvent> onEvent,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(onEvent);
         var streamStartedAt = Stopwatch.GetTimestamp();
+        onEvent(new TranslationStreamEvent(TranslationStreamEventKind.Started));
         using var response = await SendAsync(
             apiBaseUrl,
             apiKey,
@@ -525,11 +572,12 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                     continue;
 
                 var delta = choices[0].GetProperty("delta");
-                if (!delta.TryGetProperty("content", out var contentElement))
-                    continue;
+                if (TryGetText(delta, "reasoning_content", out var reasoning))
+                    onEvent(new TranslationStreamEvent(TranslationStreamEventKind.ReasoningDelta, reasoning));
+                else if (TryGetText(delta, "reasoning", out reasoning))
+                    onEvent(new TranslationStreamEvent(TranslationStreamEventKind.ReasoningDelta, reasoning));
 
-                var chunk = contentElement.GetString();
-                if (string.IsNullOrEmpty(chunk))
+                if (!TryGetText(delta, "content", out var chunk))
                     continue;
                 var chunkAt = Stopwatch.GetTimestamp();
                 firstChunkMs ??= Stopwatch.GetElapsedTime(streamStartedAt, chunkAt).TotalMilliseconds;
@@ -544,7 +592,7 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 previousChunkAt = chunkAt;
                 chunkCount++;
                 fullResult.Append(chunk);
-                onDelta(chunk);
+                onEvent(new TranslationStreamEvent(TranslationStreamEventKind.ContentDelta, chunk));
             }
             catch (JsonException)
             {
@@ -559,6 +607,19 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             chunkCount <= 1 ? 0 : totalChunkGapMs / (chunkCount - 1),
             maxChunkGapMs,
             stalledChunkCount);
+    }
+
+    private static bool TryGetText(JsonElement element, string propertyName, out string value)
+    {
+        value = string.Empty;
+        if (!element.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = property.GetString() ?? string.Empty;
+        return !string.IsNullOrEmpty(value);
     }
 
     private static string BuildAnalysisPrompt(string targetLang, TranslationRequestContext context)

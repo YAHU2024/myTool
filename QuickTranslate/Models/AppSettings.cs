@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace QuickTranslate.Models
 {
@@ -37,6 +38,11 @@ namespace QuickTranslate.Models
         /// 模型名称
         /// </summary>
         public string ModelName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Thinking preference saved with this provider/model profile.
+        /// </summary>
+        public ThinkingModePreference ThinkingMode { get; set; } = ThinkingModePreference.FollowProviderDefault;
     }
 
     /// <summary>
@@ -184,9 +190,23 @@ namespace QuickTranslate.Models
         public bool SmartContentType { get; set; } = false;
 
         /// <summary>
-        /// 是否启用供应商支持的思考模式（默认关闭）
+        /// 模型思考控制偏好。默认不发送供应商私有参数。
         /// </summary>
-        public bool EnableThinking { get; set; } = false;
+        public ThinkingModePreference ThinkingMode { get; set; } = ThinkingModePreference.FollowProviderDefault;
+
+        /// <summary>
+        /// Source-compatible facade for callers that still use the former
+        /// two-state setting. It is not persisted; ConfigManager migrates the
+        /// legacy JSON property explicitly.
+        /// </summary>
+        [JsonIgnore]
+        public bool EnableThinking
+        {
+            get => ThinkingMode == ThinkingModePreference.Enabled;
+            set => ThinkingMode = value
+                ? ThinkingModePreference.Enabled
+                : ThinkingModePreference.Disabled;
+        }
 
         /// <summary>
         /// 附加翻译要求（核心翻译任务始终由程序提供，支持 {targetLang} 占位符）

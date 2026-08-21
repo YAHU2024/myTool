@@ -22,9 +22,17 @@ namespace QuickTranslate.UI;
 /// </summary>
 public partial class FloatingWindow : Window
 {
+    internal enum ThoughtResetScope
+    {
+        ClearAll,
+        PreserveSession,
+        ClearActiveMode
+    }
+
     private const double PlacementGapDip = 12;
     private const double DefaultWindowMinHeight = 120;
     private const double ReturnToLatestContentReserveDip = 40;
+    private const double EstimatedWheelLineHeightDip = 16;
     private static readonly TimeSpan StreamingScrollInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan StreamingPositionInterval = TimeSpan.FromMilliseconds(125);
     private readonly DispatcherTimer _autoHideTimer;
@@ -69,7 +77,11 @@ public partial class FloatingWindow : Window
     private const string SpeakIcon = "\uE768";
     private const string RefreshIcon = "\uE72C";
     private const string StopIcon = "\uE71A";
+    private static readonly TimeSpan GenerationElapsedRefreshInterval = TimeSpan.FromSeconds(1);
     private DispatcherTimer? _statusMessageTimer;
+    private readonly DispatcherTimer _generationElapsedTimer;
+    private long _generationStartedTimestamp;
+    private bool _generationActivityActive;
     private StatusMessageEntry? _persistentStatus;
     private StatusMessageEntry? _transientStatus;
     private Action? _statusAction;
@@ -78,6 +90,7 @@ public partial class FloatingWindow : Window
     private bool _translationDirectionIsManual;
     private bool _translationDirectionEnabled;
     private Storyboard? _statusScrollStoryboard;
+    private int _statusScrollGeneration;
     private bool _returnButtonSuppressesAutoHide;
     private FloatingWindowAnchor _anchor;
     private bool _hasAnchor;
@@ -106,6 +119,10 @@ public partial class FloatingWindow : Window
     private bool _wasFollowUpBusy;
     private string _copyText = string.Empty;
     private string _speechText = string.Empty;
+    private ThoughtBlockView? _rootThoughtBlock;
+    private long _rootThoughtPresentationId;
+    private readonly Dictionary<int, ThoughtBlockView> _followUpThoughtBlocks = new();
+    private readonly Dictionary<ThoughtStateKey, ThoughtBlockSnapshot> _thoughtSnapshots = new();
     private readonly List<ConversationNodeView> _conversationNodes = [];
     private string? _currentConversationNodeKey;
     private string? _clickedConversationNodeKey;
@@ -114,6 +131,9 @@ public partial class FloatingWindow : Window
     private static readonly Color ConversationNodeActiveColor = Color.FromRgb(0x44, 0x88, 0xFF);
     private static readonly Color ConversationNodeStreamingColor = Color.FromRgb(0x4D, 0xB6, 0xAC);
     private static readonly Color ConversationNodeStreamingDimColor = Color.FromRgb(0x25, 0x62, 0x5D);
+
+    private readonly record struct ThoughtStateKey(Guid SessionId, ContentType Mode, int TurnNumber);
+    private const int RootThoughtTurnNumber = 0;
 
     public event Action<ContentType>? ModeRequested;
     public event Action? RefreshRequested;
@@ -135,6 +155,11 @@ public partial class FloatingWindow : Window
     internal bool IsAutoScrollEnabledForTests => _autoScroll.IsAutoScrollEnabled;
     internal bool IsGenerationStopVisibleForTests => Equals(RefreshButton.Content, StopIcon);
     internal bool IsAutoHideSuppressedForTests => _autoHideSuppressionCount > 0;
+    internal string CopyTextForTests => _copyText;
+    internal ThoughtBlockView? RootThoughtBlockForTests => _rootThoughtBlock;
+    internal bool IsGenerationBusyForSecondaryRequest =>
+        _isLoading || _analysisConversation.Turns.Any(turn =>
+            turn.Status == AnalysisFollowUpTurnStatus.Loading);
 
     internal StreamingMarkdownRenderStats GetStreamingMarkdownStats() =>
         _streamingMarkdown?.GetStats() ?? StreamingMarkdownRenderStats.Empty;
@@ -181,6 +206,14 @@ public partial class FloatingWindow : Window
                 Hide();
             _autoHideTimer.Stop();
         };
+        _generationElapsedTimer = new DispatcherTimer { Interval = GenerationElapsedRefreshInterval };
+        _generationElapsedTimer.Tick += (_, _) =>
+        {
+            if (_generationActivityActive)
+                RenderStatusBar();
+            else
+                _generationElapsedTimer.Stop();
+        };
         FollowUpTextBox.GotKeyboardFocus += (_, _) => _autoHideTimer.Stop();
         FollowUpTextBox.LostKeyboardFocus += (_, _) => ResetAutoHideTimer();
         PreviewMouseDown += FloatingWindow_PreviewMouseDown;
@@ -221,6 +254,75 @@ public partial class FloatingWindow : Window
     }
 
     internal FloatingWindowAnchor CurrentAnchor => _anchor;
+
+    internal bool TryGetSecondarySelection(
+        out string selectedText,
+        out FloatingWindowAnchor anchor)
+    {
+        selectedText = string.Empty;
+        anchor = default;
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero || Win32Api.GetForegroundWindow() != hwnd)
+            return false;
+
+        if (!TryGetSecondarySelectionFromFocusedElement(
+                Keyboard.FocusedElement as DependencyObject,
+                out selectedText))
+            return false;
+
+        Win32Api.GetCursorPos(out var cursor);
+        anchor = new FloatingWindowAnchor(
+            new Point(cursor.X, cursor.Y),
+            Rect.Empty);
+        return true;
+    }
+
+    internal bool TryGetSecondarySelectionFromFocusedElement(
+        DependencyObject? focusedElement,
+        out string selectedText)
+    {
+        selectedText = string.Empty;
+        var host = FindSelectionHost(focusedElement);
+        if (host is null ||
+            (!IsDescendantOf(host, RootResultHost) &&
+             !IsDescendantOf(host, AnalysisTurnsPanel)) ||
+            IsThoughtContent(host))
+        {
+            return false;
+        }
+
+        var text = host switch
+        {
+            TextBox textBox when textBox.SelectionLength > 0 => textBox.SelectedText,
+            RichTextBox markdown when !markdown.Selection.IsEmpty =>
+                new TextRange(markdown.Selection.Start, markdown.Selection.End).Text,
+            _ => string.Empty
+        };
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        selectedText = text.Trim();
+        return true;
+    }
+
+    private static Control? FindSelectionHost(DependencyObject? focusedElement)
+    {
+        for (var current = focusedElement; current is not null; current = GetParent(current))
+        {
+            if (current is TextBox or RichTextBox)
+                return (Control)current;
+        }
+        return null;
+    }
+
+    private bool IsThoughtContent(DependencyObject element)
+    {
+        if (_rootThoughtBlock is not null && IsDescendantOf(element, _rootThoughtBlock.Root))
+            return true;
+        return _followUpThoughtBlocks.Values.Any(thought =>
+            IsDescendantOf(element, thought.Root));
+    }
 
     internal void AttachTts(TtsPlaybackCoordinator tts)
     {
@@ -304,18 +406,276 @@ public partial class FloatingWindow : Window
     public long BeginReplacement()
     {
         var presentationId = _presentations.Begin();
-        ResetForReplacement();
+        ResetForReplacement(ThoughtResetScope.ClearAll);
         return presentationId;
     }
 
-    public long BeginReplacement(long presentationId)
+    public long BeginReplacement(long presentationId, bool preserveThoughts = false) =>
+        BeginReplacement(
+            presentationId,
+            preserveThoughts
+                ? ThoughtResetScope.PreserveSession
+                : ThoughtResetScope.ClearAll);
+
+    internal long BeginReplacement(long presentationId, ThoughtResetScope resetScope)
     {
         _presentations.Begin(presentationId);
-        ResetForReplacement();
+        ResetForReplacement(resetScope);
         return presentationId;
     }
 
     public bool IsPresentationCurrent(long presentationId) => _presentations.IsCurrent(presentationId);
+
+    internal void BeginRootThought(long presentationId)
+    {
+        if (!IsPresentationCurrent(presentationId))
+            return;
+
+        ClearThoughtForCurrentRequest(_activeMode);
+        _rootThoughtPresentationId = presentationId;
+        _rootThoughtBlock ??= new ThoughtBlockView();
+        ConfigureThoughtBlock(_rootThoughtBlock);
+        if (!RootThoughtBlockHost.Children.Contains(_rootThoughtBlock.Root))
+            RootThoughtBlockHost.Children.Add(_rootThoughtBlock.Root);
+        _rootThoughtBlock.Begin();
+    }
+
+    internal void UpdateRootThought(
+        long presentationId,
+        string thought,
+        bool isTruncated,
+        ThoughtBlockStatus status = ThoughtBlockStatus.Streaming)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            _rootThoughtPresentationId != presentationId ||
+            _rootThoughtBlock is null)
+        {
+            return;
+        }
+
+        _rootThoughtBlock.Update(thought, isTruncated, status);
+        RefreshThoughtLayout();
+    }
+
+    internal void CompleteRootThought(long presentationId, bool isTruncated)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            _rootThoughtPresentationId != presentationId ||
+            _rootThoughtBlock is null)
+            return;
+
+        _rootThoughtBlock.Complete(isTruncated);
+        _rootThoughtBlock.HideIfEmpty();
+        RefreshThoughtLayout();
+    }
+
+    internal void CancelRootThought(long presentationId, bool isTruncated)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            _rootThoughtPresentationId != presentationId ||
+            _rootThoughtBlock is null)
+            return;
+
+        _rootThoughtBlock.Cancel(isTruncated);
+        _rootThoughtBlock.HideIfEmpty();
+        RefreshThoughtLayout();
+    }
+
+    internal void FailRootThought(long presentationId, bool isTruncated)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            _rootThoughtPresentationId != presentationId ||
+            _rootThoughtBlock is null)
+            return;
+
+        _rootThoughtBlock.Fail(isTruncated);
+        _rootThoughtBlock.HideIfEmpty();
+        RefreshThoughtLayout();
+    }
+
+    internal ThoughtBlockView BeginFollowUpThought(int turnNumber)
+    {
+        ClearThoughtForCurrentRequest(ContentType.Analysis, turnNumber);
+        if (!_followUpThoughtBlocks.TryGetValue(turnNumber, out var thought))
+        {
+            thought = new ThoughtBlockView();
+            ConfigureThoughtBlock(thought);
+            _followUpThoughtBlocks[turnNumber] = thought;
+        }
+        thought.Begin();
+        return thought;
+    }
+
+    internal void UpdateFollowUpThought(
+        long presentationId,
+        int turnNumber,
+        string thoughtText,
+        bool isTruncated,
+        ThoughtBlockStatus status = ThoughtBlockStatus.Streaming)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            !_followUpThoughtBlocks.TryGetValue(turnNumber, out var thought))
+            return;
+
+        thought.Update(thoughtText, isTruncated, status);
+        RefreshThoughtLayout();
+    }
+
+    internal void CompleteFollowUpThought(
+        long presentationId,
+        int turnNumber,
+        bool isTruncated)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            !_followUpThoughtBlocks.TryGetValue(turnNumber, out var thought))
+            return;
+
+        thought.Complete(isTruncated);
+        thought.HideIfEmpty();
+        RefreshThoughtLayout();
+    }
+
+    internal void CancelFollowUpThought(long presentationId, int turnNumber, bool isTruncated)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            !_followUpThoughtBlocks.TryGetValue(turnNumber, out var thought))
+            return;
+
+        thought.Cancel(isTruncated);
+        thought.HideIfEmpty();
+        RefreshThoughtLayout();
+    }
+
+    internal void FailFollowUpThought(long presentationId, int turnNumber, bool isTruncated)
+    {
+        if (!IsPresentationCurrent(presentationId) ||
+            !_followUpThoughtBlocks.TryGetValue(turnNumber, out var thought))
+            return;
+
+        thought.Fail(isTruncated);
+        thought.HideIfEmpty();
+        RefreshThoughtLayout();
+    }
+
+    private void ClearThoughtViews()
+    {
+        _rootThoughtBlock?.DetachFromParent();
+        _rootThoughtBlock?.Dispose();
+        foreach (var thought in _followUpThoughtBlocks.Values)
+        {
+            thought.DetachFromParent();
+            thought.Dispose();
+        }
+        _rootThoughtPresentationId = 0;
+        _rootThoughtBlock = null;
+        _followUpThoughtBlocks.Clear();
+        RootThoughtBlockHost.Children.Clear();
+    }
+
+    private void ClearThoughts()
+    {
+        ClearThoughtViews();
+        _thoughtSnapshots.Clear();
+    }
+
+    private void CaptureThoughtsForModeSwitch()
+    {
+        if (_sessionId == Guid.Empty)
+            return;
+
+        if (_rootThoughtBlock?.CaptureForModeSwitch() is { } rootSnapshot)
+            _thoughtSnapshots[new ThoughtStateKey(_sessionId, _activeMode, RootThoughtTurnNumber)] = rootSnapshot;
+
+        foreach (var (turnNumber, thought) in _followUpThoughtBlocks)
+        {
+            if (thought.CaptureForModeSwitch() is { } snapshot)
+            {
+                _thoughtSnapshots[new ThoughtStateKey(_sessionId, ContentType.Analysis, turnNumber)] = snapshot;
+            }
+        }
+    }
+
+    private void RestoreRootThoughtForCurrentMode()
+    {
+        if (_sessionId == Guid.Empty ||
+            !_thoughtSnapshots.TryGetValue(
+                new ThoughtStateKey(_sessionId, _activeMode, RootThoughtTurnNumber),
+                out var snapshot))
+        {
+            return;
+        }
+
+        _rootThoughtBlock ??= new ThoughtBlockView();
+        ConfigureThoughtBlock(_rootThoughtBlock);
+        if (!RootThoughtBlockHost.Children.Contains(_rootThoughtBlock.Root))
+            RootThoughtBlockHost.Children.Add(_rootThoughtBlock.Root);
+        _rootThoughtBlock.Restore(snapshot);
+    }
+
+    private void ConfigureThoughtBlock(ThoughtBlockView thought)
+    {
+        thought.BoundaryWheelRequested -= ThoughtBlock_BoundaryWheelRequested;
+        thought.BoundaryWheelRequested += ThoughtBlock_BoundaryWheelRequested;
+    }
+
+    private void ThoughtBlock_BoundaryWheelRequested(int wheelDelta)
+    {
+        if (TranslationScroller.ScrollableHeight <= 0 || wheelDelta == 0)
+            return;
+
+        _clickedConversationNodeKey = null;
+        RevealScrollBarTemporarily();
+        if (wheelDelta > 0)
+            _autoScroll.PauseForUpwardNavigation();
+
+        var wheelNotches = Math.Max(1, Math.Abs(wheelDelta) / Mouse.MouseWheelDeltaForOneLine);
+        var lines = SystemParameters.WheelScrollLines;
+        var offsetDelta = lines < 0
+            ? TranslationScroller.ViewportHeight
+            : Math.Max(1, lines) * EstimatedWheelLineHeightDip * wheelNotches;
+        var targetOffset = wheelDelta > 0
+            ? TranslationScroller.VerticalOffset - offsetDelta
+            : TranslationScroller.VerticalOffset + offsetDelta;
+        TranslationScroller.ScrollToVerticalOffset(targetOffset);
+        UpdateAutoScrollAffordance();
+        RaiseScrollStateChanged();
+    }
+
+    private void ClearThoughtForCurrentRequest(ContentType mode, int? turnNumber = null)
+    {
+        var key = new ThoughtStateKey(
+            _sessionId,
+            mode,
+            turnNumber ?? RootThoughtTurnNumber);
+        _thoughtSnapshots.Remove(key);
+    }
+
+    private void ClearThoughtsForMode(ContentType mode)
+    {
+        foreach (var key in _thoughtSnapshots.Keys
+                     .Where(key => key.SessionId == _sessionId && key.Mode == mode)
+                     .ToArray())
+        {
+            _thoughtSnapshots.Remove(key);
+        }
+    }
+
+    private void RefreshThoughtLayout()
+    {
+        EnsureFooterFitsWindow();
+        UpdateLayout();
+        var nowTimestamp = Stopwatch.GetTimestamp();
+        if (Math.Abs(ActualHeight - _lastPositionedHeight) > 0.5 &&
+            ShouldRunStreamingAction(
+                ref _lastStreamingPositionTimestamp,
+                nowTimestamp,
+                StreamingPositionInterval))
+        {
+            _lastPositionedHeight = ActualHeight;
+            PositionWindowAtAnchor();
+        }
+        ResetAutoHideTimer();
+    }
 
     /// <summary>
     /// Applies the current mode state from the session coordinator, including its saved scroll state.
@@ -331,8 +691,18 @@ public partial class FloatingWindow : Window
         RaiseScrollStateChanged();
         var isSameView = _sessionId == sessionId && _activeMode == mode;
 
-        if (_sessionId != sessionId || _activeMode != mode)
+        if (_sessionId != sessionId)
         {
+            ClearThoughts();
+            _ = StopTtsAsync();
+            _restoreFollowUpFocusAfterCompletion = false;
+            _wasFollowUpBusy = false;
+            _editingFollowUpTurnNumber = null;
+        }
+        else if (_activeMode != mode)
+        {
+            CaptureThoughtsForModeSwitch();
+            ClearThoughtViews();
             _ = StopTtsAsync();
             _restoreFollowUpFocusAfterCompletion = false;
             _wasFollowUpBusy = false;
@@ -349,6 +719,7 @@ public partial class FloatingWindow : Window
         _analysisConversation = mode == ContentType.Analysis
             ? analysisConversation ?? AnalysisConversationState.Empty()
             : AnalysisConversationState.Empty();
+        RestoreRootThoughtForCurrentMode();
         _isMarkdownExpanded = false;
         var preserveStreamingPreview =
             isSameView &&
@@ -390,11 +761,14 @@ public partial class FloatingWindow : Window
     {
         if (isLoading)
         {
+            SetGenerationActivity(true);
             _modeStatus = ModeResultStatus.Loading;
             _ = StopTtsAsync();
         }
 
         _isLoading = isLoading;
+        if (!isLoading)
+            SetGenerationActivity(_analysisConversation.Turns.LastOrDefault()?.Status == AnalysisFollowUpTurnStatus.Loading);
         LoadingIndicator.Visibility = isLoading ? Visibility.Visible : Visibility.Collapsed;
         RefreshButton.Content = isLoading ? StopIcon : RefreshIcon;
         RefreshButton.ToolTip = isLoading ? "停止生成" : "重新生成";
@@ -746,6 +1120,19 @@ public partial class FloatingWindow : Window
     private void RenderAnalysisConversation()
     {
         StopConversationNodeAnimations();
+        foreach (var thought in _followUpThoughtBlocks.Values)
+            thought.DetachFromParent();
+        var activeTurnNumbers = _analysisConversation.Turns
+            .Select(turn => turn.TurnNumber)
+            .ToHashSet();
+        foreach (var turnNumber in _followUpThoughtBlocks.Keys
+                     .Where(turnNumber => !activeTurnNumbers.Contains(turnNumber))
+                     .ToArray())
+        {
+            _followUpThoughtBlocks[turnNumber].Dispose();
+            _followUpThoughtBlocks.Remove(turnNumber);
+            _thoughtSnapshots.Remove(new ThoughtStateKey(_sessionId, ContentType.Analysis, turnNumber));
+        }
         _streamingFollowUpAnswers.Clear();
         _streamingFollowUpMarkdownHosts.Clear();
         AnalysisTurnsPanel.Children.Clear();
@@ -766,6 +1153,7 @@ public partial class FloatingWindow : Window
 
         if (!canFollowUp)
         {
+            SetGenerationActivity(_isLoading);
             _restoreFollowUpFocusAfterCompletion = false;
             _wasFollowUpBusy = false;
             _currentConversationNodeKey = null;
@@ -797,6 +1185,7 @@ public partial class FloatingWindow : Window
             AddFollowUpTurn(turn, turn == turns[^1]);
 
         var busy = turns.LastOrDefault()?.Status == AnalysisFollowUpTurnStatus.Loading;
+        SetGenerationActivity(_isLoading || busy);
         var limitReached = turns.Count >= 10;
         if (busy)
             _ = StopTtsAsync();
@@ -911,6 +1300,28 @@ public partial class FloatingWindow : Window
             AutomationProperties.SetName(edit, $"编辑 Q{turn.TurnNumber}");
             edit.Click += (_, _) => BeginEditingFollowUp(turn);
             questionHeader.Children.Add(edit);
+        }
+
+        if (!_followUpThoughtBlocks.ContainsKey(turn.TurnNumber) &&
+            _thoughtSnapshots.TryGetValue(
+                new ThoughtStateKey(_sessionId, ContentType.Analysis, turn.TurnNumber),
+                out var thoughtSnapshot))
+        {
+            var restoredThought = new ThoughtBlockView();
+            ConfigureThoughtBlock(restoredThought);
+            restoredThought.Restore(thoughtSnapshot);
+            _followUpThoughtBlocks[turn.TurnNumber] = restoredThought;
+        }
+
+        if (_followUpThoughtBlocks.TryGetValue(turn.TurnNumber, out var thoughtBlock) ||
+            turn.Status == AnalysisFollowUpTurnStatus.Loading)
+        {
+            thoughtBlock ??= new ThoughtBlockView();
+            ConfigureThoughtBlock(thoughtBlock);
+            _followUpThoughtBlocks[turn.TurnNumber] = thoughtBlock;
+            if (turn.Status == AnalysisFollowUpTurnStatus.Loading && !thoughtBlock.IsVisible)
+                thoughtBlock.Begin();
+            container.Children.Add(thoughtBlock.Root);
         }
 
         MarkdownRenderResult? markdownRender = null;
@@ -1045,8 +1456,7 @@ public partial class FloatingWindow : Window
             Cursor = Cursors.IBeam
         };
         AutomationProperties.SetName(markdown, automationName);
-        markdown.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
-        markdown.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
+        MarkdownInteraction.AttachActions(markdown);
         ConfigureMarkdownInteraction(markdown);
         return markdown;
     }
@@ -1073,8 +1483,7 @@ public partial class FloatingWindow : Window
     private void ConfigureRootMarkdownHost(RichTextBox markdown)
     {
         _rootMarkdownHosts.Add(markdown);
-        markdown.AddHandler(Button.ClickEvent, new RoutedEventHandler(MarkdownCodeCopyButton_Click));
-        markdown.AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(MarkdownLink_RequestNavigate));
+        MarkdownInteraction.AttachActions(markdown);
         ConfigureMarkdownInteraction(markdown);
     }
 
@@ -1212,6 +1621,7 @@ public partial class FloatingWindow : Window
     private void FloatingWindow_Closed(object? sender, EventArgs e)
     {
         CompositionTarget.Rendering -= CompositionTarget_Rendering;
+        _generationElapsedTimer.Stop();
         Closed -= FloatingWindow_Closed;
     }
 
@@ -1386,50 +1796,34 @@ public partial class FloatingWindow : Window
         }
     }
 
-    private void MarkdownCodeCopyButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (e.OriginalSource is not Button { Tag: MarkdownCodeBlock metadata } button)
-            return;
-        try
-        {
-            Clipboard.SetText(metadata.Code);
-            TransientButtonFeedback.ShowCopySuccess(button, "\u29C9");
-            e.Handled = true;
-        }
-        catch
-        {
-            // Clipboard access can be temporarily unavailable.
-        }
-    }
-
     private void ExpandMarkdownButton_Click(object sender, RoutedEventArgs e)
     {
         _isMarkdownExpanded = true;
         ShowCompletedMarkdown();
     }
 
-    private void MarkdownLink_RequestNavigate(object sender, RequestNavigateEventArgs e)
+    private void ResetForReplacement(ThoughtResetScope resetScope)
     {
-        e.Handled = true;
-        if (!MarkdownRenderer.IsSafeLink(e.Uri?.AbsoluteUri, out var uri) || uri is null)
-            return;
-
-        try
+        if (resetScope == ThoughtResetScope.PreserveSession)
         {
-            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+            CaptureThoughtsForModeSwitch();
+            ClearThoughtViews();
         }
-        catch (Exception exception)
+        else if (resetScope == ThoughtResetScope.ClearActiveMode)
         {
-            Logger.Warn("FloatingWindow", $"Could not open a Markdown link: {exception.GetType().Name}");
+            ClearThoughtsForMode(_activeMode);
+            ClearThoughtViews();
         }
-    }
+        else
+        {
+            ClearThoughts();
+        }
 
-    private void ResetForReplacement()
-    {
         _ = StopTtsAsync();
         _autoHideTimer.Stop();
         _isMouseInside = false;
-        _sessionId = Guid.Empty;
+        if (resetScope == ThoughtResetScope.ClearAll)
+            _sessionId = Guid.Empty;
         _activeMode = ContentType.Translation;
         _modeStatus = ModeResultStatus.NotStarted;
         _modeQuality = ModeResultQuality.Unassessed;
@@ -1854,15 +2248,31 @@ public partial class FloatingWindow : Window
 
     private void RenderStatusBar()
     {
-        if (StatusMessageBar is null || StatusIndicator is null || StatusMessageText is null || StatusMessageActionButton is null)
+        if (StatusMessageBar is null || StatusIndicator is null || StatusMessageText is null ||
+            StatusElapsedText is null || StatusMessageActionButton is null)
             return;
 
         var entry = _transientStatus ?? _persistentStatus ?? DefaultStatusEntry();
+        var messageChanged = !string.Equals(StatusMessageText.Text, entry.Message, StringComparison.Ordinal);
 
         var (indicator, fg) = FloatingStatusMessage.GetAccentColors(entry.Kind);
         StatusIndicator.Fill = new SolidColorBrush(indicator);
         StatusMessageText.Foreground = new SolidColorBrush(fg);
         StatusMessageText.Text = entry.Message;
+        StatusElapsedText.Foreground = new SolidColorBrush(fg);
+
+        var elapsedText = GetGenerationElapsedText(entry);
+        StatusElapsedText.Text = elapsedText ?? string.Empty;
+        StatusElapsedText.Visibility = elapsedText is null
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
+        var fullStatusText = elapsedText is null
+            ? entry.Message
+            : $"{entry.Message} {elapsedText}";
+        StatusMessageViewport.ToolTip = fullStatusText;
+        StatusElapsedText.ToolTip = fullStatusText;
+        AutomationProperties.SetName(StatusMessageBar, fullStatusText);
 
         var actionText = entry.ActionText;
         var action = entry.Action;
@@ -1896,7 +2306,8 @@ public partial class FloatingWindow : Window
         }
 
         EnsureFooterFitsWindow();
-        RestartStatusScroll();
+        if (messageChanged)
+            RestartStatusScroll();
     }
 
     private bool CanShowTranslationDirectionAction() =>
@@ -1934,6 +2345,8 @@ public partial class FloatingWindow : Window
         ModeResultStatus.Loading when _translationDirectionIsManual &&
             !string.IsNullOrWhiteSpace(_translationEffectiveTargetLanguage) =>
             new("generation", $"正在译为 {_translationEffectiveTargetLanguage}", FloatingStatusKind.Info, null, null),
+        ModeResultStatus.Loading when _activeMode == ContentType.Analysis =>
+            new("generation", "正在分析", FloatingStatusKind.Info, null, null),
         ModeResultStatus.Loading => new("generation", "正在生成", FloatingStatusKind.Info, null, null),
         ModeResultStatus.Completed when _modeQuality == ModeResultQuality.EchoWarning =>
             new("echo-warning", "结果与原文高度一致", FloatingStatusKind.Warning, null, null),
@@ -1943,18 +2356,55 @@ public partial class FloatingWindow : Window
         _ => new("ready", "就绪", FloatingStatusKind.Info, null, null)
     };
 
+    private string? GetGenerationElapsedText(StatusMessageEntry entry)
+    {
+        if (!_generationActivityActive || _generationStartedTimestamp == 0 ||
+            entry.Token is not ("generation" or "follow-up-generation"))
+            return null;
+
+        return FormatGenerationElapsed(Stopwatch.GetElapsedTime(_generationStartedTimestamp));
+    }
+
+    internal static string? FormatGenerationElapsed(TimeSpan elapsed) =>
+        elapsed < GenerationElapsedRefreshInterval
+            ? null
+            : $"{(int)Math.Floor(elapsed.TotalSeconds)} 秒";
+
+    private void SetGenerationActivity(bool active)
+    {
+        if (active)
+        {
+            if (!_generationActivityActive)
+                _generationStartedTimestamp = Stopwatch.GetTimestamp();
+            _generationActivityActive = true;
+            _generationElapsedTimer.Start();
+            return;
+        }
+
+        _generationActivityActive = false;
+        _generationStartedTimestamp = 0;
+        _generationElapsedTimer.Stop();
+    }
+
     private void RestartStatusScroll()
     {
+        var generation = ++_statusScrollGeneration;
         _statusScrollStoryboard?.Remove(this);
         _statusScrollStoryboard = null;
         StatusMessageTransform.X = 0;
+        StatusMessageText.TextTrimming = TextTrimming.CharacterEllipsis;
         Dispatcher.BeginInvoke(() =>
         {
-            StatusMessageText.Measure(new Size(double.PositiveInfinity, StatusMessageViewport.ActualHeight));
-            var distance = StatusMessageText.DesiredSize.Width - StatusMessageViewport.ActualWidth;
-            if (distance <= 0.5 || StatusMessageViewport.ActualWidth <= 0)
+            if (generation != _statusScrollGeneration)
                 return;
 
+            StatusMessageText.Measure(new Size(double.PositiveInfinity, StatusMessageViewport.ActualHeight));
+            var distance = StatusMessageText.DesiredSize.Width - StatusMessageViewport.ActualWidth;
+            if (distance <= 0.5 || StatusMessageViewport.ActualWidth <= 0 ||
+                !SystemParameters.ClientAreaAnimation)
+                return;
+
+            StatusMessageText.TextTrimming = TextTrimming.None;
             var animation = new DoubleAnimationUsingKeyFrames
             {
                 RepeatBehavior = RepeatBehavior.Forever

@@ -35,6 +35,258 @@ public sealed class FloatingWindowFollowUpTests
     }
 
     [SkippableFact]
+    public void RootThought_UsesMarkdownViewAndIsExcludedFromCopyText()
+    {
+        RunOnSta(window =>
+        {
+            var presentationId = window.BeginReplacement();
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("final answer"),
+                Conversation(turns: []));
+            window.BeginRootThought(presentationId);
+
+            var thought = Assert.IsType<ThoughtBlockView>(window.RootThoughtBlockForTests);
+            Assert.Equal(Visibility.Collapsed, thought.Root.Visibility);
+            Assert.True(thought.IsElapsedTimerEnabledForTests);
+
+            window.UpdateRootThought(presentationId, "private reasoning", isTruncated: false);
+
+            Assert.Equal(Visibility.Visible, thought.Root.Visibility);
+            Assert.True(thought.IsExpandedForTests);
+            Assert.StartsWith("正在思考… ", thought.StatusTextForTests.Text, StringComparison.Ordinal);
+            Assert.Equal("收起思考", AutomationProperties.GetName(thought.ToggleButtonForTests));
+            Assert.Equal("final answer", window.CopyTextForTests);
+            Assert.True(thought.StableMarkdownHostForTests.IsReadOnly);
+            Assert.True(thought.StableMarkdownHostForTests.Focusable);
+            Assert.False(thought.StableMarkdownHostForTests.IsTabStop);
+            Assert.True(thought.ShowsScrollbarHintForTests);
+            thought.ActiveTextHostForTests.SelectAll();
+            Assert.True(ApplicationCommands.Copy.CanExecute(null, thought.ActiveTextHostForTests));
+
+            window.CompleteRootThought(presentationId, isTruncated: false);
+            Assert.False(thought.IsElapsedTimerEnabledForTests);
+        });
+    }
+
+    [SkippableFact]
+    public void SecondarySelection_UsesOnlyFocusedAnswerHostAndExcludesThoughts()
+    {
+        RunOnSta(window =>
+        {
+            window.TranslationTextBlock.Text = "first selected answer";
+            window.TranslationTextBlock.Select(6, 8);
+
+            Assert.True(window.TryGetSecondarySelectionFromFocusedElement(
+                window.TranslationTextBlock,
+                out var selectedText));
+            Assert.Equal("selected", selectedText);
+
+            // A selection retained by another control must not be reused when
+            // focus has moved elsewhere.
+            Assert.False(window.TryGetSecondarySelectionFromFocusedElement(
+                window.FollowUpTextBox,
+                out _));
+
+            var presentationId = window.BeginReplacement();
+            window.BeginRootThought(presentationId);
+            window.UpdateRootThought(presentationId, "private reasoning", isTruncated: false);
+            var thought = Assert.IsType<ThoughtBlockView>(window.RootThoughtBlockForTests);
+            thought.ActiveTextHostForTests.Text = "private reasoning";
+            thought.ActiveTextHostForTests.SelectAll();
+
+            Assert.False(window.TryGetSecondarySelectionFromFocusedElement(
+                thought.ActiveTextHostForTests,
+                out _));
+        });
+    }
+
+    [Theory]
+    [InlineData(SelectionGestureKind.MultiClick, 120, 120, 120, 120, true)]
+    [InlineData(SelectionGestureKind.MultiClick, 500, 500, 500, 500, false)]
+    [InlineData(SelectionGestureKind.Drag, 80, 120, 180, 120, true)]
+    [InlineData(SelectionGestureKind.Drag, 500, 500, 650, 500, false)]
+    public void SelectionGestureConsistency_RequiresGestureNearConfirmedSelection(
+        SelectionGestureKind gesture,
+        double startX,
+        double startY,
+        double endX,
+        double endY,
+        bool expected)
+    {
+        var location = new SelectionLocation
+        {
+            IsValid = true,
+            Bounds = new Rect(100, 100, 100, 40)
+        };
+        var intent = new SelectionIntent(
+            gesture,
+            new Point(startX, startY),
+            new Point(endX, endY),
+            DateTimeOffset.UtcNow);
+
+        Assert.Equal(expected, App.IsSelectionGestureConsistent(location, intent));
+    }
+
+    [Fact]
+    public void SelectionProbePoints_PrioritizeReleasePointAndDeduplicateMultiClick()
+    {
+        var dragPoints = SelectionLocator.CreateGestureProbePoints(
+            new Point(10, 20),
+            new Point(80, 40));
+        var clickPoints = SelectionLocator.CreateGestureProbePoints(
+            new Point(30, 50),
+            new Point(30, 50));
+
+        Assert.Equal([new Point(80, 40), new Point(10, 20)], dragPoints);
+        Assert.Equal([new Point(30, 50)], clickPoints);
+    }
+
+    [Theory]
+    [InlineData(120, 120, true)]
+    [InlineData(76, 120, true)]
+    [InlineData(75, 120, false)]
+    [InlineData(500, 500, false)]
+    public void SelectionProbeMatch_RequiresConfirmedBoundsNearGesture(
+        double x,
+        double y,
+        bool expected)
+    {
+        var location = new SelectionLocation
+        {
+            IsValid = true,
+            Bounds = new Rect(100, 100, 100, 40)
+        };
+
+        Assert.Equal(
+            expected,
+            SelectionLocator.IsSelectionNearProbePoints(location, [new Point(x, y)]));
+    }
+
+    [SkippableFact]
+    public void RootThought_PreservesPerModeStateAcrossModeSwitchButClearsOnRegeneration()
+    {
+        RunOnSta(window =>
+        {
+            var sessionId = Guid.NewGuid();
+            var firstPresentation = window.BeginReplacement();
+            window.SetSessionView(
+                sessionId,
+                ContentType.Translation,
+                Completed("translation"),
+                Conversation(turns: []));
+            window.BeginRootThought(firstPresentation);
+            window.UpdateRootThought(firstPresentation, "translation reasoning", isTruncated: false);
+            window.CompleteRootThought(firstPresentation, isTruncated: false);
+
+            var codePresentation = window.BeginReplacement(firstPresentation + 1, preserveThoughts: true);
+            window.SetSessionView(
+                sessionId,
+                ContentType.Code,
+                Completed("code"),
+                Conversation(turns: []));
+            window.BeginRootThought(codePresentation);
+            window.UpdateRootThought(codePresentation, "code reasoning", isTruncated: false);
+            window.CompleteRootThought(codePresentation, isTruncated: false);
+
+            var restoredPresentation = window.BeginReplacement(codePresentation + 1, preserveThoughts: true);
+            window.SetSessionView(
+                sessionId,
+                ContentType.Translation,
+                Completed("translation"),
+                Conversation(turns: []));
+            Assert.Equal(Visibility.Visible, window.RootThoughtBlockForTests!.Root.Visibility);
+
+            var regeneratedPresentation = window.BeginReplacement(
+                restoredPresentation + 1,
+                FloatingWindow.ThoughtResetScope.ClearActiveMode);
+            window.SetSessionView(
+                sessionId,
+                ContentType.Translation,
+                new ModeResultState(
+                    ModeResultStatus.Loading,
+                    string.Empty,
+                    null,
+                    3,
+                    0,
+                    true),
+                Conversation(turns: []));
+            window.BeginRootThought(regeneratedPresentation);
+            Assert.Equal(Visibility.Collapsed, window.RootThoughtBlockForTests!.Root.Visibility);
+
+            var codeAgainPresentation = window.BeginReplacement(
+                regeneratedPresentation + 1,
+                FloatingWindow.ThoughtResetScope.PreserveSession);
+            window.SetSessionView(
+                sessionId,
+                ContentType.Code,
+                Completed("code"),
+                Conversation(turns: []));
+            Assert.Equal(Visibility.Visible, window.RootThoughtBlockForTests!.Root.Visibility);
+        });
+    }
+
+    [SkippableFact]
+    public void RootThought_RejectsStalePresentationAndCollapsesOnCompletion()
+    {
+        RunOnSta(window =>
+        {
+            var stalePresentationId = window.BeginReplacement();
+            var currentPresentationId = window.BeginReplacement();
+            window.SetSessionView(
+                Guid.NewGuid(),
+                ContentType.Analysis,
+                Completed("final answer"),
+                Conversation(turns: []));
+            window.BeginRootThought(currentPresentationId);
+
+            window.UpdateRootThought(stalePresentationId, "stale", isTruncated: false);
+            Assert.Equal(Visibility.Collapsed, window.RootThoughtBlockForTests!.Root.Visibility);
+
+            window.UpdateRootThought(currentPresentationId, "bounded", isTruncated: true);
+            window.CompleteRootThought(currentPresentationId, isTruncated: true);
+            var thought = window.RootThoughtBlockForTests!;
+            Assert.Equal(Visibility.Visible, thought.Root.Visibility);
+            Assert.False(thought.IsExpandedForTests);
+            Assert.StartsWith("思考了 ", thought.StatusTextForTests.Text, StringComparison.Ordinal);
+            Assert.EndsWith("· 内容已截断", thought.StatusTextForTests.Text, StringComparison.Ordinal);
+            Assert.Equal("展开思考", AutomationProperties.GetName(thought.ToggleButtonForTests));
+        });
+    }
+
+    [SkippableFact]
+    public void FollowUpThoughts_AreIndependentAndArrowTogglesVisibility()
+    {
+        RunOnSta(window =>
+        {
+            var sessionId = Guid.NewGuid();
+            window.SetSessionView(
+                sessionId,
+                ContentType.Analysis,
+                Completed("root"),
+                Conversation([
+                    new AnalysisFollowUpTurnState(1, "one", "answer one", AnalysisFollowUpTurnStatus.Completed, 1),
+                    new AnalysisFollowUpTurnState(2, "two", "answer two", AnalysisFollowUpTurnStatus.Completed, 2)]));
+
+            var first = window.BeginFollowUpThought(1);
+            first.Update("first thought", false, ThoughtBlockStatus.Completed);
+            var second = window.BeginFollowUpThought(2);
+            second.Update("second thought", false, ThoughtBlockStatus.Completed);
+
+            Assert.NotSame(first, second);
+            Assert.Equal(Visibility.Visible, first.Root.Visibility);
+            Assert.Equal(Visibility.Visible, second.Root.Visibility);
+            Assert.False(first.IsExpandedForTests);
+            Assert.False(second.IsExpandedForTests);
+
+            second.ToggleButtonForTests.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.True(second.IsExpandedForTests);
+            Assert.False(first.IsExpandedForTests);
+        });
+    }
+
+    [SkippableFact]
     public void AnalysisCompleted_ShowsAccessibleFollowUpControls()
     {
         RunOnSta(window =>
@@ -464,6 +716,9 @@ public sealed class FloatingWindowFollowUpTests
 
             Assert.Equal(Visibility.Visible, window.StatusMessageBar.Visibility);
             Assert.Equal("已完成", window.StatusMessageText.Text);
+            Assert.Equal(TextTrimming.CharacterEllipsis, window.StatusMessageText.TextTrimming);
+            Assert.Equal(Visibility.Collapsed, window.StatusElapsedText.Visibility);
+            Assert.Equal(48d, window.StatusElapsedText.MinWidth);
             Assert.Equal(Visibility.Collapsed, window.StatusMessageActionButton.Visibility);
             Assert.Equal(Color.FromRgb(0x20, 0x21, 0x2B), ((SolidColorBrush)window.StatusMessageBar.Background).Color);
             Assert.Equal(
@@ -491,6 +746,21 @@ public sealed class FloatingWindowFollowUpTests
                 scrollableHeight: 41,
                 currentBottomReserve: 40));
         });
+    }
+
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(0.999, null)]
+    [InlineData(1, "1 秒")]
+    [InlineData(9.999, "9 秒")]
+    [InlineData(65.4, "65 秒")]
+    public void GenerationElapsed_UsesStableWholeSecondSuffix(
+        double totalSeconds,
+        string? expected)
+    {
+        Assert.Equal(
+            expected,
+            FloatingWindow.FormatGenerationElapsed(TimeSpan.FromSeconds(totalSeconds)));
     }
 
     [SkippableFact]
@@ -541,8 +811,8 @@ public sealed class FloatingWindowFollowUpTests
 
             window.SetModelProfiles([profile], profile, enabled: true);
 
-            Assert.Equal(176d, window.ModelSelector.Width);
-            Assert.Equal(176d, window.ModelSelector.MaxWidth);
+            Assert.Equal(144d, window.ModelSelector.Width);
+            Assert.Equal(144d, window.ModelSelector.MaxWidth);
             Assert.Equal("Qwen3-8B", window.ModelSelector.ModelNameText.Text);
             Assert.Equal(312d, window.ModelSelector.PopupContainer.Width);
             Assert.Equal(312d, window.ModelSelector.ProfileList.MaxHeight);
@@ -555,7 +825,7 @@ public sealed class FloatingWindowFollowUpTests
             Assert.Same(window.ModelSelector.SelectorButton, window.ModelSelector.SelectorPopup.PlacementTarget);
             Assert.Equal(PlacementMode.Top, window.ModelSelector.SelectorPopup.Placement);
             Assert.Equal(0d, window.ModelSelector.SelectorPopup.HorizontalOffset);
-            Assert.Equal(82d, window.ModelSelector.PopupAnchor.Margin.Right);
+            Assert.Equal(66d, window.ModelSelector.PopupAnchor.Margin.Right);
             var modelListScrollBarStyle = Assert.IsType<Style>(
                 window.ModelSelector.ProfileList.Resources[typeof(ScrollBar)]);
             var baseScrollBarStyle = Assert.IsType<Style>(window.ModelSelector.FindResource("Win11VerticalScrollBar"));

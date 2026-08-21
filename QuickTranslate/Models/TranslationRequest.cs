@@ -20,7 +20,7 @@ public sealed record TranslationRequest(
     string ApiKey,
     string ModelName,
     string SystemPrompt,
-    bool EnableThinking = false)
+    bool? EnableThinking = null)
 {
     public string RequestedTargetLanguage => Direction.RequestedTargetLanguage;
     public string EffectiveTargetLanguage => Direction.EffectiveTargetLanguage;

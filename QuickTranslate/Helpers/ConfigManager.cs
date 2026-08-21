@@ -162,6 +162,7 @@ namespace QuickTranslate.Helpers
             using var document = JsonDocument.Parse(json);
             var shouldSave = MigratePromptSettings(settings, document.RootElement);
             shouldSave |= MigrateTranslationTriggerMode(settings, document.RootElement);
+            shouldSave |= MigrateThinkingMode(settings, document.RootElement);
             shouldSave |= MigrateSavedConfigs(settings, document.RootElement);
 
             if (shouldSave)
@@ -399,6 +400,52 @@ namespace QuickTranslate.Helpers
             {
                 settings.TranslationTriggerMode = finalMode;
                 changed = true;
+            }
+
+            return changed;
+        }
+
+        internal static bool MigrateThinkingMode(AppSettings settings, JsonElement root)
+        {
+            var changed = false;
+            if (!root.TryGetProperty("ThinkingMode", out _))
+            {
+                settings.ThinkingMode = ReadBoolProperty(root, "EnableThinking", defaultValue: false)
+                    ? ThinkingModePreference.Enabled
+                    : ThinkingModePreference.Disabled;
+                changed = true;
+            }
+
+            var normalized = ThinkingModePreferences.Normalize(settings.ThinkingMode);
+            if (settings.ThinkingMode != normalized)
+            {
+                settings.ThinkingMode = normalized;
+                changed = true;
+            }
+
+            settings.SavedConfigs ??= new List<SavedConfig>();
+            var serializedConfigs = root.TryGetProperty("SavedConfigs", out var savedConfigsElement) &&
+                                    savedConfigsElement.ValueKind == JsonValueKind.Array
+                ? savedConfigsElement.EnumerateArray().ToArray()
+                : Array.Empty<JsonElement>();
+            for (var index = 0; index < settings.SavedConfigs.Count; index++)
+            {
+                var config = settings.SavedConfigs[index];
+                var hasThinkingMode = index < serializedConfigs.Length &&
+                                      serializedConfigs[index].TryGetProperty("ThinkingMode", out _);
+                if (!hasThinkingMode)
+                {
+                    config.ThinkingMode = settings.ThinkingMode;
+                    changed = true;
+                    continue;
+                }
+
+                var normalizedConfig = ThinkingModePreferences.Normalize(config.ThinkingMode);
+                if (config.ThinkingMode != normalizedConfig)
+                {
+                    config.ThinkingMode = normalizedConfig;
+                    changed = true;
+                }
             }
 
             return changed;

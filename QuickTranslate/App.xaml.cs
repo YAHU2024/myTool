@@ -376,17 +376,42 @@ public partial class App : Application
 
         FloatingWindowAnchor? floatingAnchor = null;
 
-        var sourceWindow = await TerminalDetector.CaptureForegroundWindowWithFocusAsync();
-
-        // 浏览器中禁用翻译：避免与浏览器翻译插件冲突
-        if (!_settings.EnableInBrowser && BrowserDetector.IsForegroundBrowser(_settings.CustomBrowserProcesses))
-        {
-            Logger.Debug("App", "热键触发但前台为浏览器，已跳过（浏览器翻译已禁用）");
-            return;
-        }
-
         try
         {
+            // A selection inside our own result window is an explicit follow-up
+            // request. Read it directly from WPF instead of routing it through
+            // UIA or simulated Ctrl+C.
+            if (_floatingWindow.TryGetSecondarySelection(
+                    out var secondaryText,
+                    out var secondaryAnchor))
+            {
+                if (_floatingWindow.IsGenerationBusyForSecondaryRequest)
+                {
+                    _floatingWindow.ShowSelectionCaptureFeedback("请等待当前生成完成");
+                    return;
+                }
+
+                var secondaryRoute = TranslationRouteResolver.Resolve(
+                    secondaryText,
+                    _settings.SmartContentType);
+                await StartSessionRequestAsync(
+                    secondaryText,
+                    secondaryRoute.InitialMode,
+                    secondaryAnchor,
+                    "悬浮窗二次翻译",
+                    secondaryRoute.ContentDecision);
+                return;
+            }
+
+            var sourceWindow = await TerminalDetector.CaptureForegroundWindowWithFocusAsync();
+
+            // 浏览器中禁用翻译：避免与浏览器翻译插件冲突
+            if (!_settings.EnableInBrowser && BrowserDetector.IsForegroundBrowser(_settings.CustomBrowserProcesses))
+            {
+                Logger.Debug("App", "热键触发但前台为浏览器，已跳过（浏览器翻译已禁用）");
+                return;
+            }
+
             var location = await SelectionLocator.TryGetSelectionBoundsAsync(750);
             var evidence = location is { IsValid: true }
                 ? SelectionEvidenceKind.UiaTextSelectionBounds
@@ -522,6 +547,7 @@ public partial class App : Application
 
             var sourceWindow = await TerminalDetector.CaptureForegroundWindowWithFocusAsync(cancellationToken: token);
             if (sourceWindow == null) return;
+            if (sourceWindow.ProcessId == Environment.ProcessId) return;
 
             var intent = new SelectionIntent(gestureKind, startPos, endPos, DateTimeOffset.UtcNow);
 
@@ -536,7 +562,11 @@ public partial class App : Application
             }
 
             // 尝试 UIA 异步精确定位（不阻塞 UI 线程）
-            var location = await SelectionLocator.TryGetSelectionBoundsAsync(2000, token);
+            var location = await SelectionLocator.TryGetSelectionBoundsAsync(
+                startPos,
+                endPos,
+                2000,
+                token);
             token.ThrowIfCancellationRequested();
             if (generation != Volatile.Read(ref _selectionGeneration)) return;
             if (Win32Api.GetForegroundWindow() != sourceWindow.Handle) return;
@@ -567,14 +597,13 @@ public partial class App : Application
             }
             if (location == null || !location.IsValid)
             {
-                // Fallback: physical drag end point, same coordinate contract as UIA.
-                var mid = endPos;
-                location = new SelectionLocation
-                {
-                    IsValid = false,
-                    FallbackPoint = mid
-                };
+                // Automatic red-dot activation requires a confirmed text
+                // selection. The explicit hotkey path still supports apps
+                // that do not expose UIA selection bounds.
+                return;
             }
+            if (!IsSelectionGestureConsistent(location, intent))
+                return;
 
             // Defer clipboard access until the user deliberately hovers the red dot.
             // 显示红点
@@ -902,7 +931,11 @@ public partial class App : Application
                 transition.Session.ActiveMode);
             EnsureModelSelection(transition.Session, displayRequest);
             RefreshFloatingModelSelector();
-            var presentationId = _floatingWindow.BeginReplacement(_resultSessions.CurrentPresentationId);
+            var presentationId = _floatingWindow.BeginReplacement(
+                _resultSessions.CurrentPresentationId,
+                string.Equals(operationName, "模式切换", StringComparison.Ordinal)
+                    ? FloatingWindow.ThoughtResetScope.PreserveSession
+                    : FloatingWindow.ThoughtResetScope.ClearActiveMode);
             await ShowRequestResultAsync(
                 displayRequest,
                 state.RawText,
@@ -924,7 +957,11 @@ public partial class App : Application
             return;
         }
 
-        var visualPresentationId = _floatingWindow.BeginReplacement(identity.PresentationId);
+        var visualPresentationId = _floatingWindow.BeginReplacement(
+            identity.PresentationId,
+            string.Equals(operationName, "模式切换", StringComparison.Ordinal)
+                ? FloatingWindow.ThoughtResetScope.PreserveSession
+                : FloatingWindow.ThoughtResetScope.ClearActiveMode);
         var request = requestOverride ?? CreateDisplayRequest(transition.Session, identity.Mode);
         EnsureModelSelection(transition.Session, request);
         RefreshFloatingModelSelector();
@@ -1119,6 +1156,8 @@ public partial class App : Application
             }
 
             var presentedText = new StringBuilder();
+            var reasoningPresentedText = new StringBuilder();
+            var reasoningAccumulator = new ReasoningSummaryAccumulator();
             var dispatcherMetrics = new StreamingDispatcherMetrics();
             var runtimeStart = StreamingRuntimeStats.Capture();
             await using var presentationPump = new StreamingPresentationPump(
@@ -1148,11 +1187,47 @@ public partial class App : Application
                         }
                     }, StreamingDispatcherMetrics.PresentationPriority, cancellationToken).Task;
                 });
-            var result = await _translationService.ExecuteStreamingAsync(
+            await using var reasoningPump = new StreamingPresentationPump(
+                (frame, cancellationToken) =>
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        reasoningPresentedText.Append(frame.Delta);
+                        if (IsCurrentRequest(requestScope) &&
+                            _floatingWindow?.IsPresentationCurrent(presentationId) == true)
+                        {
+                            _floatingWindow.UpdateRootThought(
+                                presentationId,
+                                reasoningPresentedText.ToString(),
+                                reasoningAccumulator.IsTruncated);
+                        }
+                    }, StreamingDispatcherMetrics.PresentationPriority, cancellationToken).Task);
+            var result = await _translationService.ExecuteStreamingEventsAsync(
                 request,
-                delta => presentationPump.Publish(delta),
+                streamEvent =>
+                {
+                    if (streamEvent.Kind == TranslationStreamEventKind.ContentDelta)
+                    {
+                        presentationPump.Publish(streamEvent.Text ?? string.Empty);
+                    }
+                    else if (streamEvent.Kind == TranslationStreamEventKind.ReasoningDelta)
+                    {
+                        var accepted = reasoningAccumulator.Append(streamEvent.Text);
+                        reasoningPump.Publish(accepted);
+                    }
+                },
                 requestScope.Token);
             var presentationStats = await presentationPump.CompleteAsync();
+            await reasoningPump.CompleteAsync();
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (IsCurrentRequest(requestScope) &&
+                    _floatingWindow?.IsPresentationCurrent(presentationId) == true)
+                {
+                    _floatingWindow.CompleteRootThought(
+                        presentationId,
+                        reasoningAccumulator.IsTruncated);
+                }
+            }, StreamingDispatcherMetrics.PresentationPriority, requestScope.Token);
             var dispatcherStats = dispatcherMetrics.GetStats();
             var markdownStats = _floatingWindow.GetStreamingMarkdownStats();
             var compositionStats = _floatingWindow.GetStreamingCompositionStats();
@@ -1262,12 +1337,14 @@ public partial class App : Application
         }
         catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))
         {
+            _floatingWindow.CancelRootThought(presentationId, false);
             _resultSessions.TryCancel(sessionIdentity);
             _translationMetrics.RecordCancelled();
             Logger.Debug("App", "translation.cancelled", new { operation = operationName, request_id = requestScope.RequestId });
         }
         catch (Exception ex)
         {
+            _floatingWindow.FailRootThought(presentationId, false);
             if (isModelSwitch)
                 _translationMetrics.RecordModelSwitchFailed();
             if (IsCurrentRequest(requestScope))
@@ -1311,6 +1388,7 @@ public partial class App : Application
         try
         {
             requestScope.Token.ThrowIfCancellationRequested();
+            _floatingWindow.BeginFollowUpThought(transition.Turn.TurnNumber);
             var conversation = transition.Session.AnalysisConversation;
             var semanticSnapshot = conversation.SemanticSnapshot
                 ?? throw new InvalidOperationException("当前解析结果不能追问");
@@ -1326,6 +1404,8 @@ public partial class App : Application
                 BuildFollowUpRequestContext(transition.Session));
 
             var presentedText = new StringBuilder();
+            var reasoningPresentedText = new StringBuilder();
+            var reasoningAccumulator = new ReasoningSummaryAccumulator();
             var dispatcherMetrics = new StreamingDispatcherMetrics();
             var runtimeStart = StreamingRuntimeStats.Capture();
             await using var presentationPump = new StreamingPresentationPump(
@@ -1360,11 +1440,49 @@ public partial class App : Application
                         }
                     }, StreamingDispatcherMetrics.PresentationPriority, cancellationToken).Task;
                 });
-            var result = await _translationService.ExecuteAnalysisFollowUpStreamingAsync(
+            await using var reasoningPump = new StreamingPresentationPump(
+                (frame, cancellationToken) =>
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        reasoningPresentedText.Append(frame.Delta);
+                        if (IsCurrentRequest(requestScope) &&
+                            _floatingWindow?.IsPresentationCurrent(presentationId) == true)
+                        {
+                            _floatingWindow.UpdateFollowUpThought(
+                                presentationId,
+                                identity.TurnNumber,
+                                reasoningPresentedText.ToString(),
+                                reasoningAccumulator.IsTruncated);
+                        }
+                    }, StreamingDispatcherMetrics.PresentationPriority, cancellationToken).Task);
+            var result = await _translationService.ExecuteAnalysisFollowUpStreamingEventsAsync(
                 request,
-                delta => presentationPump.Publish(delta),
+                streamEvent =>
+                {
+                    if (streamEvent.Kind == TranslationStreamEventKind.ContentDelta)
+                    {
+                        presentationPump.Publish(streamEvent.Text ?? string.Empty);
+                    }
+                    else if (streamEvent.Kind == TranslationStreamEventKind.ReasoningDelta)
+                    {
+                        var accepted = reasoningAccumulator.Append(streamEvent.Text);
+                        reasoningPump.Publish(accepted);
+                    }
+                },
                 requestScope.Token);
             var presentationStats = await presentationPump.CompleteAsync();
+            await reasoningPump.CompleteAsync();
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (IsCurrentRequest(requestScope) &&
+                    _floatingWindow?.IsPresentationCurrent(presentationId) == true)
+                {
+                    _floatingWindow.CompleteFollowUpThought(
+                        presentationId,
+                        identity.TurnNumber,
+                        reasoningAccumulator.IsTruncated);
+                }
+            }, StreamingDispatcherMetrics.PresentationPriority, requestScope.Token);
             var dispatcherStats = dispatcherMetrics.GetStats();
             var markdownStats = _floatingWindow.GetAnalysisFollowUpStreamingStats(identity.TurnNumber);
             var compositionStats = _floatingWindow.GetAnalysisFollowUpCompositionStats(identity.TurnNumber);
@@ -1414,6 +1532,7 @@ public partial class App : Application
         }
         catch (OperationCanceledException) when (requestScope.Token.IsCancellationRequested || !IsCurrentRequest(requestScope))
         {
+            _floatingWindow.CancelFollowUpThought(presentationId, identity.TurnNumber, false);
             if (_resultSessions.TryCancelFollowUp(identity) &&
                 _floatingWindow.IsPresentationCurrent(presentationId))
             {
@@ -1422,6 +1541,7 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
+            _floatingWindow.FailFollowUpThought(presentationId, identity.TurnNumber, false);
             if (IsCurrentRequest(requestScope) &&
                 _resultSessions.TryFailFollowUp(identity) &&
                 _floatingWindow.IsPresentationCurrent(presentationId))
@@ -1538,7 +1658,7 @@ public partial class App : Application
         UpdateFloatingSessionView();
     }
 
-    private Task<bool> ShowRequestLoadingAsync(
+    private async Task<bool> ShowRequestLoadingAsync(
         TranslationRequest request,
         FloatingWindowAnchor floatingAnchor,
         long presentationId)
@@ -1547,12 +1667,15 @@ public partial class App : Application
         var loadingText = request.Kind == TranslationRequestKind.Analysis
             ? "解析中..."
             : "翻译中...";
-        return _floatingWindow!.ShowTranslationAsync(
+        var shown = await _floatingWindow!.ShowTranslationAsync(
             presentationId,
             loadingText,
             floatingAnchor,
             request.ContentType,
             request.FallbackUsed ? request.Text : null);
+        if (shown)
+            _floatingWindow.BeginRootThought(presentationId);
+        return shown;
     }
 
     private Task<bool> ShowRequestResultAsync(
@@ -1614,6 +1737,27 @@ public partial class App : Application
         return new FloatingWindowAnchor(
             new Point(cursorPoint.X, cursorPoint.Y),
             Rect.Empty);
+    }
+
+    internal static bool IsSelectionGestureConsistent(
+        SelectionLocation location,
+        SelectionIntent intent)
+    {
+        if (!location.IsValid || location.Bounds.IsEmpty)
+            return false;
+
+        // UIA and low-level mouse hooks both use physical screen pixels here.
+        // A small expansion tolerates glyph edges without accepting a window
+        // drag whose stale focused selection is elsewhere on the screen.
+        var bounds = location.Bounds;
+        bounds.Inflate(24, 24);
+        return intent.GestureKind switch
+        {
+            SelectionGestureKind.MultiClick => bounds.Contains(intent.StartPoint),
+            SelectionGestureKind.Drag =>
+                bounds.Contains(intent.StartPoint) || bounds.Contains(intent.EndPoint),
+            _ => true
+        };
     }
 
     /// <summary>
@@ -1878,7 +2022,10 @@ public partial class App : Application
         settings.ApiKey,
         settings.ModelName,
         settings.TargetLanguage,
-        settings.EnableThinking);
+        ProviderRequestPolicy.ResolveThinkingRequestValue(
+            settings.ApiBaseUrl,
+            settings.ModelName,
+            settings.ThinkingMode));
 
     private LocalDictionaryWordLookupService? TryCreateLocalDictionaryWordLookupService()
     {
