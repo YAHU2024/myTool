@@ -64,6 +64,21 @@ public sealed class ModelSelectionTests
     }
 
     [Fact]
+    public void Catalog_PreservesSavedThinkingMode()
+    {
+        var profile = ModelProfileCatalog.Create(new SavedConfig
+        {
+            Id = "provider:thinking",
+            ModelName = "gpt-5.4",
+            ApiBaseUrl = "https://api.openai.com/v1",
+            ApiKey = "key",
+            ThinkingMode = ThinkingModePreference.Disabled
+        });
+
+        Assert.Equal(ThinkingModePreference.Disabled, profile.ThinkingMode);
+    }
+
+    [Fact]
     public void Catalog_AddsTemporaryCurrentProfileOnlyWhenNotSaved()
     {
         var request = CreateRequest("current-model", "https://current.example/v1", "current-key");
@@ -101,6 +116,54 @@ public sealed class ModelSelectionTests
         Assert.Equal(request.Direction, switched.Request.Direction);
         Assert.Equal(request.SystemPrompt, switched.Request.SystemPrompt);
         Assert.Equal("model-a", request.ModelName);
+    }
+
+    [Fact]
+    public void Coordinator_SwitchingProfilesUsesTargetThinkingPreference()
+    {
+        var coordinator = new ModelSelectionCoordinator();
+        var sessionId = Guid.NewGuid();
+        var initial = CreateOpenAiRequest("gpt-5.4") with { EnableThinking = true };
+        var enabled = CreateOpenAiProfile("provider:enabled", ThinkingModePreference.Enabled);
+        var disabled = CreateOpenAiProfile("provider:disabled", ThinkingModePreference.Disabled);
+
+        coordinator.BeginSession(sessionId, ContentType.Translation, enabled, initial);
+
+        var switched = coordinator.Select(
+            sessionId,
+            ContentType.Translation,
+            disabled,
+            requestIsRunning: false);
+
+        Assert.Equal(ModelSelectionIntent.StartWith, switched.Intent);
+        Assert.False(switched.Request!.EnableThinking);
+    }
+
+    [Fact]
+    public void Coordinator_SwitchingToUnadaptedProfileOmitsThinkingParameter()
+    {
+        var coordinator = new ModelSelectionCoordinator();
+        var sessionId = Guid.NewGuid();
+        var initial = CreateOpenAiRequest("gpt-5.4") with { EnableThinking = true };
+        var enabled = CreateOpenAiProfile("provider:enabled", ThinkingModePreference.Enabled);
+        var unknown = new ModelProfile(
+            "provider:unknown",
+            "Unknown",
+            "default-thinking-model",
+            "Compatible",
+            "https://compatible.example.com/v1",
+            "key",
+            ThinkingMode: ThinkingModePreference.Disabled);
+
+        coordinator.BeginSession(sessionId, ContentType.Translation, enabled, initial);
+
+        var switched = coordinator.Select(
+            sessionId,
+            ContentType.Translation,
+            unknown,
+            requestIsRunning: false);
+
+        Assert.Null(switched.Request!.EnableThinking);
     }
 
     [Fact]
@@ -158,6 +221,21 @@ public sealed class ModelSelectionTests
     }
 
     [Fact]
+    public void Coordinator_SettingsRefreshUpdatesThinkingRequestValue()
+    {
+        var coordinator = new ModelSelectionCoordinator();
+        var sessionId = Guid.NewGuid();
+        var request = CreateOpenAiRequest("gpt-5.4") with { EnableThinking = true };
+        var current = CreateOpenAiProfile("provider:current", ThinkingModePreference.Enabled);
+        coordinator.BeginSession(sessionId, ContentType.Translation, current, request);
+
+        coordinator.RefreshCurrentProfile(current with { ThinkingMode = ThinkingModePreference.Disabled });
+
+        Assert.True(coordinator.TryGetRequest(sessionId, ContentType.Translation, out var refreshed));
+        Assert.False(refreshed!.EnableThinking);
+    }
+
+    [Fact]
     public void Coordinator_ManualSemanticRequestSurvivesLaterModelSwitch()
     {
         var coordinator = new ModelSelectionCoordinator();
@@ -201,6 +279,24 @@ public sealed class ModelSelectionTests
     }
 
     [Fact]
+    public void Coordinator_RegenerationUsesCurrentProfileThinkingPreference()
+    {
+        var coordinator = new ModelSelectionCoordinator();
+        var sessionId = Guid.NewGuid();
+        var initial = CreateOpenAiRequest("gpt-5.4") with { EnableThinking = true };
+        var disabled = CreateOpenAiProfile("provider:disabled", ThinkingModePreference.Disabled);
+        coordinator.BeginSession(sessionId, ContentType.Translation, disabled, initial);
+
+        Assert.True(coordinator.TryApplyCurrentProfile(
+            sessionId,
+            ContentType.Translation,
+            initial with { EnableThinking = true },
+            out var regenerated));
+
+        Assert.False(regenerated!.EnableThinking);
+    }
+
+    [Fact]
     public void Coordinator_KeepsIndependentProfilesForCodeAndTermModes()
     {
         var coordinator = new ModelSelectionCoordinator();
@@ -236,6 +332,20 @@ public sealed class ModelSelectionTests
         apiKey,
         model,
         "translate prompt");
+
+    private static TranslationRequest CreateOpenAiRequest(string model) =>
+        CreateRequest(model, "https://api.openai.com/v1", "key");
+
+    private static ModelProfile CreateOpenAiProfile(
+        string id,
+        ThinkingModePreference thinkingMode) => new(
+        id,
+        "OpenAI",
+        "gpt-5.4",
+        "OpenAI",
+        "https://api.openai.com/v1",
+        "key",
+        ThinkingMode: thinkingMode);
 
     private static TranslationDirectionDecision FixedDirection(string targetLanguage) =>
         new(

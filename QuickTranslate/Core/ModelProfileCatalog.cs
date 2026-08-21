@@ -9,7 +9,8 @@ internal sealed record ModelProfile(
     string ProviderName,
     string ApiBaseUrl,
     string ApiKey,
-    bool IsTemporary = false)
+    bool IsTemporary = false,
+    ThinkingModePreference ThinkingMode = ThinkingModePreference.FollowProviderDefault)
 {
     public bool IsComplete =>
         !string.IsNullOrWhiteSpace(ApiBaseUrl) &&
@@ -59,7 +60,8 @@ internal static class ModelProfileCatalog
             ResolveProviderName(currentRequest.ApiBaseUrl),
             currentRequest.ApiBaseUrl,
             currentRequest.ApiKey,
-            IsTemporary: true));
+            IsTemporary: true,
+            ThinkingMode: PreferenceFromRequest(currentRequest)));
         return profiles;
     }
 
@@ -69,7 +71,8 @@ internal static class ModelProfileCatalog
         config.ModelName?.Trim() ?? string.Empty,
         ResolveProviderName(config.ApiBaseUrl),
         config.ApiBaseUrl?.Trim() ?? string.Empty,
-        config.ApiKey ?? string.Empty);
+        config.ApiKey ?? string.Empty,
+        ThinkingMode: ThinkingModePreferences.Normalize(config.ThinkingMode));
 
     public static ModelProfile CreateCurrent(TranslationRequest request, string? profileId = null) => new(
         string.IsNullOrWhiteSpace(profileId) ? $"current:{Guid.NewGuid():N}" : profileId,
@@ -78,7 +81,16 @@ internal static class ModelProfileCatalog
         ResolveProviderName(request.ApiBaseUrl),
         request.ApiBaseUrl,
         request.ApiKey,
-        IsTemporary: true);
+        IsTemporary: true,
+        ThinkingMode: PreferenceFromRequest(request));
+
+    private static ThinkingModePreference PreferenceFromRequest(TranslationRequest request) =>
+        request.EnableThinking switch
+        {
+            true => ThinkingModePreference.Enabled,
+            false => ThinkingModePreference.Disabled,
+            _ => ThinkingModePreference.FollowProviderDefault
+        };
 
     public static string NormalizeAlias(string? alias)
     {

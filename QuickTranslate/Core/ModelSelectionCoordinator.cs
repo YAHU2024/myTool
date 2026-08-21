@@ -1,4 +1,5 @@
 using QuickTranslate.Models;
+using QuickTranslate.Services;
 
 namespace QuickTranslate.Core;
 
@@ -44,16 +45,14 @@ internal sealed class ModelSelectionCoordinator
     {
         if (!_states.TryGetValue(_activeMode, out var state))
             return;
-        if (state.Profile.Id == profile.Id ||
-            (string.Equals(state.Profile.ApiBaseUrl.TrimEnd('/'), profile.ApiBaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase) &&
-             string.Equals(state.Profile.ApiKey, profile.ApiKey, StringComparison.Ordinal) &&
-             string.Equals(state.Profile.ModelName, profile.ModelName, StringComparison.Ordinal)))
+        if (SameModelIdentity(state.Profile, profile))
         {
             _states[_activeMode] = (profile, state.Request with
             {
                 ApiBaseUrl = profile.ApiBaseUrl,
                 ApiKey = profile.ApiKey,
-                ModelName = profile.ModelName
+                ModelName = profile.ModelName,
+                EnableThinking = ResolveThinking(profile)
             });
         }
     }
@@ -69,10 +68,7 @@ internal sealed class ModelSelectionCoordinator
 
         _activeMode = mode;
         var state = _states[mode];
-        if (state.Profile.Id == profile.Id ||
-            (string.Equals(state.Profile.ApiBaseUrl.TrimEnd('/'), profile.ApiBaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase) &&
-             string.Equals(state.Profile.ApiKey, profile.ApiKey, StringComparison.Ordinal) &&
-             string.Equals(state.Profile.ModelName, profile.ModelName, StringComparison.Ordinal)))
+        if (AreSameSelection(state.Profile, profile))
         {
             return new(ModelSelectionIntent.NoOp, state.Profile, null);
         }
@@ -81,7 +77,8 @@ internal sealed class ModelSelectionCoordinator
         {
             ApiBaseUrl = profile.ApiBaseUrl,
             ApiKey = profile.ApiKey,
-            ModelName = profile.ModelName
+            ModelName = profile.ModelName,
+            EnableThinking = ResolveThinking(profile)
         };
         _states[mode] = (profile, request);
         return new(
@@ -120,7 +117,8 @@ internal sealed class ModelSelectionCoordinator
         {
             ApiBaseUrl = _states[mode].Profile.ApiBaseUrl,
             ApiKey = _states[mode].Profile.ApiKey,
-            ModelName = _states[mode].Profile.ModelName
+            ModelName = _states[mode].Profile.ModelName,
+            EnableThinking = ResolveThinking(_states[mode].Profile)
         };
         _states[mode] = (_states[mode].Profile, request);
         return true;
@@ -131,4 +129,20 @@ internal sealed class ModelSelectionCoordinator
         _sessionId = null;
         _states.Clear();
     }
+
+    private static bool? ResolveThinking(ModelProfile profile) =>
+        ProviderRequestPolicy.ResolveThinkingRequestValue(
+            profile.ApiBaseUrl,
+            profile.ModelName,
+            profile.ThinkingMode);
+
+    private static bool AreSameSelection(ModelProfile current, ModelProfile target) =>
+        SameModelIdentity(current, target) &&
+        current.ThinkingMode == target.ThinkingMode;
+
+    private static bool SameModelIdentity(ModelProfile current, ModelProfile target) =>
+        current.Id == target.Id ||
+         (string.Equals(current.ApiBaseUrl.TrimEnd('/'), target.ApiBaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase) &&
+          string.Equals(current.ApiKey, target.ApiKey, StringComparison.Ordinal) &&
+          string.Equals(current.ModelName, target.ModelName, StringComparison.Ordinal));
 }
