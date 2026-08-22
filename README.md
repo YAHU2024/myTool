@@ -40,6 +40,8 @@ QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中�
 
 遇到问题或有功能建议时，可从托盘菜单“反馈问题”或设置中的“帮助与反馈”打开反馈窗口。应用只在浏览器中打开公开 GitHub Issue 表单，不会自动上传日志或替你提交；提交前请检查并删除不想公开的内容。程序发现上次未正常结束时，默认会在下一次成功启动后提供一次可取消的反馈提示，可在同一区域关闭。
 
+反馈窗口会先展示可公开内容预览，并支持按字段复制到 GitHub 表单；问题类别/建议类别和核心描述是必要信息，复现步骤、期望结果、替代方案及环境摘要可以留空。清除诊断摘要后只提交用户填写的内容，浏览器打开或关闭都不会被程序记录为“已提交”。
+
 > 觉得它对你有用？欢迎给项目点一个 [**Star**](https://github.com/YAHU2024/myTool)，让更多需要桌面翻译的人找到它。
 
 ## 功能展示
@@ -285,6 +287,9 @@ QuickTranslate/
 │   ├── HistoryExporter.cs             # 翻译历史导出（Anki/CSV）
 │   ├── AnalysisPromptCatalog.cs       # 内置/自定义解析方案目录
 │   ├── UpdateService.cs               # 自动更新（GitHub Release + AutoUpdater.NET）
+│   ├── FeedbackContentBuilder.cs      # 公开反馈字段构建与敏感内容检查
+│   ├── FeedbackLinkService.cs         # 固定 GitHub Issue Form 链接
+│   ├── CrashRecoveryTracker.cs        # 异常退出状态与恢复提示跟踪
 │   ├── ITtsService.cs                 # TTS 服务接口
 │   ├── EdgeTtsService.cs              # Edge TTS 朗读服务
 │   ├── EdgeTtsClient.cs               # Edge TTS WebSocket 客户端
@@ -307,6 +312,7 @@ QuickTranslate/
 │   ├── FloatingResultSession.cs       # 多模式会话状态
 │   ├── AnalysisPromptProfile.cs       # 自定义解析方案
 │   ├── TranslationTriggerMode.cs      # 翻译触发模式枚举
+│   ├── FeedbackModels.cs               # 反馈草稿、诊断摘要与字段模型
 │   └── WordLookupModels.cs            # 查词结果模型（释义/音标/例句/搭配）
 │
 ├── Helpers/                           # 工具类
@@ -332,6 +338,9 @@ QuickTranslate/
 │   ├── HistoryWindow.xaml/.cs         # 翻译历史查看
 │   ├── LogViewerWindow.xaml/.cs       # 日志查看器
 │   ├── LogEntryReader.cs              # 日志读取与筛选
+│   ├── FeedbackWindow.xaml/.cs        # 帮助与反馈窗口
+│   ├── CrashRecoveryPromptWindow.xaml/.cs # 异常退出后的恢复提示
+│   ├── SharedSettingsStyles.xaml       # 反馈窗口复用的设置控件样式
 │   ├── FloatingWindowAnchor.cs        # 窗口锚点定位
 │   ├── FloatingWindowPlacement.cs     # 窗口位置管理
 │   ├── TrayPanelPlacement.cs          # 托盘面板位置计算（多显示器 DPI）
@@ -351,6 +360,10 @@ myTool/
 ├── .github/                           # GitHub Actions 工作流 & Issue 模板
 ├── QuickTranslate/                    # 主项目源码
 ├── QuickTranslate.Tests/              # xUnit 单元测试
+│   ├── FeedbackContentBuilderTests.cs  # 反馈字段与敏感内容测试
+│   ├── FeedbackLinkServiceTests.cs     # Issue Form 链接测试
+│   ├── CrashRecoveryTrackerTests.cs   # 异常退出状态测试
+│   └── FeedbackWindowTests.cs          # 反馈窗口样式加载测试
 ├── installer/                         # Inno Setup 安装脚本 + version.xml
 ├── scripts/                           # 辅助脚本
 ├── docs/                              # 项目文档
