@@ -679,14 +679,14 @@ public static class UpdateService
         catch (HttpRequestException ex)
         {
             Logger.Warn("Update", "update.download_failed",
-                new { error_type = ex.GetType().Name, message = ex.Message });
+                new { error_type = ex.GetType().Name });
             ShowFailure(progressWindow,
                 $"下载失败：{ex.Message}\n\n请检查网络连接后重试。");
         }
         catch (Exception ex)
         {
             Logger.Warn("Update", "update.install_failed",
-                new { error_type = ex.GetType().Name, message = ex.Message });
+                new { error_type = ex.GetType().Name });
             ShowFailure(progressWindow,
                 $"更新过程中发生错误：{ex.Message}\n\n请从 GitHub Releases 手动下载安装。");
         }

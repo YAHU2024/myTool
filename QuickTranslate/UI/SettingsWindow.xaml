@@ -461,11 +461,30 @@
                     </StackPanel>
                 </Border>
 
-                <Expander Header="日志与存储" Style="{StaticResource ExpanderStyle}" IsExpanded="False">
-                    <Border Style="{StaticResource SectionBorder}" Padding="16" Margin="0,4,0,0"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="116"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="日志级别" Style="{StaticResource LabelStyle}"/><ComboBox x:Name="LogLevelComboBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource DarkComboBox}" SelectionChanged="Setting_Changed"/>
-                        <TextBlock Grid.Row="1" Text="日志保留策略" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,8,12,0"/><StackPanel Grid.Row="1" Grid.Column="1"><StackPanel Orientation="Horizontal"><TextBlock Text="保留天数" Style="{StaticResource HintStyle}" Width="104" VerticalAlignment="Center"/><TextBox x:Name="LogRetentionDaysTextBox" Width="70" Style="{StaticResource InputTextBox}" LostFocus="Input_LostFocus"/></StackPanel><StackPanel Orientation="Horizontal"><TextBlock Text="最大占用空间（MB）" Style="{StaticResource HintStyle}" Width="104" VerticalAlignment="Center"/><TextBox x:Name="LogMaxTotalMegabytesTextBox" Width="80" Style="{StaticResource InputTextBox}" LostFocus="Input_LostFocus"/></StackPanel></StackPanel>
-                    </Grid></Border>
+                <Border Style="{StaticResource SectionBorder}" Padding="16" Margin="0,4,0,0">
+                    <StackPanel>
+                        <TextBlock Text="帮助与反馈" Style="{StaticResource SectionTitle}"/>
+                        <TextBlock Text="遇到问题或有功能建议？将在浏览器中打开公开 GitHub 表单，提交前请检查内容。" Style="{StaticResource HintStyle}" Margin="0,6,0,10"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="报告问题" Style="{StaticResource SecondaryButton}" Margin="0,0,8,0" Click="ReportProblemButton_Click"/>
+                            <Button Content="提出建议" Style="{StaticResource SecondaryButton}" Click="FeatureRequestButton_Click"/>
+                        </StackPanel>
+                        <CheckBox x:Name="CrashFeedbackPromptCheckBox" Content="程序下次启动发现未正常结束时提示反馈" Style="{StaticResource DarkCheckBox}" Margin="0,12,0,0" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                        <TextBlock Text="提示不会自动上传日志；可在此关闭。" Style="{StaticResource HintStyle}" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Expander Header="开发者选项" Style="{StaticResource ExpanderStyle}" IsExpanded="False">
+                    <Border Style="{StaticResource SectionBorder}" Padding="16" Margin="0,4,0,0">
+                        <StackPanel>
+                            <TextBlock Text="用于本地排障；日志不会自动上传，也不应公开分享。" Style="{StaticResource HintStyle}" Margin="0,0,0,10"/>
+                            <Button Content="查看本地日志" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Left" Click="ViewLogsButton_Click"/>
+                            <Grid Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="116"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="日志级别" Style="{StaticResource LabelStyle}"/><ComboBox x:Name="LogLevelComboBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource DarkComboBox}" SelectionChanged="Setting_Changed"/>
+                                <TextBlock Grid.Row="1" Text="日志保留策略" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,8,12,0"/><StackPanel Grid.Row="1" Grid.Column="1"><StackPanel Orientation="Horizontal"><TextBlock Text="保留天数" Style="{StaticResource HintStyle}" Width="104" VerticalAlignment="Center"/><TextBox x:Name="LogRetentionDaysTextBox" Width="70" Style="{StaticResource InputTextBox}" LostFocus="Input_LostFocus"/></StackPanel><StackPanel Orientation="Horizontal"><TextBlock Text="最大占用空间（MB）" Style="{StaticResource HintStyle}" Width="104" VerticalAlignment="Center"/><TextBox x:Name="LogMaxTotalMegabytesTextBox" Width="80" Style="{StaticResource InputTextBox}" LostFocus="Input_LostFocus"/></StackPanel></StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
                 </Expander>
             </StackPanel>
         </ScrollViewer>

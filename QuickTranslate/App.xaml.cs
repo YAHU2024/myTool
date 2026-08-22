@@ -47,6 +47,10 @@ public partial class App : Application
     private ModelSettingsContext? _modelSettingsContext;
     private HistoryWindow? _historyWindow;
     private LogViewerWindow? _logViewerWindow;
+    private FeedbackWindow? _feedbackWindow;
+    private CrashRecoveryPromptWindow? _crashRecoveryPromptWindow;
+    private CrashRecoveryTracker? _crashRecoveryTracker;
+    private RecoveryEvent? _pendingRecoveryEvent;
     private TranslationDbContext? _dbContext;
     private readonly LatestRequestCoordinator _translationRequests = new();
     private readonly FloatingResultSessionCoordinator _resultSessions = new();
@@ -87,10 +91,6 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        // 加载配置
-        _settings = ConfigManager.Load();
-        var configLoadStatus = ConfigManager.LastLoadStatus;
-
         // 初始化日志系统
 #if DEBUG
         // 附加控制台以实时输出日志（接受信号风险，但有 CtrlHandler 保护）
@@ -99,10 +99,15 @@ public partial class App : Application
         _ctrlHandler = ConsoleCtrlCallback;
         SetConsoleCtrlHandler(_ctrlHandler, true);
 #endif
-        Logger.Init(
-            minLevel: Logger.ParseLevel(_settings.LogLevel),
-            retentionDays: _settings.LogRetentionDays,
-            maxTotalBytes: _settings.LogMaxTotalBytes);
+        Logger.Init();
+
+        // 加载配置。Logger must already be available so config failures are recorded safely.
+        _settings = ConfigManager.Load();
+        var configLoadStatus = ConfigManager.LastLoadStatus;
+        Logger.Configure(
+            Logger.ParseLevel(_settings.LogLevel),
+            _settings.LogRetentionDays,
+            _settings.LogMaxTotalBytes);
         Logger.Info("App", "app.started", new { os = Environment.OSVersion.ToString(), dotnet = Environment.Version.ToString() });
 
         // ★ 启动时清扫上次残留的剪贴板哨兵
@@ -117,6 +122,12 @@ public partial class App : Application
             Shutdown();
             return;
         }
+
+        _crashRecoveryTracker = new CrashRecoveryTracker();
+        _pendingRecoveryEvent = _crashRecoveryTracker.StartRun(
+            typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown",
+            RuntimeInformation.OSArchitecture.ToString(),
+            DateTimeOffset.Now);
 
         // ★ 全路径退出监控（诊断层）
         Dispatcher.ShutdownStarted += (s, ev) =>
@@ -261,7 +272,7 @@ public partial class App : Application
         _trayIcon.LookupSingleClickConfirmed += OnLookupSingleClickConfirmed;
         _trayIcon.LookupDoubleClick += OnLookupDoubleClick;
         _trayIcon.HistoryRequested += OnHistoryRequested;
-        _trayIcon.LogsRequested += OnLogsRequested;
+        _trayIcon.FeedbackRequested += () => OnFeedbackRequested(FeedbackMode.Problem);
         _trayIcon.UpdateRequested += OnUpdateRequested;
         _trayIcon.BalloonTipClicked += OnUpdateBalloonClicked;
         _trayIcon.PauseToggled += OnPauseToggled;
@@ -307,6 +318,13 @@ public partial class App : Application
             Dispatcher.BeginInvoke(
                 DispatcherPriority.ApplicationIdle,
                 new Action(() => ShowStartupConfiguration(configLoadStatus)));
+        }
+        else if (_pendingRecoveryEvent is { PromptState: RecoveryPromptState.Pending } &&
+                 _settings.CrashFeedbackPromptEnabled)
+        {
+            Dispatcher.BeginInvoke(
+                DispatcherPriority.ApplicationIdle,
+                new Action(ShowRecoveryPromptIfPending));
         }
 
         // 启动时延迟检查更新（不阻塞初始化）
@@ -1788,7 +1806,11 @@ public partial class App : Application
                 return;
             }
 
-            _settingsWindow = new SettingsWindow(_settings!, OnSettingsSaved);
+            _settingsWindow = new SettingsWindow(
+                _settings!,
+                OnSettingsSaved,
+                OnFeedbackRequested,
+                OnLogsRequested);
             _settingsWindow.Closed += OnSettingsWindowClosed;
             _settingsWindow.Show();
         });
@@ -1808,6 +1830,12 @@ public partial class App : Application
     private void OnSettingsWindowClosed(object? sender, EventArgs e)
     {
         _settingsWindow = null;
+        if (_crashRecoveryPromptWindow is null &&
+            _pendingRecoveryEvent is { PromptState: RecoveryPromptState.Pending } &&
+            _settings?.CrashFeedbackPromptEnabled == true)
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(ShowRecoveryPromptIfPending));
+        }
         if (_modelSettingsContext is not { } context)
             return;
 
@@ -1915,6 +1943,92 @@ public partial class App : Application
             _historyWindow.Closed += (s, e) => _historyWindow = null;
             _historyWindow.Show();
         });
+    }
+
+    private void OnFeedbackRequested(FeedbackMode mode)
+    {
+        Dispatcher.BeginInvoke(new Action(() => OpenFeedbackWindow(mode)));
+    }
+
+    private void OpenFeedbackWindow(FeedbackMode mode, FeedbackDiagnosticSummary? diagnostics = null)
+    {
+        if (_feedbackWindow is not null)
+        {
+            _feedbackWindow.Activate();
+            return;
+        }
+
+        _feedbackWindow = new FeedbackWindow(mode, diagnostics);
+        _feedbackWindow.Closed += (_, _) => _feedbackWindow = null;
+        _feedbackWindow.Show();
+    }
+
+    private void ShowRecoveryPromptIfPending()
+    {
+        if (_crashRecoveryPromptWindow is not null ||
+            _settingsWindow is not null ||
+            _settings is null ||
+            !_settings.CrashFeedbackPromptEnabled ||
+            _crashRecoveryTracker?.PendingEvent is not { } recovery)
+            return;
+
+        // Mark before showing so a prompt creation failure cannot repeat forever.
+        _crashRecoveryTracker.MarkShown();
+        try
+        {
+            var prompt = new CrashRecoveryPromptWindow();
+            var handled = false;
+            _crashRecoveryPromptWindow = prompt;
+            prompt.Closed += (_, _) =>
+            {
+                if (!handled)
+                    _crashRecoveryTracker.MarkDismissed();
+                if (ReferenceEquals(_crashRecoveryPromptWindow, prompt))
+                    _crashRecoveryPromptWindow = null;
+            };
+            prompt.FeedbackRequested += (_, _) =>
+            {
+                if (handled)
+                    return;
+                handled = true;
+                _crashRecoveryTracker.MarkFeedbackStarted();
+                prompt.Close();
+                OpenFeedbackWindow(
+                    FeedbackMode.CrashRecovery,
+                    new FeedbackDiagnosticSummary(
+                        typeof(App).Assembly.GetName().Version?.ToString() ?? "unknown",
+                        Environment.OSVersion.VersionString,
+                        recovery.Architecture,
+                        "其他",
+                        recovery.StartedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss"),
+                        recovery.ErrorType ?? string.Empty,
+                        recovery.ErrorCode ?? string.Empty));
+            };
+            prompt.Dismissed += (_, _) =>
+            {
+                if (handled)
+                    return;
+                handled = true;
+                _crashRecoveryTracker.MarkDismissed();
+                prompt.Close();
+            };
+            prompt.DoNotPromptAgainRequested += (_, _) =>
+            {
+                if (handled)
+                    return;
+                handled = true;
+                _settings.CrashFeedbackPromptEnabled = false;
+                ConfigManager.Save(_settings);
+                _crashRecoveryTracker.MarkDismissed();
+                prompt.Close();
+            };
+            prompt.Show();
+        }
+        catch
+        {
+            _crashRecoveryTracker.MarkDismissed();
+            _crashRecoveryPromptWindow = null;
+        }
     }
 
     private void OnLogsRequested()
@@ -2393,6 +2507,7 @@ public partial class App : Application
         Logger.WriteShutdownTrace(
             "app.onexit.complete",
             $"duration_ms={onExitWatch.Elapsed.TotalMilliseconds:F1}");
+        _crashRecoveryTracker?.MarkClean();
         Logger.Shutdown();
         base.OnExit(e);
     }

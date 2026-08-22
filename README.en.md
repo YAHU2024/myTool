@@ -37,6 +37,8 @@ QuickTranslate is a Windows AI tool built for reading workflows. Select text to 
 
 Local dictionary hits default to offline mode. Settings and history stay on-device, and privacy-safe logs do not record selected text, prompt bodies, or API keys.
 
+For a problem or feature idea, use “反馈问题” in the tray menu or “帮助与反馈” in Settings. The app only opens a public GitHub Issue form in your browser; it never uploads logs or submits an issue for you. Review and remove anything you do not want to publish. After an unclean exit, the next successful startup can show one dismissible feedback prompt; this can be disabled in the same Settings section.
+
 > If it helps you, please give the project a [**Star**](https://github.com/YAHU2024/myTool) so more people can discover it.
 
 ## Features
@@ -99,7 +101,7 @@ SQLite keeps history locally, supports time/language search and filters, paginat
   <img src="docs/images/日志查看器.png" alt="Log viewer" width="85%">
 </p>
 
-Structured JSON Lines logs, multi-file switching, level and keyword filtering, **P50/P95/P99 latency statistics**, and automatic cleanup of expired logs.
+Structured JSON Lines logs, multi-file switching, level and keyword filtering, **P50/P95/P99 latency statistics**, and automatic cleanup of expired logs. Log viewing and retention controls live under the collapsed “开发者选项” (Developer options) section in Settings and are never uploaded automatically.
 
 ---
 

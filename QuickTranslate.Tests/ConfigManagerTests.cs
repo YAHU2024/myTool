@@ -50,6 +50,29 @@ public class ConfigManagerTests : IDisposable
         Assert.False(File.Exists(ConfigPath));
         Assert.False(ConfigManager.LastLoadHadCorruption);
         Assert.Equal(ConfigLoadStatus.FirstLaunch, ConfigManager.LastLoadStatus);
+        Assert.True(settings.CrashFeedbackPromptEnabled);
+    }
+
+    [Fact]
+    public void Load_DefaultsCrashFeedbackPromptToEnabled_WhenFieldIsMissing()
+    {
+        Directory.CreateDirectory(_testDir);
+        File.WriteAllText(ConfigPath, "{\"ApiKey\":\"key\",\"ModelName\":\"model\"}");
+
+        var settings = CreateManager().LoadInternal();
+
+        Assert.True(settings.CrashFeedbackPromptEnabled);
+    }
+
+    [Fact]
+    public void SaveAndLoad_PersistsCrashFeedbackPromptSetting()
+    {
+        var manager = CreateManager();
+        manager.SaveInternal(new AppSettings { CrashFeedbackPromptEnabled = false });
+
+        var loaded = manager.LoadInternal();
+
+        Assert.False(loaded.CrashFeedbackPromptEnabled);
     }
 
     [Fact]

@@ -273,6 +273,12 @@ namespace QuickTranslate.Models
         /// </summary>
         public long LogMaxTotalBytes { get; set; } = 50 * 1024 * 1024;
 
+        /// <summary>
+        /// Whether the next startup should offer feedback after an unclean exit.
+        /// This does not disable local diagnostics.
+        /// </summary>
+        public bool CrashFeedbackPromptEnabled { get; set; } = true;
+
         // ==================== 自动更新 ====================
 
         /// <summary>
