@@ -66,7 +66,14 @@ public partial class FeedbackWindow : Window
         foreach (var field in _fields)
         {
             var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
-            var button = new Button { Content = "复制", Tag = field, Padding = new Thickness(8, 3, 8, 3) };
+            var button = new Button
+            {
+                Content = "复制",
+                Tag = field,
+                Style = (Style)FindResource("CompactButton"),
+                MinWidth = 44,
+                ToolTip = "复制此字段"
+            };
             button.Click += CopyFieldButton_Click;
             DockPanel.SetDock(button, Dock.Right);
             row.Children.Add(button);
