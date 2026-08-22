@@ -37,6 +37,10 @@ QuickTranslate is a Windows AI tool built for reading workflows. Select text to 
 
 Local dictionary hits default to offline mode. Settings and history stay on-device, and privacy-safe logs do not record selected text, prompt bodies, or API keys.
 
+For a problem or feature idea, use “反馈问题” in the tray menu or “帮助与反馈” in Settings. The app only opens a public GitHub Issue form in your browser; it never uploads logs or submits an issue for you. Review and remove anything you do not want to publish. After an unclean exit, the next successful startup can show one dismissible feedback prompt; this can be disabled in the same Settings section.
+
+The feedback window shows a public-content preview before leaving the app and lets you copy fields individually into the GitHub form. The category and core description are the necessary inputs; reproduction steps, expected results, alternatives, and the environment summary may be left empty. Clearing the diagnostic summary leaves only your own text, and opening or closing the browser is never recorded as an issue submission.
+
 > If it helps you, please give the project a [**Star**](https://github.com/YAHU2024/myTool) so more people can discover it.
 
 ## Features
@@ -99,7 +103,7 @@ SQLite keeps history locally, supports time/language search and filters, paginat
   <img src="docs/images/日志查看器.png" alt="Log viewer" width="85%">
 </p>
 
-Structured JSON Lines logs, multi-file switching, level and keyword filtering, **P50/P95/P99 latency statistics**, and automatic cleanup of expired logs.
+Structured JSON Lines logs, multi-file switching, level and keyword filtering, **P50/P95/P99 latency statistics**, and automatic cleanup of expired logs. Log viewing and retention controls live under the collapsed “开发者选项” (Developer options) section in Settings and are never uploaded automatically.
 
 ---
 
@@ -284,6 +288,9 @@ QuickTranslate/
 │   ├── HistoryExporter.cs             # History export (Anki/CSV)
 │   ├── AnalysisPromptCatalog.cs       # Built-in / custom analysis profiles
 │   ├── UpdateService.cs               # Auto-updater (GitHub Release + AutoUpdater.NET)
+│   ├── FeedbackContentBuilder.cs      # Public feedback fields and sensitivity checks
+│   ├── FeedbackLinkService.cs         # Fixed GitHub Issue Form links
+│   ├── CrashRecoveryTracker.cs        # Unclean-exit state and recovery-prompt tracking
 │   ├── ITtsService.cs                 # TTS service interface
 │   ├── EdgeTtsService.cs              # Edge TTS read-aloud service
 │   ├── EdgeTtsClient.cs               # Edge TTS WebSocket client
@@ -306,6 +313,7 @@ QuickTranslate/
 │   ├── FloatingResultSession.cs       # Multi-mode session state
 │   ├── AnalysisPromptProfile.cs       # Custom analysis profile
 │   ├── TranslationTriggerMode.cs      # Translation trigger mode enum
+│   ├── FeedbackModels.cs               # Feedback draft, diagnostics, and field models
 │   └── WordLookupModels.cs            # Word lookup result models (definition / phonetic / example / collocation)
 │
 ├── Helpers/                           # Utilities
@@ -332,6 +340,9 @@ QuickTranslate/
 │   ├── HistoryWindow.xaml/.cs         # Translation history viewer
 │   ├── LogViewerWindow.xaml/.cs       # Log viewer
 │   ├── LogEntryReader.cs              # Log reading and filtering
+│   ├── FeedbackWindow.xaml/.cs        # Help and feedback window
+│   ├── CrashRecoveryPromptWindow.xaml/.cs # Unclean-exit recovery prompt
+│   ├── SharedSettingsStyles.xaml       # Settings control styles reused by feedback UI
 │   ├── FloatingWindowAnchor.cs        # Window anchor positioning
 │   ├── FloatingWindowPlacement.cs     # Window placement management
 │   ├── TrayPanelPlacement.cs          # Tray-panel placement for multi-monitor DPI
@@ -351,6 +362,10 @@ myTool/
 ├── .github/                           # GitHub Actions workflows & issue templates
 ├── QuickTranslate/                    # Main source project
 ├── QuickTranslate.Tests/              # xUnit test project
+│   ├── FeedbackContentBuilderTests.cs  # Feedback fields and sensitivity tests
+│   ├── FeedbackLinkServiceTests.cs     # Issue Form link tests
+│   ├── CrashRecoveryTrackerTests.cs   # Unclean-exit state tests
+│   └── FeedbackWindowTests.cs          # Feedback window style-loading tests
 ├── installer/                         # Inno Setup scripts + version.xml
 ├── scripts/                           # Helper scripts
 ├── docs/                              # Project documentation

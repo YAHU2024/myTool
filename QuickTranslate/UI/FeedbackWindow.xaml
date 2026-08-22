@@ -1,0 +1,63 @@
+<Window x:Class="QuickTranslate.UI.FeedbackWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="帮助与反馈" Width="620" Height="720"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanMinimize"
+        Background="#16191F" Foreground="#F2F4F7"
+        FontFamily="Microsoft YaHei UI">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/QuickTranslate;component/UI/SharedSettingsStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="CompactButton" TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
+                <Setter Property="Padding" Value="8,4"/>
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="MinHeight" Value="28"/>
+                <Setter Property="Margin" Value="0"/>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock x:Name="TitleTextBlock" FontSize="20" FontWeight="SemiBold"/>
+        <TextBlock Grid.Row="1" Margin="0,8,0,14" Style="{StaticResource HintStyle}"
+                   Text="提交前请检查内容。GitHub 仓库公开可见，任何人都可能看到你提交的文字。不要填写 API Key、账号、翻译原文、公司资料或完整日志。"/>
+        <ScrollViewer x:Name="FeedbackScrollViewer" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+                <TextBlock x:Name="CategoryLabel" Text="问题类别" Style="{StaticResource LabelStyle}"/>
+                <ComboBox x:Name="CategoryComboBox" Style="{StaticResource DarkComboBox}"/>
+                <TextBlock x:Name="DescriptionLabel" Text="发生了什么" Style="{StaticResource LabelStyle}"/>
+                <TextBox x:Name="DescriptionTextBox" Height="92" Style="{StaticResource FeedbackInput}"/>
+                <TextBlock x:Name="ReproductionLabel" Text="如何复现（可选）" Style="{StaticResource LabelStyle}"/>
+                <TextBox x:Name="ReproductionTextBox" Height="72" Style="{StaticResource FeedbackInput}"/>
+                <TextBlock x:Name="ExpectedLabel" Text="期望结果（可选）" Style="{StaticResource LabelStyle}"/>
+                <TextBox x:Name="ExpectedTextBox" Height="72" Style="{StaticResource FeedbackInput}"/>
+                <Border Style="{StaticResource SectionBorder}" Padding="12" Margin="0,4,0,10">
+                    <StackPanel>
+                        <DockPanel>
+                            <TextBlock Text="可公开的内容预览" Style="{StaticResource SectionTitle}"/>
+                            <Button x:Name="ClearDiagnosticsButton" DockPanel.Dock="Right" Content="清除" ToolTip="清除诊断摘要" Style="{StaticResource CompactButton}" Width="48" Height="28" Padding="0" HorizontalAlignment="Right" Click="ClearDiagnosticsButton_Click"/>
+                        </DockPanel>
+                        <TextBlock Margin="0,6,0,8" Style="{StaticResource HintStyle}"
+                                   Text="下面的诊断摘要只包含版本、系统架构、类别和受控错误信息。它不会读取或上传本地日志。"/>
+                        <StackPanel x:Name="FieldsPanel"/>
+                        <TextBox x:Name="PreviewTextBox" Height="120" IsReadOnly="True" Style="{StaticResource FeedbackInput}"/>
+                        <Button Content="复制全部字段" HorizontalAlignment="Left" Style="{StaticResource SecondaryButton}" Click="CopyAllButton_Click"/>
+                    </StackPanel>
+                </Border>
+                <TextBlock x:Name="StatusTextBlock" Style="{StaticResource HintStyle}"/>
+            </StackPanel>
+        </ScrollViewer>
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="取消" Margin="0,0,10,0" Style="{StaticResource SecondaryButton}" Click="CancelButton_Click"/>
+            <Button Content="在 GitHub 中继续" Style="{StaticResource PrimaryButton}" Click="OpenGithubButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

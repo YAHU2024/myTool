@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: 使用问答
-    url: https://github.com/YAHU2024/myTool/discussions
-    about: 安装、配置、使用问题请到 Discussions 交流
+  - name: 使用帮助与常见问题
+    url: https://github.com/YAHU2024/myTool#快速开始
+    about: 先查看快速开始和常见用法，再提交使用问题。
+  - name: 安全漏洞报告
+    url: https://github.com/YAHU2024/myTool/security/advisories/new
+    about: 不要公开提交安全漏洞，请使用 GitHub 私密漏洞报告。

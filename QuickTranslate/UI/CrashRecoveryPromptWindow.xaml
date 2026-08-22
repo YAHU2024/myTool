@@ -1,0 +1,21 @@
+<Window x:Class="QuickTranslate.UI.CrashRecoveryPromptWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="QuickTranslate" Width="430" Height="220"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="#16191F" Foreground="#F2F4F7"
+        FontFamily="Microsoft YaHei UI">
+    <Grid Margin="22">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <TextBlock Text="上次运行未正常结束" FontSize="18" FontWeight="SemiBold"/>
+        <TextBlock Grid.Row="1" Margin="0,12,0,12" TextWrapping="Wrap" Foreground="#A4AFBC"
+                   Text="可能是程序异常退出或系统中断。是否反馈这次问题？不会自动上传日志。"/>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="不再提示" Padding="10,6" Margin="4,0,0,0" Click="DoNotPromptAgainButton_Click"/>
+            <Button Content="暂不反馈" Padding="10,6" Margin="4,0,0,0" Click="DismissButton_Click"/>
+            <Button Content="反馈这次问题" Padding="10,6" Margin="4,0,0,0" Click="FeedbackButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

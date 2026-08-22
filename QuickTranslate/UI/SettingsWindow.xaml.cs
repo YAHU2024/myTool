@@ -15,6 +15,8 @@ namespace QuickTranslate.UI
     {
         private readonly AppSettings _settings;
         private readonly Action<AppSettings>? _onSettingsSaved;
+        private readonly Action<FeedbackMode>? _onFeedbackRequested;
+        private readonly Action? _onLogsRequested;
         private bool _isInitializing = true;
         private bool _isDirty = false;
         private bool _isApiKeyVisible = false;
@@ -29,10 +31,16 @@ namespace QuickTranslate.UI
         private bool _isCapturingHotKey = false;
         private bool _isCapturingQuickLookupHotKey = false;
 
-        public SettingsWindow(AppSettings settings, Action<AppSettings>? onSettingsSaved = null)
+        public SettingsWindow(
+            AppSettings settings,
+            Action<AppSettings>? onSettingsSaved = null,
+            Action<FeedbackMode>? onFeedbackRequested = null,
+            Action? onLogsRequested = null)
         {
             _settings = settings;
             _onSettingsSaved = onSettingsSaved;
+            _onFeedbackRequested = onFeedbackRequested;
+            _onLogsRequested = onLogsRequested;
             _origAutoStart = settings.AutoStart;
             _thinkingModePreference = ThinkingModePreferences.Normalize(settings.ThinkingMode);
             InitializeComponent();
@@ -112,6 +120,7 @@ namespace QuickTranslate.UI
             LogLevelComboBox.SelectedItem = Logger.ParseLevel(_settings.LogLevel).ToString();
             LogRetentionDaysTextBox.Text = _settings.LogRetentionDays.ToString();
             LogMaxTotalMegabytesTextBox.Text = Math.Max(1, _settings.LogMaxTotalBytes / (1024 * 1024)).ToString();
+            CrashFeedbackPromptCheckBox.IsChecked = _settings.CrashFeedbackPromptEnabled;
 
             TtsEnabledCheckBox.IsChecked = _settings.TtsEnabled;
             TtsVoiceComboBox.ItemsSource = new[]
@@ -638,6 +647,15 @@ namespace QuickTranslate.UI
                 RefreshThinkingModeAvailability();
         }
 
+        private void ReportProblemButton_Click(object sender, RoutedEventArgs e) =>
+            _onFeedbackRequested?.Invoke(FeedbackMode.Problem);
+
+        private void FeatureRequestButton_Click(object sender, RoutedEventArgs e) =>
+            _onFeedbackRequested?.Invoke(FeedbackMode.FeatureRequest);
+
+        private void ViewLogsButton_Click(object sender, RoutedEventArgs e) =>
+            _onLogsRequested?.Invoke();
+
         // ==================== 保存/取消/关闭 ====================
 
         /// <summary>
@@ -777,6 +795,7 @@ namespace QuickTranslate.UI
                 maxMegabytes = 50;
             _settings.LogRetentionDays = Math.Clamp(retentionDays, 1, 3650);
             _settings.LogMaxTotalBytes = Math.Clamp(maxMegabytes * 1024 * 1024, 1 * 1024 * 1024, 1024L * 1024 * 1024);
+            _settings.CrashFeedbackPromptEnabled = CrashFeedbackPromptCheckBox.IsChecked ?? true;
 
             _settings.TtsEnabled = TtsEnabledCheckBox.IsChecked ?? true;
             _settings.TtsVoice = TtsVoiceComboBox.SelectedValue as string ?? string.Empty;
