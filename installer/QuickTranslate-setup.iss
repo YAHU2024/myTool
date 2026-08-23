@@ -27,7 +27,7 @@
 
 #define MyAppName "QuickTranslate"
 #ifndef MyAppVersion
-#define MyAppVersion "1.9.1"
+#define MyAppVersion "1.9.2"
 #endif
 #define MyAppPublisher "YaHu"
 #define MyAppURL "https://github.com/YAHU2024/myTool"
