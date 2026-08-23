@@ -42,6 +42,9 @@ AGENTS.md
 .claude
 .workbuddy
 
+## Local Git repository backups (e.g. .git.bak-20260823)
+.git.bak*
+
 ## Local developer documentation (plans, validation notes, design drafts)
 /docs/internal/
 /plan/
