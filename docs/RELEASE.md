@@ -145,6 +145,40 @@ ISCC installer\QuickTranslate-setup.iss
 ISCC installer\QuickTranslate-setup-full.iss
 ```
 
+### 3.3 编译后完整性校验（必做）
+
+编译产物若被任何工具后处理（例如清空版本资源、截断尾部数据），Inno Setup
+内嵌的 CRC 校验会失效，运行时报 `The setup files are corrupted. Please obtain
+a new copy of the program.`，自动更新将全线失败。发布前必须执行以下校验，
+**任何一步失败都禁止上传到 GitHub Release**：
+
+```powershell
+$ver = "1.9.2"
+$files = @(
+  "publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.exe",
+  "publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-full.exe"
+)
+foreach ($f in $files) {
+  if (-not (Test-Path $f)) { Write-Error "缺失: $f"; exit 1 }
+  $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path $f))
+  if ($vi.ProductVersion -ne $ver) {
+    Write-Error "完整性校验失败: $f ProductVersion='$($vi.ProductVersion)' (期望 $ver)。安装包可能被后处理工具修改，禁止发布。"
+    exit 1
+  }
+  if ($vi.CompanyName -ne "YaHu") {
+    Write-Error "完整性校验失败: $f CompanyName='$($vi.CompanyName)' (期望 YaHu)。"
+    exit 1
+  }
+  $sizeMB = [math]::Round((Get-Item $f).Length / 1MB, 1)
+  Write-Host "  PASS: $f ($sizeMB MB, ProductVersion=$($vi.ProductVersion))"
+}
+```
+
+通过标准：
+- 两个文件均输出 `PASS`
+- `ProductVersion` 必须等于 `MyAppVersion`，`CompanyName` 必须等于 `MyAppPublisher`
+- 安装包未签名（`Get-AuthenticodeSignature` 显示 `NotSigned`）属正常，不影响本校验
+
 ---
 
 ## 第三步B：确认 Authenticode 模式并签名
@@ -601,6 +635,18 @@ Compress-Archive -Path publish\source\v$ver-full\*  -DestinationPath publish\rel
 # 5. 编译两个安装程序
 ISCC installer\QuickTranslate-setup.iss
 ISCC installer\QuickTranslate-setup-full.iss
+
+# 5.1 编译后完整性校验（必做，任一失败禁止上传）
+#     校验 ProductVersion=$ver、CompanyName=YaHu，防止安装包被后处理工具修改
+$files = @("publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.exe",
+           "publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-full.exe")
+foreach ($f in $files) {
+  $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path $f))
+  if ($vi.ProductVersion -ne $ver -or $vi.CompanyName -ne "YaHu") {
+    Write-Error "完整性校验失败: $f ProductVersion='$($vi.ProductVersion)' CompanyName='$($vi.CompanyName)'"; exit 1
+  }
+  Write-Host "  PASS: $f (ProductVersion=$($vi.ProductVersion))"
+}
 
 # 4.1 严格模式：签名两个安装包（咨询模式跳过，但必须在核验结果中标注未签名）
 $certPath = "D:\secure\quicktranslate-code-signing.pfx"
