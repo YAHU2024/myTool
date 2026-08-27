@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/images/brand-logo.png" alt="QuickTranslate Logo" width="96">
+
 # QuickTranslate
 
 **More than translation. Select text and start understanding with AI.**

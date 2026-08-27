@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuickTranslate — 不止翻译，选中文本即开启 AI 理解</title>
+  <meta name="description" content="QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中文本，即可获得 AI 翻译、本地词典与云端模型协同查词、代码与术语解析，并围绕解析结果继续追问。">
+  <meta property="og:title" content="QuickTranslate — 不止翻译，选中文本即开启 AI 理解">
+  <meta property="og:description" content="Windows 划词 AI 翻译工具：翻译 / 查词 / 代码与术语解析 / 深度追问，一个开放入口。">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://YAHU2024.github.io/myTool/">
+  <link rel="icon" type="image/x-icon" href="assets/img/brand-logo.ico">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body id="top">
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <header class="site-header">
+    <div class="container nav-wrap">
+      <a class="brand" href="#top" data-scroll-top aria-label="QuickTranslate 首页">
+        <span class="brand-mark" aria-hidden="true">
+          <img src="assets/img/brand-logo.png" alt="" width="32" height="32">
+        </span>
+        <span class="brand-name">QuickTranslate</span>
+      </a>
+      <nav class="site-nav" aria-label="页面导航">
+        <a href="#experience">体验</a>
+        <a href="#features">特性</a>
+        <a href="#showcase">演示</a>
+        <a href="#download">下载</a>
+        <a href="#api">配置</a>
+        <a href="#roadmap">路线</a>
+        <a class="nav-cta" href="https://github.com/YAHU2024/myTool" target="_blank" rel="noopener">
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <!-- ===================== Hero ===================== -->
+    <section class="hero" id="hero">
+      <div class="hero-bg" aria-hidden="true"></div>
+      <div class="container">
+        <p class="hero-eyebrow reveal">Windows · AI 划词翻译工具</p>
+        <h1 class="hero-title reveal">
+          不止翻译，<br>选中文本即开启 <span class="accent">AI 理解</span>
+        </h1>
+        <p class="hero-sub reveal">
+          选中文本，即可获得 AI 翻译、本地词典与云端模型协同查词、代码与术语解析，并围绕解析结果继续追问。
+          无需反复复制、切换窗口，让一次划词从“看懂字面”延伸到“真正理解”。
+        </p>
+        <div class="hero-actions reveal">
+          <a class="btn btn-primary" href="https://github.com/YAHU2024/myTool/releases/latest" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 20h16"/></svg>
+            下载最新版
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/YAHU2024/myTool" target="_blank" rel="noopener">查看源码</a>
+        </div>
+        <div class="hero-stats reveal" id="hero-stats" aria-label="GitHub 统计">
+          <span class="stat" data-stat="stars">★ <b aria-hidden="true">--</b> <span class="stat-label">Stars</span></span>
+          <span class="stat" data-stat="downloads">↓ <b aria-hidden="true">--</b> <span class="stat-label">下载量</span></span>
+        </div>
+        <ul class="hero-badges reveal" aria-label="技术栈与许可证">
+          <li>.NET 8</li>
+          <li>WPF</li>
+          <li>C# 12</li>
+          <li>SSE 流式</li>
+          <li>MPL-2.0</li>
+        </ul>
+        <figure class="hero-demo reveal">
+          <img src="assets/img/red-dot-demo.gif" alt="划词翻译演示：选中文本自动弹出红点引导，流式输出 AI 翻译结果" loading="eager" width="960" height="540">
+          <figcaption>选中文本自动弹出红点引导，根据内容进入翻译、代码或术语模式，流式输出 AI 结果</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ===================== 三种 AI 体验 ===================== -->
+    <section class="section" id="experience">
+      <div class="container">
+        <h2 class="section-title reveal">三种 AI 体验，一个开放入口</h2>
+        <p class="section-sub reveal">不绑定任何服务商 —— 使用你自己的 OpenAI 兼容接口，自由切换 Base URL 和 Model。</p>
+        <div class="cards-grid">
+          <article class="card reveal" data-tag="翻译">
+            <h3>AI 智能翻译</h3>
+            <p>根据选中文本的类型与语言自动选择任务和翻译方向，支持在当前会话内切换目标语言或模型，并以流式方式呈现结果。</p>
+          </article>
+          <article class="card reveal" data-tag="查词">
+            <h3>AI 查词</h3>
+            <p>ECDICT + OEWN 本地词典优先，云端模型补全缺失中文；本地未命中时由 AI 生成结构化释义，并可补充音标、例句与搭配。</p>
+          </article>
+          <article class="card reveal" data-tag="追问">
+            <h3>AI 轻对话</h3>
+            <p>对深度解析结果继续追问，最多保留 10 轮上下文；从一个疑问出发，把陌生概念逐层弄懂。</p>
+          </article>
+        </div>
+        <p class="section-note reveal">本地命中的查词默认不联网；设置和历史保存在本机，隐私日志不记录选中文本、Prompt 正文或 API Key。</p>
+      </div>
+    </section>
+
+    <!-- ===================== 功能特性 ===================== -->
+    <section class="section section-alt" id="features">
+      <div class="container">
+        <h2 class="section-title reveal">功能特性</h2>
+        <p class="section-sub reveal">从划词触发到结果质量门禁，十六类能力覆盖完整链路。</p>
+        <div class="features-grid">
+          <article class="feature reveal">
+            <h3>核心翻译</h3>
+            <p>SSE 流式逐字输出 · 拖拽/双击/三击划词 · 红点引导交互 · 悬浮窗即时展示 · 14 种语言支持 · 自动判断与会话级手动方向切换</p>
+          </article>
+          <article class="feature reveal">
+            <h3>智能识别</h3>
+            <p>自动区分翻译 / 代码 / 术语，路由专用 Prompt · 低置信度技术文档保持完整翻译 · 浏览器/终端场景感知</p>
+          </article>
+          <article class="feature reveal">
+            <h3>多模式会话</h3>
+            <p>同文本支持翻译 · 命令解析 · 术语解释 · 深度解析四种模式切换 · 已完成结果瞬时恢复 · 当前会话模型切换</p>
+          </article>
+          <article class="feature reveal">
+            <h3>解析追问</h3>
+            <p>深度解析结果内连续追问 · 最多 10 轮上下文 · 流式回答 · 历史节点定位 · 失败尾轮重试</p>
+          </article>
+          <article class="feature reveal">
+            <h3>快速查词</h3>
+            <p>本地词典（ECDICT/OEWN）优先 · 未命中自动回退大模型查词 · 缺失中文一键 AI 补全 · 词性统一中文显示 · 结构化释义/音标/例句/搭配 · 朗读与复制</p>
+          </article>
+          <article class="feature reveal">
+            <h3>Markdown</h3>
+            <p>流式增量渲染 · 围栏闭合后语法高亮与独立复制 · 表格/列表/引用 · 仅允许 http/https 链接</p>
+          </article>
+          <article class="feature reveal">
+            <h3>语音朗读</h3>
+            <p>Edge TTS 在线合成 · 选中文本朗读 · 翻译结果一键朗读 · 自动语种匹配</p>
+          </article>
+          <article class="feature reveal">
+            <h3>翻译历史</h3>
+            <p>SQLite 本地持久化 · 按时间/语言搜索筛选 · 分页浏览 · 双击复制 · Anki 格式一键导出</p>
+          </article>
+          <article class="feature reveal">
+            <h3>系统集成</h3>
+            <p>两套独立全局快捷键 · 托盘单击快速查词 · 右键恢复最近翻译 · 开机自启 · 浏览器内触发 · 单实例保护</p>
+          </article>
+          <article class="feature reveal">
+            <h3>深度解析</h3>
+            <p>4 种内置预设（通用/语言学习/文学赏析/商务）· 自定义方案新建/复制/编辑/删除 · 多轮方案管理</p>
+          </article>
+          <article class="feature reveal">
+            <h3>模型接入</h3>
+            <p>内置四家供应商预置 · 自定义 OpenAI 兼容 Base URL 与 Model · 已保存配置支持备注与分组 · 悬浮窗临时切换当前会话模型 · 三态思考控制</p>
+          </article>
+          <article class="feature reveal">
+            <h3>性能优化</h3>
+            <p>LRU+TTL 语义缓存 · latest-request-wins 请求冲突防护 · 请求快照隔离 · 设置修改不影响运行中请求</p>
+          </article>
+          <article class="feature reveal">
+            <h3>结果质量</h3>
+            <p>原文回显检测与状态提示 · 可疑结果不进入缓存或历史 · 不静默重试或自动切换模型</p>
+          </article>
+          <article class="feature reveal">
+            <h3>自动更新</h3>
+            <p>GitHub Release 分发 · 启动时静默检查 · 应用内展示更新说明 · 系统代理兼容 · Inno Setup 双版本安装包 · SHA256 校验</p>
+          </article>
+          <article class="feature reveal">
+            <h3>隐私安全</h3>
+            <p>零污染剪贴板获取 · 终端安全取词避免误发 Ctrl+C · 日志脱敏（不记录原文/API Key/Prompt 正文）· 本地配置不上传</p>
+          </article>
+          <article class="feature reveal">
+            <h3>运维诊断</h3>
+            <p>结构化 JSON Lines 日志 · 专用查看器 · 多文件切换 · 级别/关键字筛选 · P50/P95/P99 延迟 · 自动清理</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 功能展示 ===================== -->
+    <section class="section" id="showcase">
+      <div class="container">
+        <h2 class="section-title reveal">功能展示</h2>
+        <p class="section-sub reveal">点击任意画面可放大查看。</p>
+        <div class="showcase-grid">
+          <figure class="showcase-item reveal" data-caption="AI 划词翻译 · 红点引导：选中文本自动弹出红点，流式输出 AI 结果；支持拖拽、双击和三击触发">
+            <img src="assets/img/red-dot-demo.gif" alt="AI 划词翻译与红点引导演示" loading="lazy">
+            <figcaption>AI 划词翻译 · 红点引导</figcaption>
+          </figure>
+          <figure class="showcase-item reveal" data-caption="解析追问：完成深度解析后可在同一悬浮窗继续提问，最多保留 10 轮上下文，回答流式呈现">
+            <img src="assets/img/followup-demo.gif" alt="解析追问功能演示" loading="lazy">
+            <figcaption>解析追问 · 围绕结果继续理解</figcaption>
+          </figure>
+          <figure class="showcase-item reveal" data-caption="设置窗口：多模型切换、自定义全局快捷键、解析方案管理，即时生效无需重启">
+            <img src="assets/img/settings-demo.gif" alt="设置页演示" loading="lazy">
+            <figcaption>设置窗口 · 多模型与快捷键管理</figcaption>
+          </figure>
+          <figure class="showcase-item reveal" data-caption="AI 查词：本地词典（ECDICT + OEWN）优先，缺失中文时一键 AI 补全；本地未命中自动交给云端模型生成结构化释义">
+            <img src="assets/img/word-lookup.png" alt="快速查词窗口" loading="lazy">
+            <figcaption>AI 查词 · 本地词典打底，云端模型补全</figcaption>
+          </figure>
+          <figure class="showcase-item reveal" data-caption="翻译历史：SQLite 本地持久化，按时间/语言搜索筛选，分页浏览，支持 Anki 格式一键导出">
+            <img src="assets/img/history.png" alt="翻译历史页面" loading="lazy">
+            <figcaption>翻译历史 · 本地检索与 Anki 导出</figcaption>
+          </figure>
+          <figure class="showcase-item reveal" data-caption="日志查看器：结构化 JSON Lines 日志，多文件切换、级别/关键字筛选，P50/P95/P99 延迟统计">
+            <img src="assets/img/log-viewer.png" alt="日志查看器" loading="lazy">
+            <figcaption>日志查看器 · JSON Lines 与延迟指标</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 下载 ===================== -->
+    <section class="section section-alt" id="download">
+      <div class="container">
+        <h2 class="section-title reveal">下载安装</h2>
+        <p class="section-sub reveal">不想配置开发环境？直接下载安装包，<strong>双击即用，无需安装 .NET 8 SDK</strong>。</p>
+        <div class="download-grid">
+          <article class="download-card reveal card-highlight">
+            <span class="download-tag">推荐</span>
+            <h3>完整版</h3>
+            <p class="download-size">~85 MB</p>
+            <ul>
+              <li>自包含运行时，免装 .NET 8</li>
+              <li>内置本地词典，开箱即用</li>
+            </ul>
+            <a class="btn btn-primary btn-block" href="https://github.com/YAHU2024/myTool/releases/latest" target="_blank" rel="noopener">下载最新完整版</a>
+          </article>
+          <article class="download-card reveal">
+            <h3>标准版</h3>
+            <p class="download-size">~47 MB</p>
+            <ul>
+              <li>含本地词典</li>
+              <li>需先安装 .NET 8 运行时</li>
+            </ul>
+            <a class="btn btn-ghost btn-block" href="https://github.com/YAHU2024/myTool/releases" target="_blank" rel="noopener">所有版本</a>
+          </article>
+        </div>
+        <p class="section-note reveal">所有历史版本、更新日志与 SHA256 校验值见 <a href="https://github.com/YAHU2024/myTool/releases" target="_blank" rel="noopener">Releases 页面</a>。安装后启动会自动最小化到系统托盘，右键托盘图标即可配置。</p>
+      </div>
+    </section>
+
+    <!-- ===================== 配置 API ===================== -->
+    <section class="section" id="api">
+      <div class="container">
+        <h2 class="section-title reveal">配置 API</h2>
+        <p class="section-sub reveal">首次运行会自动打开设置窗口并预选 SiliconFlow <code>Qwen/Qwen3-8B</code>；填写自己的 Base URL、API Key 与 Model 即可。</p>
+        <div class="reveal">
+          <details class="api-panel">
+            <summary>一键配置参考（点击展开）</summary>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th scope="col">服务商</th><th scope="col">Base URL</th><th scope="col">Model</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>硅基流动（推荐）</td><td><code>https://api.siliconflow.cn/v1</code></td><td><code>Qwen/Qwen3-8B</code></td></tr>
+                  <tr><td>智谱 GLM</td><td><code>https://open.bigmodel.cn/api/paas/v4</code></td><td><code>glm-4.7-flash</code></td></tr>
+                  <tr><td>DeepSeek</td><td><code>https://api.deepseek.com/v1</code></td><td><code>deepseek-v4-flash</code></td></tr>
+                  <tr><td>OpenAI</td><td><code>https://api.openai.com/v1</code></td><td><code>gpt-5.4</code></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+        <p class="section-note reveal">模型下拉框按域名分组展示已保存配置，选中自动填充 URL 和 Key；每个方案可设置 32 个字符以内的备注。快速查词与翻译使用同一组配置，本地词典命中时不需要 API Key 或网络。</p>
+      </div>
+    </section>
+
+    <!-- ===================== 开发路线 ===================== -->
+    <section class="section section-alt" id="roadmap">
+      <div class="container">
+        <h2 class="section-title reveal">开发路线</h2>
+        <ol class="roadmap reveal">
+          <li class="roadmap-item done"><span class="roadmap-num">01</span><div><h3>基础骨架 + 手动触发翻译 + 流式输出</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">02</span><div><h3>划词触发 + 红点交互 + 悬浮窗 + UIA 定位 + DPI 适配</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">03</span><div><h3>系统托盘 + 设置持久化 + 开机自启</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">04</span><div><h3>翻译历史 + 快捷键自定义 + 语言自动检测 + Prompt 自定义</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">05</span><div><h3>单实例保护 + 信号防护 + 日志系统 + 剪贴板零污染</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">06</span><div><h3>智能内容识别 + 分类回归测试 + 浏览器检测 + 多模型管理</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">07</span><div><h3>请求生命周期重构 + 语义缓存 + latest-request-wins</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">08</span><div><h3>多模式会话 + 实时 Markdown 渲染 + 代码高亮 + 流式视角控制 + 窗口拖拽缩放</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">09</span><div><h3>结构化日志 + 日志查看器 + 级别筛选 + P50/P95/P99 指标</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">10</span><div><h3>四类 Prompt 行为契约 + 内置/自定义解析方案管理 + 日志隐私</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">11</span><div><h3>TTS 语音朗读 + Edge TTS 合成 + 自动语种匹配</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">12</span><div><h3>自动更新 + GitHub Release 分发 + Inno Setup 双版本安装包</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">13</span><div><h3>快速查词面板 + 独立全局快捷键 + 本地词典（ECDICT/OEWN）+ AI 中文补全 + 词性归一化</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">14</span><div><h3>解析追问 + 多轮上下文 + 流式回答 + 历史节点定位</h3></div></li>
+          <li class="roadmap-item done"><span class="roadmap-num">15</span><div><h3>终端安全取词 + 翻译方向与智能路由 + 会话模型/方向切换 + 回显质量门禁</h3></div></li>
+          <li class="roadmap-item planned"><span class="roadmap-num">16</span><div><h3>UI 统一与国际化 <span class="status-pill">规划中</span></h3></div></li>
+        </ol>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <h2>QuickTranslate</h2>
+          <p>贴着阅读场景工作的 Windows AI 工具。</p>
+          <p class="footer-links">
+            <a href="https://github.com/YAHU2024/myTool" target="_blank" rel="noopener">GitHub 仓库</a> ·
+            <a href="https://github.com/YAHU2024/myTool/releases" target="_blank" rel="noopener">Releases</a> ·
+            <a href="https://github.com/YAHU2024/myTool/issues" target="_blank" rel="noopener">提交 Issue</a> ·
+            <a href="https://github.com/YAHU2024/myTool/blob/main/README.en.md" target="_blank" rel="noopener">English</a>
+          </p>
+        </div>
+        <div class="footer-credit">
+          <h3>开源鸣谢</h3>
+          <p>AutoUpdater.NET · Markdig · ColorCode · Entity Framework Core · SQLitePCLRaw · ECDICT · Open English WordNet</p>
+          <h3>许可证</h3>
+          <p>本项目自 2026-08-06 起发布的新版本采用 <a href="https://github.com/YAHU2024/myTool/blob/main/LICENSE" target="_blank" rel="noopener">Mozilla Public License 2.0 (MPL-2.0)</a>；历史版本继续按随附的原 MIT 许可证授权。</p>
+        </div>
+      </div>
+      <p class="footer-privacy">隐私说明：设置和历史保存在本机；隐私日志不记录选中文本、Prompt 正文或 API Key，本地配置不上传。</p>
+      <p class="footer-copy">© 2026 QuickTranslate · 由 <a href="https://github.com/YAHU2024" target="_blank" rel="noopener">YAHU2024</a> 维护 · <a href="#top" data-scroll-top>返回顶部 ↑</a></p>
+    </div>
+  </footer>
+
+  <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="图片放大查看" hidden>
+    <button class="lightbox-close" type="button" aria-label="关闭">×</button>
+    <figure class="lightbox-body">
+      <img id="lightbox-img" src="" alt="">
+      <figcaption id="lightbox-caption"></figcaption>
+    </figure>
+  </div>
+
+  <script src="assets/js/main.js"></script>
+</body>
+</html>
