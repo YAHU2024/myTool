@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/images/brand-logo.png" alt="QuickTranslate Logo" width="96">
+
 # QuickTranslate
 
 **不止翻译，选中文本即开启 AI 理解**
