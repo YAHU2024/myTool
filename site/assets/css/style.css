@@ -170,6 +170,7 @@ code {
 }
 
 .site-nav a {
+  position: relative;
   color: var(--text-dim);
   font-size: 14.5px;
   padding: 7px 12px;
@@ -182,6 +183,35 @@ code {
   color: var(--text);
   background: rgba(148, 163, 184, 0.1);
   text-decoration: none;
+}
+
+/* ScrollSpy：激活导航底部指示条 */
+.site-nav a:not(.nav-cta)::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 200ms var(--ease-out);
+}
+
+.site-nav a:not(.nav-cta).active {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+.site-nav a:not(.nav-cta).active::after {
+  transform: scaleX(1);
+}
+
+/* 熄灭方向立即收起（0ms），避免切换瞬间两条指示条同时可见 */
+.site-nav a:not(.nav-cta):not(.active)::after {
+  transition-duration: 0ms;
 }
 
 .site-nav .nav-cta {

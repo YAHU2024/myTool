@@ -183,6 +183,74 @@
     });
   }
 
+  /* ---------- 导航 ScrollSpy ---------- */
+  function initScrollSpy() {
+    var navLinks = Array.prototype.slice.call(
+      document.querySelectorAll(".site-nav a[href^='#']")
+    );
+    if (navLinks.length === 0) return;
+
+    var map = {};
+    navLinks.forEach(function (link) {
+      var id = link.getAttribute("href").slice(1);
+      var section = document.getElementById(id);
+      if (section) map[id] = { link: link, section: section };
+    });
+    var ids = Object.keys(map);
+    if (ids.length === 0) return;
+
+    var current = null;
+    var rafId = null;
+
+    // 状态未变化不重复写 DOM，避免切换抖动
+    function setActive(id) {
+      if (id === current) return;
+      current = id;
+      ids.forEach(function (i) {
+        var on = i === id;
+        map[i].link.classList.toggle("active", on);
+        if (on) {
+          map[i].link.setAttribute("aria-current", "true");
+        } else {
+          map[i].link.removeAttribute("aria-current");
+        }
+      });
+    }
+
+    // 实时几何计算：活动带（视口 45%~50%）内最靠上的 section。
+    // 每次全量重算 6 个 section，结果是确定性的单一值，无 IO 回调竞态。
+    function update() {
+      var bandTop = window.innerHeight * 0.45;
+      var bandBottom = window.innerHeight * 0.5;
+      var top = null;
+      ids.forEach(function (id) {
+        var rect = map[id].section.getBoundingClientRect();
+        if (rect.top < bandBottom && rect.bottom > bandTop) {
+          if (
+            top === null ||
+            rect.top < map[top].section.getBoundingClientRect().top
+          ) {
+            top = id;
+          }
+        }
+      });
+      setActive(top);
+    }
+
+    // rAF 节流：一帧最多重算一次
+    function schedule() {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(function () {
+        rafId = null;
+        update();
+      });
+    }
+
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule, { passive: true });
+    update(); // 初始状态
+  }
+
   /* ---------- 启动 ---------- */
   function ready(fn) {
     if (document.readyState !== "loading") {
@@ -197,5 +265,6 @@
     initStats();
     initLightbox();
     initScrollTop();
+    initScrollSpy();
   });
 })();
