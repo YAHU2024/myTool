@@ -373,7 +373,7 @@ QuickTranslate/
 myTool/
 ├── .github/               # GitHub Actions workflows & issue templates
 ├── QuickTranslate/        # Main source project
-├── QuickTranslate.Tests/  # xUnit test project
+├── QuickTranslate.Tests/  # xUnit test project (representative subset shown)
 │   ├── FeedbackContentBuilderTests.cs  # Feedback fields and sensitivity tests
 │   ├── FeedbackLinkServiceTests.cs     # Issue Form link tests
 │   ├── CrashRecoveryTrackerTests.cs    # Unclean-exit state tests

@@ -170,7 +170,7 @@ ZH_QUICK = _mk(
 ZH_TOP = _mk(
     (".github/", "GitHub Actions 工作流 & Issue 模板"),
     ("QuickTranslate/", "主项目源码"),
-    ("QuickTranslate.Tests/", "xUnit 单元测试"),
+    ("QuickTranslate.Tests/", "xUnit 单元测试（仅列代表性文件）"),
     ("QuickTranslate.Tests/FeedbackContentBuilderTests.cs", "反馈字段与敏感内容测试"),
     ("QuickTranslate.Tests/FeedbackLinkServiceTests.cs", "Issue Form 链接测试"),
     ("QuickTranslate.Tests/CrashRecoveryTrackerTests.cs", "异常退出状态测试"),
@@ -319,7 +319,7 @@ EN_QUICK = _mk(
 EN_TOP = _mk(
     (".github/", "GitHub Actions workflows & issue templates"),
     ("QuickTranslate/", "Main source project"),
-    ("QuickTranslate.Tests/", "xUnit test project"),
+    ("QuickTranslate.Tests/", "xUnit test project (representative subset shown)"),
     ("QuickTranslate.Tests/FeedbackContentBuilderTests.cs", "Feedback fields and sensitivity tests"),
     ("QuickTranslate.Tests/FeedbackLinkServiceTests.cs", "Issue Form link tests"),
     ("QuickTranslate.Tests/CrashRecoveryTrackerTests.cs", "Unclean-exit state tests"),

@@ -372,7 +372,7 @@ QuickTranslate/
 myTool/
 ├── .github/               # GitHub Actions 工作流 & Issue 模板
 ├── QuickTranslate/        # 主项目源码
-├── QuickTranslate.Tests/  # xUnit 单元测试
+├── QuickTranslate.Tests/  # xUnit 单元测试（仅列代表性文件）
 │   ├── FeedbackContentBuilderTests.cs  # 反馈字段与敏感内容测试
 │   ├── FeedbackLinkServiceTests.cs     # Issue Form 链接测试
 │   ├── CrashRecoveryTrackerTests.cs    # 异常退出状态测试
