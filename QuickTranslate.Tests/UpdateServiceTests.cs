@@ -132,14 +132,24 @@ public sealed class UpdateServiceTests : IDisposable
         Assert.Equal(expected, xmlVersion);
     }
 
+    /// <summary>
+    /// url 忘记改到新版本时，version/checksum 均通过其他校验，但用户会一直
+    /// 被引导下载旧版安装包（新 checksum 对旧文件必然校验失败）。因此断言
+    /// url 内嵌当前版本号，而不只是"是一个 full.exe 链接"。
+    /// </summary>
     [Fact]
     public void VersionXml_UrlPointsToFullInstaller()
     {
         var xmlPath = FindVersionXml();
         var doc = XDocument.Load(xmlPath);
+        var version = doc.Root!.Element("version")!.Value;
         var url = doc.Root!.Element("url")!.Value;
 
         Assert.Contains("github.com/YAHU2024/myTool/releases/download/", url);
+        Assert.Contains(
+            $"/download/v{version}/QuickTranslate-Setup-{version}-win-x64-full.exe",
+            url,
+            StringComparison.Ordinal);
         Assert.EndsWith("-full.exe", url);
     }
 
