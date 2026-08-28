@@ -5,7 +5,6 @@ using System.Net;
 using System.Net.Http;
 using System.Reflection;
 using System.Security.Cryptography;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -516,7 +515,7 @@ public static class UpdateService
 
             return contentHtml;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Xml.XmlException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Xml.XmlException)
         {
             Logger.Warn("Update", "update.changelog_fetch_failed",
                 new { endpoint = atomUrl, error_type = ex.GetType().Name });

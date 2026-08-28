@@ -168,6 +168,9 @@ li { margin:2px 0; }
         settings.AreDevToolsEnabled = false;
         settings.IsStatusBarEnabled = false;
         settings.IsZoomControlEnabled = false;
+        // 安全纵深：release 说明是纯内容展示，禁用脚本执行，
+        // 避免恶意 HTML 中的脚本在 WebView2 中运行（GitHub 虽已 sanitize，但防御不依赖单一来源）。
+        settings.IsScriptEnabled = false;
         ChangelogBrowser.CoreWebView2.NewWindowRequested += ChangelogBrowser_NewWindowRequested;
     }
 
