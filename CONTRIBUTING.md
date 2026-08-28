@@ -37,6 +37,14 @@ refactor(App): 重构更新调度
 - 提交前可运行 `dotnet format QuickTranslate/QuickTranslate.csproj`。
 - 不要提交：`settings.json`、密钥、数据库、日志、`bin/`、`obj/`、`publish/`。
 
+## 项目结构维护
+
+README 的「项目结构 / Project Structure」区块由脚本自动生成，请勿手工编辑：
+
+- 新增或删除源文件后，运行 `python scripts/update-readme-tree.py --write` 同步中英 README 的结构块。
+- 新增文件的注释在 `scripts/update-readme-tree.py` 顶部的映射表中补充（中文/英文各一份）；脚本会提示「未映射的新条目」。
+- 仓库 CI（Verify README Tree）会在 PR 中校验结构一致性，`python scripts/update-readme-tree.py --check` 失败即需重新生成。
+
 ## 分支保护规则
 
 `main` 分支受 GitHub Branch Protection 保护，合并 PR 前必须满足以下条件：
