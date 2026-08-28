@@ -8,42 +8,42 @@ using QuickTranslate.Helpers;
 
 namespace QuickTranslate.UI;
 
-    /// <summary>
-    /// Shared actions for every selectable Markdown host. Selection lifecycle remains
-    /// owned by the containing view because streaming updates have different scopes.
-    /// </summary>
-    internal static class MarkdownInteraction
+/// <summary>
+/// Shared actions for every selectable Markdown host. Selection lifecycle remains
+/// owned by the containing view because streaming updates have different scopes.
+/// </summary>
+internal static class MarkdownInteraction
+{
+    /// <param name="scrollable">
+    /// When true the host keeps an auto vertical scrollbar (e.g. a full changelog
+    /// document); when false the host disables its own scrollbar because the
+    /// parent view manages scrolling (streaming conversation).
+    /// </param>
+    public static void ConfigureSelectableHost(
+        RichTextBox markdown,
+        string automationName,
+        bool scrollable = false)
     {
-        /// <param name="scrollable">
-        /// When true the host keeps an auto vertical scrollbar (e.g. a full changelog
-        /// document); when false the host disables its own scrollbar because the
-        /// parent view manages scrolling (streaming conversation).
-        /// </param>
-        public static void ConfigureSelectableHost(
-            RichTextBox markdown,
-            string automationName,
-            bool scrollable = false)
-        {
-            markdown.IsReadOnly = true;
-            markdown.IsUndoEnabled = false;
-            markdown.IsReadOnlyCaretVisible = false;
-            markdown.IsDocumentEnabled = true;
-            markdown.Focusable = true;
-            markdown.IsTabStop = false;
-            markdown.BorderThickness = new Thickness(0);
-            markdown.Background = System.Windows.Media.Brushes.Transparent;
-            markdown.Padding = new Thickness(0);
-            markdown.VerticalScrollBarVisibility = scrollable
-                ? ScrollBarVisibility.Auto
-                : ScrollBarVisibility.Disabled;
-            markdown.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
-            markdown.SelectionBrush = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0x4D, 0xB6, 0xAC));
-            markdown.SelectionOpacity = 0.45;
-            markdown.Cursor = System.Windows.Input.Cursors.IBeam;
-            AutomationProperties.SetName(markdown, automationName);
-            AttachActions(markdown);
-        }
+        markdown.IsReadOnly = true;
+        markdown.IsUndoEnabled = false;
+        markdown.IsReadOnlyCaretVisible = false;
+        markdown.IsDocumentEnabled = true;
+        markdown.Focusable = true;
+        markdown.IsTabStop = false;
+        markdown.BorderThickness = new Thickness(0);
+        markdown.Background = System.Windows.Media.Brushes.Transparent;
+        markdown.Padding = new Thickness(0);
+        markdown.VerticalScrollBarVisibility = scrollable
+            ? ScrollBarVisibility.Auto
+            : ScrollBarVisibility.Disabled;
+        markdown.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+        markdown.SelectionBrush = new System.Windows.Media.SolidColorBrush(
+            System.Windows.Media.Color.FromRgb(0x4D, 0xB6, 0xAC));
+        markdown.SelectionOpacity = 0.45;
+        markdown.Cursor = System.Windows.Input.Cursors.IBeam;
+        AutomationProperties.SetName(markdown, automationName);
+        AttachActions(markdown);
+    }
 
     public static void AttachActions(RichTextBox markdown)
     {
