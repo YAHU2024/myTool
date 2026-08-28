@@ -14,6 +14,7 @@
 - [第四步：更新文档与提交](#第四步更新文档与提交)
 - [第五步：更新 version.xml 并创建 GitHub Release](#第五步更新-versionxml-并创建-github-release)
 - [第六步：证书与信任链管理](#第六步证书与信任链管理)
+- [第七步：发布完成后的收尾](#第七步发布完成后的收尾)
 - [完整命令速查](#完整命令速查)
 - [常见问题](#常见问题)
 
@@ -30,9 +31,26 @@
 
 > 发布前确认文档一致性：`python scripts/update-readme-tree.py --check`（README 项目结构由脚本维护，漂移会导致 CI 失败）。
 
+环境与输入的就绪检查已脚本化，发布前先跑一次（FAIL 项必须处理后才能开始）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\release\preflight.ps1
+```
+
+脚本覆盖：.NET SDK、gh 登录、ISCC/SignTool、Git 工作区、四处版本号一致性、README 结构、
+发布词典存在性与 SHA256 追溯、`RELEASE_NOTES_NEXT.md` 基线版本。
+
 ---
 
 ## 第一步：更新版本号
+
+版本号分布在四个文件里（csproj 三个字段、两个 iss、version.xml 的 `<version>/<url>/<changelog>`），
+可用脚本一次改齐，也可按 1.1–1.2 手工修改：
+
+```powershell
+# 从 csproj 当前版本升级到目标版本；<checksum> 等安装包构建后另行回填（步骤 5.0）
+powershell -ExecutionPolicy Bypass -File scripts\release\bump-version.ps1 -Version 1.9.4
+```
 
 ### 1.1 修改 csproj
 
@@ -68,6 +86,10 @@ powershell -ExecutionPolicy Bypass -File scripts\prepare-word-dictionary.ps1
 ```
 
 脚本会核对固定 SHA-256，并原子生成 `QuickTranslate\Data\word-dictionary.db`。该数据库被 Git 忽略，但后续两个 `dotnet publish` 都会把它复制到 `Data\`；`THIRD_PARTY_NOTICES.md` 也会随包发布。缺少数据库时 publish 仍可成功，但发布包将只能使用 AI 查词，因此正式发布前必须检查这两个文件。
+
+> **词典版本追溯**：数据库不做版本标注，发布报告中必须记录它的 SHA256 与生成/更新日期
+> （`scripts/release/preflight.ps1` 会输出这两项）。与上一发布版本的哈希不一致时，
+> 必须能提供 `ecdict.csv` / `oewn-2025-json.zip` 源文件说明变化来源，禁止"来历不明"的词典随包发布。
 
 ### 2.2 编译轻量版源文件（框架依赖，含词典）
 
@@ -151,35 +173,24 @@ ISCC installer\QuickTranslate-setup-full.iss
 
 编译产物若被任何工具后处理（例如清空版本资源、截断尾部数据），Inno Setup
 内嵌的 CRC 校验会失效，运行时报 `The setup files are corrupted. Please obtain
-a new copy of the program.`，自动更新将全线失败。发布前必须执行以下校验，
-**任何一步失败都禁止上传到 GitHub Release**：
+a new copy of the program.`，自动更新将全线失败（v1.9.2 发布即因未检此步而出事故）。
+发布前必须执行以下校验，**任何一步失败都禁止上传到 GitHub Release**：
 
 ```powershell
-$ver = "1.9.2"
-$files = @(
-  "publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.exe",
-  "publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-full.exe"
-)
-foreach ($f in $files) {
-  if (-not (Test-Path $f)) { Write-Error "缺失: $f"; exit 1 }
-  $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path $f))
-  if ($vi.ProductVersion -ne $ver) {
-    Write-Error "完整性校验失败: $f ProductVersion='$($vi.ProductVersion)' (期望 $ver)。安装包可能被后处理工具修改，禁止发布。"
-    exit 1
-  }
-  if ($vi.CompanyName -ne "YaHu") {
-    Write-Error "完整性校验失败: $f CompanyName='$($vi.CompanyName)' (期望 YaHu)。"
-    exit 1
-  }
-  $sizeMB = [math]::Round((Get-Item $f).Length / 1MB, 1)
-  Write-Host "  PASS: $f ($sizeMB MB, ProductVersion=$($vi.ProductVersion))"
-}
+powershell -ExecutionPolicy Bypass -File scripts\release\verify-setup.ps1 -Version 1.9.4
 ```
 
-通过标准：
-- 两个文件均输出 `PASS`
-- `ProductVersion` 必须等于 `MyAppVersion`，`CompanyName` 必须等于 `MyAppPublisher`
+通过标准（脚本已内置）：
+
+- 两个文件均输出 `PASS`，并打印完整版 SHA256（供 `version.xml` 的 `<checksum>` 回填）
+- `ProductVersion`（Trim 后）必须等于 `MyAppVersion`，`CompanyName`（Trim 后）必须等于 `MyAppPublisher`
+- `ProductName` / `FileDescription` 非空——这是 v1.9.2 事故的损坏特征（字段被清空）
 - 安装包未签名（`Get-AuthenticodeSignature` 显示 `NotSigned`）属正常，不影响本校验
+
+> **为什么按 Trim 比较**：本项目 Inno Setup 产物的版本资源是固定宽度填充
+> （如 ProductVersion 读出为 `"1.9.4" + 空格`），已成功发布的 v1.9.2 健康安装包
+> 同为该模式，属正常现象；真正的损坏特征是字段被清空。因此禁止用严格的
+> `-ne $Version` 直接比较原始字符串，那会对健康产物误报、诱使发布人忽略本检查。
 
 ---
 
@@ -420,6 +431,10 @@ if ($LASTEXITCODE -ne 0) { throw "Squash commit differs from the approved releas
 ```powershell
 $ver = "1.8.0"
 
+# 生成校验和清单（第 6 个附件，覆盖四个二进制产物；
+# version.xml 本身就是校验元数据，不重复列入）
+powershell -ExecutionPolicy Bypass -File scripts\release\make-checksums.ps1 -Version $ver
+
 gh release create v$ver `
   --draft `
   --target $mergeSha `
@@ -429,6 +444,7 @@ gh release create v$ver `
   publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-full.exe `
   publish\releases\v$ver\QuickTranslate-v$ver-win-x64.zip `
   publish\releases\v$ver\QuickTranslate-v$ver-win-x64-full.zip `
+  publish\releases\v$ver\SHA256SUMS.txt `
   installer\version.xml
 
 # 禁止在此自动继续。核对 Draft 并取得发布人的第二次明确确认后，
@@ -439,10 +455,36 @@ gh release edit v$ver --draft=false --latest
 `gh release create` 在远端不存在指定 tag 时可能自动创建 tag，因此必须显式传入
 已经确认的 `$mergeSha`，不得依赖默认分支的当前状态。
 
+#### 5.1.1 上传后远端 digest 复核（必做）
+
+GitHub 会在资产上传后计算 SHA256 digest。v1.9.2 事故（安装包被后处理破坏）
+正是靠本地与远端 digest 比对发现的，因此**转正式 Release 之前必须复核全部附件**：
+
+```powershell
+$ver = "1.8.0"
+gh api "repos/YAHU2024/myTool/releases/tags/v$ver" --jq '.assets[] | .name + "  " + .digest'
+# 逐个与本地哈希比对（digest 形如 sha256:<hex>，比较冒号后的部分）：
+Get-FileHash "publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-full.exe" -Algorithm SHA256
+```
+
+任何一项不一致都说明上传损坏或产物被中途修改，必须重新上传并重新复核。
+
+#### 5.1.2 设置 Latest 的注意事项
+
+- 优先使用 `gh release edit v$ver --draft=false --latest`。
+- 若直接调 REST API，`make_latest` 必须用 **字符串字段** `-f make_latest=true`；
+  `-F make_latest=true` 会把值转成 JSON 布尔被 API 静默忽略，导致 Latest
+  仍指向旧版本（v1.9.3 发布时踩过）。
+- 发布后验证：`gh api repos/YAHU2024/myTool/releases/latest` 应返回新版本号。
+- `https://github.com/.../releases/latest/download/version.xml` 有 CDN 缓存，
+  发布后几十分钟内可能仍返回上一版本，属正常现象；可先用直链
+  `releases/download/v<ver>/version.xml` 验证内容，端点缓存稍后自动刷新。
+
 **人工确认门 2：Draft Release 转正式 Release**
 
-Draft 创建后必须核对标题、发布说明、目标提交、五个附件、SHA256、签名模式、
-Latest/Pre-release 选项和人工验证缺口，并把 Draft 链接及核验结果交给发布人。
+Draft 创建后必须核对标题、发布说明、目标提交、六个附件（含 `SHA256SUMS.txt`）、
+远端 digest 与本地 SHA256 一致、签名模式、Latest/Pre-release 选项和人工验证缺口，
+并把 Draft 链接及核验结果交给发布人。
 没有明确授权时，禁止执行 `--draft=false`、禁止设置 Latest，也禁止以其他方式公开发布。
 
 ### 5.2 在 GitHub 网页创建
@@ -451,13 +493,14 @@ Latest/Pre-release 选项和人工验证缺口，并把 Draft 链接及核验结
 2. 点击 **Draft a new release**
 3. 选择标签 `v1.8.0`
 4. 填写标题和更新日志
-5. 拖拽上传以下 5 个文件：
+5. 拖拽上传以下 6 个文件：
    - `QuickTranslate-Setup-{version}-win-x64.exe` — 标准版安装程序
    - `QuickTranslate-Setup-{version}-win-x64-full.exe` — 完整版安装程序
    - `QuickTranslate-v{version}-win-x64.zip` — 标准版压缩包
    - `QuickTranslate-v{version}-win-x64-full.zip` — 完整版压缩包
+   - `SHA256SUMS.txt` — 四个二进制产物的校验和清单（`scripts/release/make-checksums.ps1` 生成）
    - `version.xml` — 自动更新元数据
-6. 保持 Draft，核对目标提交、五个附件、校验和、签名模式和发布说明
+6. 保持 Draft，核对目标提交、六个附件、远端 digest（见 5.1.1）、签名模式和发布说明
 7. 将 Draft 链接和核验结果交给发布人，等待第二次明确确认
 8. 由发布人手动点击发布，或明确授权代理转为正式 Release 并设为 Latest
 9. 建议在 Release 说明中注明两个版本的区别（参考[第四步 4.1](#41-编写更新日志)）
@@ -575,6 +618,63 @@ Latest/Pre-release 选项和人工验证缺口，并把 Draft 链接及核验结
 
 ---
 
+## 第七步：发布完成后的收尾
+
+Release 正式发布不是流程终点。以下收尾动作在每次发布后立即执行，避免遗留到
+下一版本的发布人才发现（v1.9.2 发布后未重置草稿基线，v1.9.3 发布时才发现）。
+
+### 7.1 重置发布说明草稿为下一版本基线
+
+将 `docs/RELEASE_NOTES_NEXT.md` 中已发布的内容全部移出，按以下骨架重建
+（以发布 v1.9.4 后为例），供下一版本增量记录：
+
+```markdown
+# QuickTranslate 发布说明（vNext）
+
+> 基线版本：v1.9.4 → 目标版本：待定
+> 发布模式：咨询模式（安装包未签名，仅 SHA256 校验）
+> 最近同步：<日期>
+
+## 新增特性
+
+## 优化改进
+
+## 修复
+
+## 依赖
+
+## 验证情况
+
+- 自动化测试：（构建后回填）
+- **未执行**（需人工验收）：真实 Provider 响应、WPF 渲染、混合 DPI 放置、托盘集成、
+  安装 / 卸载、自动更新升级、辅助功能。
+- **签名**：咨询模式下注明安装包未签名。
+```
+
+### 7.2 建立人工验收跟踪
+
+草稿与 Release 说明中的"未执行（需人工验收）"项没有落点就会被遗忘。发布后立即
+用模板建一个验收 issue，逐项记录执行人、环境与结果：
+
+```powershell
+gh issue create --title "v1.9.4 发布人工验收" --body-file docs\release-acceptance-template.md
+```
+
+全部验收项完成（或明确豁免）后关闭 issue；未通过项按缺陷流程修复并在下一版本说明。
+
+### 7.3 复核自动更新端点生效
+
+发布时 `releases/latest/download/version.xml` 可能因 CDN 缓存仍返回上一版本
+（见 5.1.2）。发布当天晚些时候复核一次，确认它已返回新版本；超过 2 小时仍未
+生效时按 GitHub 状态页排查，不得发布"更新失败"公告前的臆测结论。
+
+### 7.4 本地产物处置
+
+`publish\releases\v<ver>\` 与 `publish\source\v<ver>*` 默认保留到下一版本发布后
+再清理（重建安装包需重新走 3.3 校验与新的 release PR 审批循环，见第五步）。
+
+---
+
 ## 目录结构参考
 
 发布完成后，`publish/` 目录结构如下：
@@ -614,11 +714,14 @@ publish/
 
 $ver = "1.8.0"
 
-# 0. 手动修改：
+# 0. 手动修改（或用脚本一次改齐：scripts\release\bump-version.ps1 -Version $ver）：
 #    - QuickTranslate\QuickTranslate.csproj 中的 <Version>、<AssemblyVersion>、<FileVersion>
 #    - 两个 installer\QuickTranslate-setup*.iss 中的版本号、源目录和输出目录
 #    - installer\version.xml 中的 <version>、<url>、<changelog>
 #      （<checksum> 要等安装包编译出来才能算，见步骤 4.5）
+
+# 0.5 发布预检（FAIL 项必须处理后再继续）
+powershell -ExecutionPolicy Bypass -File scripts\release\preflight.ps1 -ExpectedVersion $ver
 
 # 1. 校验源文件并生成两个发布包共用的本地词典
 powershell -ExecutionPolicy Bypass -File scripts\prepare-word-dictionary.ps1
@@ -639,16 +742,9 @@ ISCC installer\QuickTranslate-setup.iss
 ISCC installer\QuickTranslate-setup-full.iss
 
 # 5.1 编译后完整性校验（必做，任一失败禁止上传）
-#     校验 ProductVersion=$ver、CompanyName=YaHu，防止安装包被后处理工具修改
-$files = @("publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64.exe",
-           "publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-full.exe")
-foreach ($f in $files) {
-  $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path $f))
-  if ($vi.ProductVersion -ne $ver -or $vi.CompanyName -ne "YaHu") {
-    Write-Error "完整性校验失败: $f ProductVersion='$($vi.ProductVersion)' CompanyName='$($vi.CompanyName)'"; exit 1
-  }
-  Write-Host "  PASS: $f (ProductVersion=$($vi.ProductVersion))"
-}
+#     按 Trim 比较 ProductVersion/CompanyName（版本资源为固定宽度填充属正常），
+#     并检查字段被清空的损坏特征（v1.9.2 事故），见 3.3 节说明
+powershell -ExecutionPolicy Bypass -File scripts\release\verify-setup.ps1 -Version $ver
 
 # 4.1 严格模式：签名两个安装包（咨询模式跳过，但必须在核验结果中标注未签名）
 $certPath = "D:\secure\quicktranslate-code-signing.pfx"
@@ -697,7 +793,8 @@ if ($LASTEXITCODE -ne 0) { throw "Release PR squash commit is not on the current
 git diff --exit-code $prHeadSha $mergeSha --
 if ($LASTEXITCODE -ne 0) { throw "Squash commit differs from the approved release PR head." }
 
-# 6. 创建 Draft Release（同时上传 5 个文件）
+# 6. 创建 Draft Release（同时上传 6 个文件，含 SHA256SUMS.txt）
+powershell -ExecutionPolicy Bypass -File scripts\release\make-checksums.ps1 -Version $ver
 gh release create v$ver `
   --draft `
   --target $mergeSha `
@@ -707,11 +804,19 @@ gh release create v$ver `
   publish\releases\v$ver\QuickTranslate-Setup-$ver-win-x64-full.exe `
   publish\releases\v$ver\QuickTranslate-v$ver-win-x64.zip `
   publish\releases\v$ver\QuickTranslate-v$ver-win-x64-full.zip `
+  publish\releases\v$ver\SHA256SUMS.txt `
   installer\version.xml
+
+# 6.5 上传后远端 digest 复核（必做，见 5.1.1；不一致禁止转正式）
+gh api "repos/YAHU2024/myTool/releases/tags/v$ver" --jq '.assets[] | .name + "  " + .digest'
 
 # STOP：人工确认门 2。报告 Draft 核验结果；未取得明确授权时不得执行下一行。
 # 发布人也可以在 GitHub 网页手动发布，不需要代理继续操作。
 gh release edit v$ver --draft=false --latest
+
+# 7. 发布完成后收尾（见第七步）：重置发布说明草稿基线、
+#    用 docs\release-acceptance-template.md 建验收 issue、
+#    晚些时候复核 releases/latest/download/version.xml 已返回新版本
 ```
 
 ---
