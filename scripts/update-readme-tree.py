@@ -49,6 +49,7 @@ ZH_QUICK = _mk(
     ("Core/SelectionCapturePolicy.cs", "选区复制动作安全策略"),
     ("Core/UiaCircuitBreaker.cs", "UIA 失败熔断与恢复"),
     ("Core/CopyShortcut.cs", "复制快捷键辅助"),
+    ("Core/AnalysisConversationFormatter.cs", "解析追问对话上下文格式化"),
     ("Core/AutoScrollController.cs", "流式自动滚动（用户操作暂停/恢复）"),
     ("Core/LatestRequestCoordinator.cs", "latest-request-wins 请求协调"),
     ("Core/LatestPresentationCoordinator.cs", "展示身份协调"),
@@ -61,6 +62,11 @@ ZH_QUICK = _mk(
     ("Core/WordLookupSessionCoordinator.cs", "查词会话防竞态管理"),
     ("Core/WordLookupTextFormatter.cs", "查词结果格式化"),
     ("Core/RecentLookupBuffer.cs", "最近查词缓冲区"),
+    ("Core/ReasoningSummaryAccumulator.cs", "思考摘要累积（上限截断）"),
+    ("Core/StreamingCompositionMetrics.cs", "流式组合指标"),
+    ("Core/StreamingDispatcherMetrics.cs", "流式分发指标"),
+    ("Core/StreamingPresentationPump.cs", "流式展示帧泵（帧合并/发布）"),
+    ("Core/StreamingRuntimeMetrics.cs", "流式运行指标"),
     ("Core/TtsPlaybackCoordinator.cs", "TTS 播放协调（多所有者、忙避让）"),
     # Database
     ("Database/", "持久化层"),
@@ -69,6 +75,7 @@ ZH_QUICK = _mk(
     # Services
     ("Services/", "业务服务"),
     ("Services/ITranslationService.cs", "翻译服务接口"),
+    ("Services/TranslationStreamEvent.cs", "流式事件类型（开始/内容增量/推理增量/完成）"),
     ("Services/OpenAITranslationService.cs", "OpenAI 兼容 SSE 流式翻译"),
     ("Services/ProviderKind.cs", "官方 API Host 与供应商类型解析"),
     ("Services/ProviderModelCapabilities.cs", "公共模型能力描述"),
@@ -110,7 +117,9 @@ ZH_QUICK = _mk(
     ("Models/TranslationDirectionDecision.cs", "翻译方向决策结果"),
     ("Models/FloatingResultSession.cs", "多模式会话状态"),
     ("Models/AnalysisPromptProfile.cs", "自定义解析方案"),
+    ("Models/AnalysisFollowUpRequest.cs", "解析追问请求与语义快照"),
     ("Models/TranslationTriggerMode.cs", "翻译触发模式枚举"),
+    ("Models/ThinkingModePreference.cs", "思考模式偏好"),
     ("Models/FeedbackModels.cs", "反馈草稿、诊断摘要与字段模型"),
     ("Models/WordLookupModels.cs", "查词结果模型（释义/音标/例句/搭配）"),
     # Helpers
@@ -119,6 +128,7 @@ ZH_QUICK = _mk(
     ("Helpers/Logger.cs", "异步日志器（JSON Lines/轮转/清理）"),
     ("Helpers/LogEvent.cs", "结构化日志事件模型"),
     ("Helpers/MarkdownRenderer.cs", "安全 Markdown 渲染"),
+    ("Helpers/StreamingMarkdownRenderer.cs", "流式 Markdown 渲染器"),
     ("Helpers/CodeSyntaxHighlighter.cs", "围栏代码块本地语法高亮"),
     ("Helpers/Win32Api.cs", "Win32 P/Invoke 声明"),
     ("Helpers/DpiHelper.cs", "DPI 缩放坐标转换"),
@@ -127,6 +137,7 @@ ZH_QUICK = _mk(
     # UI
     ("UI/", "用户界面"),
     ("UI/FloatingWindow.xaml/.cs", "悬浮窗（多模式/Markdown/TTS/图钉）"),
+    ("UI/MarkdownInteraction.cs", "Markdown 交互辅助"),
     ("UI/RedDotWindow.xaml/.cs", "红点引导窗口"),
     ("UI/QuickLookupWindow.xaml/.cs", "快速查词窗口（结构化释义/朗读）"),
     ("UI/TrayIconManager.cs", "系统托盘（右键菜单/气泡通知）"),
@@ -136,14 +147,17 @@ ZH_QUICK = _mk(
     ("UI/ModelSelectorControl.xaml/.cs", "当前会话模型选择控件"),
     ("UI/HistoryWindow.xaml/.cs", "翻译历史查看"),
     ("UI/LogViewerWindow.xaml/.cs", "日志查看器"),
+    ("UI/ThoughtBlockView.cs", "思考区块视图"),
     ("UI/LogEntryReader.cs", "日志读取与筛选"),
     ("UI/FeedbackWindow.xaml/.cs", "帮助与反馈窗口"),
     ("UI/CrashRecoveryPromptWindow.xaml/.cs", "异常退出后的恢复提示"),
     ("UI/SharedSettingsStyles.xaml", "反馈窗口复用的设置控件样式"),
+    ("UI/SharedToolWindowStyles.xaml", "工具窗口共享样式"),
     ("UI/FloatingWindowAnchor.cs", "窗口锚点定位"),
     ("UI/FloatingWindowPlacement.cs", "窗口位置管理"),
     ("UI/TrayPanelPlacement.cs", "托盘面板位置计算（多显示器 DPI）"),
     ("UI/FloatingStatusMessage.cs", "状态消息"),
+    ("UI/TransientButtonFeedback.cs", "瞬态按钮反馈"),
     # 根级文件
     ("Assets/", "应用图标资源"),
     ("app.manifest", "Windows 应用清单"),
@@ -190,6 +204,7 @@ EN_QUICK = _mk(
     ("Core/SelectionCapturePolicy.cs", "Selection-copy safety policy"),
     ("Core/UiaCircuitBreaker.cs", "UIA failure breaker and recovery"),
     ("Core/CopyShortcut.cs", "Copy shortcut helper"),
+    ("Core/AnalysisConversationFormatter.cs", "Analysis follow-up conversation formatting"),
     ("Core/AutoScrollController.cs", "Streaming auto-scroll (pause/resume on user action)"),
     ("Core/LatestRequestCoordinator.cs", "latest-request-wins request coordination"),
     ("Core/LatestPresentationCoordinator.cs", "Presentation identity coordination"),
@@ -202,12 +217,18 @@ EN_QUICK = _mk(
     ("Core/WordLookupSessionCoordinator.cs", "Lookup session race-condition guard"),
     ("Core/WordLookupTextFormatter.cs", "Lookup result text formatter"),
     ("Core/RecentLookupBuffer.cs", "Recent lookup buffer"),
+    ("Core/ReasoningSummaryAccumulator.cs", "Reasoning summary accumulation (cap enforcement)"),
+    ("Core/StreamingCompositionMetrics.cs", "Streaming composition metrics"),
+    ("Core/StreamingDispatcherMetrics.cs", "Streaming dispatch metrics"),
+    ("Core/StreamingPresentationPump.cs", "Streaming presentation frame pump (coalescing/publishing)"),
+    ("Core/StreamingRuntimeMetrics.cs", "Streaming runtime metrics"),
     ("Core/TtsPlaybackCoordinator.cs", "TTS playback coordination (multi-owner, busy avoidance)"),
     ("Database/", "Persistence layer"),
     ("Database/TranslationRecord.cs", "Translation history model"),
     ("Database/TranslationDbContext.cs", "EF Core SQLite context"),
     ("Services/", "Business services"),
     ("Services/ITranslationService.cs", "Translation service interface"),
+    ("Services/TranslationStreamEvent.cs", "Streaming event kinds (started / content delta / reasoning delta / completed)"),
     ("Services/OpenAITranslationService.cs", "OpenAI-compatible streaming translation"),
     ("Services/ProviderKind.cs", "Official API host and provider parsing"),
     ("Services/ProviderModelCapabilities.cs", "Shared model capability descriptor"),
@@ -248,7 +269,9 @@ EN_QUICK = _mk(
     ("Models/TranslationDirectionDecision.cs", "Translation direction decision result"),
     ("Models/FloatingResultSession.cs", "Multi-mode session state"),
     ("Models/AnalysisPromptProfile.cs", "Custom analysis profile"),
+    ("Models/AnalysisFollowUpRequest.cs", "Analysis follow-up request and semantic snapshot"),
     ("Models/TranslationTriggerMode.cs", "Translation trigger mode enum"),
+    ("Models/ThinkingModePreference.cs", "Thinking-mode preference"),
     ("Models/FeedbackModels.cs", "Feedback draft, diagnostics, and field models"),
     ("Models/WordLookupModels.cs", "Word lookup result models (definition / phonetic / example / collocation)"),
     ("Helpers/", "Utilities"),
@@ -256,6 +279,7 @@ EN_QUICK = _mk(
     ("Helpers/Logger.cs", "Async logger (JSON Lines / rotation / cleanup)"),
     ("Helpers/LogEvent.cs", "Structured log event model"),
     ("Helpers/MarkdownRenderer.cs", "Safe Markdown renderer"),
+    ("Helpers/StreamingMarkdownRenderer.cs", "Streaming Markdown renderer"),
     ("Helpers/CodeSyntaxHighlighter.cs", "Local code-block syntax highlighting"),
     ("Helpers/Win32Api.cs", "Win32 P/Invoke declarations"),
     ("Helpers/DpiHelper.cs", "DPI coordinate conversion"),
@@ -263,6 +287,7 @@ EN_QUICK = _mk(
     ("Helpers/AuthenticodeVerifier.cs", "Installer digital-signature verification"),
     ("UI/", "User interface"),
     ("UI/FloatingWindow.xaml/.cs", "Floating window (multi-mode / Markdown / TTS / pin)"),
+    ("UI/MarkdownInteraction.cs", "Markdown interaction helper"),
     ("UI/RedDotWindow.xaml/.cs", "Red-dot guidance window"),
     ("UI/QuickLookupWindow.xaml/.cs", "Quick lookup window (structured definitions / speech)"),
     ("UI/TrayIconManager.cs", "System tray (context menu / toast)"),
@@ -272,14 +297,17 @@ EN_QUICK = _mk(
     ("UI/ModelSelectorControl.xaml/.cs", "Current-session model selector"),
     ("UI/HistoryWindow.xaml/.cs", "Translation history viewer"),
     ("UI/LogViewerWindow.xaml/.cs", "Log viewer"),
+    ("UI/ThoughtBlockView.cs", "Thought-block view"),
     ("UI/LogEntryReader.cs", "Log reading and filtering"),
     ("UI/FeedbackWindow.xaml/.cs", "Help and feedback window"),
     ("UI/CrashRecoveryPromptWindow.xaml/.cs", "Unclean-exit recovery prompt"),
     ("UI/SharedSettingsStyles.xaml", "Settings control styles reused by feedback UI"),
+    ("UI/SharedToolWindowStyles.xaml", "Shared tool-window styles"),
     ("UI/FloatingWindowAnchor.cs", "Window anchor positioning"),
     ("UI/FloatingWindowPlacement.cs", "Window placement management"),
     ("UI/TrayPanelPlacement.cs", "Tray-panel placement for multi-monitor DPI"),
     ("UI/FloatingStatusMessage.cs", "Status messages"),
+    ("UI/TransientButtonFeedback.cs", "Transient button feedback"),
     ("Assets/", "App icon resources"),
     ("app.manifest", "Windows application manifest"),
     ("AssemblyInfo.cs", "Assembly metadata declarations"),
@@ -388,8 +416,8 @@ def verify_mapping(mapping, root_dir):
         if os.path.exists(full):
             return True
         head, tail = os.path.split(path)
-        if tail.startswith("."):
-            # 组合键 Foo.xaml/.cs：校验 Foo.xaml 存在
+        if head and tail.startswith("."):
+            # 组合键 Foo.xaml/.cs：校验 Foo.xaml 存在（顶层隐藏文件如 .gitignore 不走此分支）
             return os.path.exists(os.path.join(root_dir, head))
         return False
 
@@ -418,18 +446,40 @@ def _covered_names(mapping):
     return covered
 
 
-def scan_new(root_dir, mapping, ignore):
-    """报告未映射且不在忽略列表的顶层条目。"""
+def scan_new(root_dir, mapping, ignore, recursive=False):
+    """报告未映射且不在忽略列表的条目。
+
+    recursive=False：只扫顶层条目（用于仓库根目录）。
+    recursive=True：递归扫描源码文件（.cs/.xaml/.manifest/.csproj），
+    用于 QuickTranslate/ 目录——子目录新增文件也能被发现。
+    """
     covered = _covered_names(mapping)
-    actual = set()
-    for name in os.listdir(root_dir):
-        if name in ignore or name in covered:
-            continue
-        if name.startswith(".") and name not in {".github", ".gitignore"}:
-            continue
-        actual.add(name)
     mapped = {p.split("/", 1)[0] for p in mapping}
-    return sorted(actual - mapped)
+
+    if not recursive:
+        actual = set()
+        for name in os.listdir(root_dir):
+            if name in ignore or name in covered:
+                continue
+            if name.startswith(".") and name not in {".github", ".gitignore"}:
+                continue
+            actual.add(name)
+        return sorted(actual - mapped)
+
+    skip_dirs = ignore | {"bin", "obj"}
+    found = set()
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+        for fn in filenames:
+            if not fn.endswith((".cs", ".xaml", ".manifest", ".csproj")):
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, fn), root_dir).replace("\\", "/")
+            if rel.split("/", 1)[0] in ignore:
+                continue
+            if fn in covered:  # 组合键拆分覆盖（如 Foo.xaml.cs）
+                continue
+            found.add(rel)
+    return sorted(found)
 
 
 # ---------------------------------------------------------------------------
@@ -515,15 +565,15 @@ def main():
             with open(readme_path, "w", encoding="utf-8", newline="\n") as f:
                 f.write(content)
 
-    # 文件系统校验
-    for label, mapping, root, ignore in (
-        ("QuickTranslate/", ZH_QUICK, quick_root, IGNORE_QUICK),
-        ("顶层目录", ZH_TOP, REPO_ROOT, IGNORE_TOP),
+    # 文件系统校验（QuickTranslate/ 递归扫描源码文件；顶层只扫一层）
+    for label, mapping, root, ignore, recursive in (
+        ("QuickTranslate/", ZH_QUICK, quick_root, IGNORE_QUICK, True),
+        ("顶层目录", ZH_TOP, REPO_ROOT, IGNORE_TOP, False),
     ):
         missing = verify_mapping(mapping, root)
         for p in missing:
             problems.append(f"[{label}] 映射路径不存在: {p}")
-        new_files = scan_new(root, mapping, ignore)
+        new_files = scan_new(root, mapping, ignore, recursive=recursive)
         for p in new_files:
             problems.append(f"[{label}] 存在未映射的新条目: {p}（请在映射表补充注释，或加入忽略列表）")
 

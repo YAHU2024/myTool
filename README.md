@@ -254,6 +254,7 @@ QuickTranslate/
 │   ├── SelectionCapturePolicy.cs            # 选区复制动作安全策略
 │   ├── UiaCircuitBreaker.cs                 # UIA 失败熔断与恢复
 │   ├── CopyShortcut.cs                      # 复制快捷键辅助
+│   ├── AnalysisConversationFormatter.cs     # 解析追问对话上下文格式化
 │   ├── AutoScrollController.cs              # 流式自动滚动（用户操作暂停/恢复）
 │   ├── LatestRequestCoordinator.cs          # latest-request-wins 请求协调
 │   ├── LatestPresentationCoordinator.cs     # 展示身份协调
@@ -266,12 +267,18 @@ QuickTranslate/
 │   ├── WordLookupSessionCoordinator.cs      # 查词会话防竞态管理
 │   ├── WordLookupTextFormatter.cs           # 查词结果格式化
 │   ├── RecentLookupBuffer.cs                # 最近查词缓冲区
+│   ├── ReasoningSummaryAccumulator.cs       # 思考摘要累积（上限截断）
+│   ├── StreamingCompositionMetrics.cs       # 流式组合指标
+│   ├── StreamingDispatcherMetrics.cs        # 流式分发指标
+│   ├── StreamingPresentationPump.cs         # 流式展示帧泵（帧合并/发布）
+│   ├── StreamingRuntimeMetrics.cs           # 流式运行指标
 │   └── TtsPlaybackCoordinator.cs            # TTS 播放协调（多所有者、忙避让）
 ├── Database/              # 持久化层
 │   ├── TranslationRecord.cs                 # 翻译历史模型
 │   └── TranslationDbContext.cs              # EF Core SQLite 上下文
 ├── Services/              # 业务服务
 │   ├── ITranslationService.cs               # 翻译服务接口
+│   ├── TranslationStreamEvent.cs            # 流式事件类型（开始/内容增量/推理增量/完成）
 │   ├── OpenAITranslationService.cs          # OpenAI 兼容 SSE 流式翻译
 │   ├── ProviderKind.cs                      # 官方 API Host 与供应商类型解析
 │   ├── ProviderModelCapabilities.cs         # 公共模型能力描述
@@ -312,7 +319,9 @@ QuickTranslate/
 │   ├── TranslationDirectionDecision.cs      # 翻译方向决策结果
 │   ├── FloatingResultSession.cs             # 多模式会话状态
 │   ├── AnalysisPromptProfile.cs             # 自定义解析方案
+│   ├── AnalysisFollowUpRequest.cs           # 解析追问请求与语义快照
 │   ├── TranslationTriggerMode.cs            # 翻译触发模式枚举
+│   ├── ThinkingModePreference.cs            # 思考模式偏好
 │   ├── FeedbackModels.cs                    # 反馈草稿、诊断摘要与字段模型
 │   └── WordLookupModels.cs                  # 查词结果模型（释义/音标/例句/搭配）
 ├── Helpers/               # 工具类
@@ -320,6 +329,7 @@ QuickTranslate/
 │   ├── Logger.cs                            # 异步日志器（JSON Lines/轮转/清理）
 │   ├── LogEvent.cs                          # 结构化日志事件模型
 │   ├── MarkdownRenderer.cs                  # 安全 Markdown 渲染
+│   ├── StreamingMarkdownRenderer.cs         # 流式 Markdown 渲染器
 │   ├── CodeSyntaxHighlighter.cs             # 围栏代码块本地语法高亮
 │   ├── Win32Api.cs                          # Win32 P/Invoke 声明
 │   ├── DpiHelper.cs                         # DPI 缩放坐标转换
@@ -327,6 +337,7 @@ QuickTranslate/
 │   └── AuthenticodeVerifier.cs              # 安装包数字签名校验
 ├── UI/                    # 用户界面
 │   ├── FloatingWindow.xaml/.cs              # 悬浮窗（多模式/Markdown/TTS/图钉）
+│   ├── MarkdownInteraction.cs               # Markdown 交互辅助
 │   ├── RedDotWindow.xaml/.cs                # 红点引导窗口
 │   ├── QuickLookupWindow.xaml/.cs           # 快速查词窗口（结构化释义/朗读）
 │   ├── TrayIconManager.cs                   # 系统托盘（右键菜单/气泡通知）
@@ -336,14 +347,17 @@ QuickTranslate/
 │   ├── ModelSelectorControl.xaml/.cs        # 当前会话模型选择控件
 │   ├── HistoryWindow.xaml/.cs               # 翻译历史查看
 │   ├── LogViewerWindow.xaml/.cs             # 日志查看器
+│   ├── ThoughtBlockView.cs                  # 思考区块视图
 │   ├── LogEntryReader.cs                    # 日志读取与筛选
 │   ├── FeedbackWindow.xaml/.cs              # 帮助与反馈窗口
 │   ├── CrashRecoveryPromptWindow.xaml/.cs   # 异常退出后的恢复提示
 │   ├── SharedSettingsStyles.xaml            # 反馈窗口复用的设置控件样式
+│   ├── SharedToolWindowStyles.xaml          # 工具窗口共享样式
 │   ├── FloatingWindowAnchor.cs              # 窗口锚点定位
 │   ├── FloatingWindowPlacement.cs           # 窗口位置管理
 │   ├── TrayPanelPlacement.cs                # 托盘面板位置计算（多显示器 DPI）
-│   └── FloatingStatusMessage.cs             # 状态消息
+│   ├── FloatingStatusMessage.cs             # 状态消息
+│   └── TransientButtonFeedback.cs           # 瞬态按钮反馈
 ├── Assets/                # 应用图标资源
 ├── app.manifest           # Windows 应用清单
 ├── AssemblyInfo.cs        # 程序集信息声明

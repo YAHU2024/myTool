@@ -255,6 +255,7 @@ QuickTranslate/
 │   ├── SelectionCapturePolicy.cs            # Selection-copy safety policy
 │   ├── UiaCircuitBreaker.cs                 # UIA failure breaker and recovery
 │   ├── CopyShortcut.cs                      # Copy shortcut helper
+│   ├── AnalysisConversationFormatter.cs     # Analysis follow-up conversation formatting
 │   ├── AutoScrollController.cs              # Streaming auto-scroll (pause/resume on user action)
 │   ├── LatestRequestCoordinator.cs          # latest-request-wins request coordination
 │   ├── LatestPresentationCoordinator.cs     # Presentation identity coordination
@@ -267,12 +268,18 @@ QuickTranslate/
 │   ├── WordLookupSessionCoordinator.cs      # Lookup session race-condition guard
 │   ├── WordLookupTextFormatter.cs           # Lookup result text formatter
 │   ├── RecentLookupBuffer.cs                # Recent lookup buffer
+│   ├── ReasoningSummaryAccumulator.cs       # Reasoning summary accumulation (cap enforcement)
+│   ├── StreamingCompositionMetrics.cs       # Streaming composition metrics
+│   ├── StreamingDispatcherMetrics.cs        # Streaming dispatch metrics
+│   ├── StreamingPresentationPump.cs         # Streaming presentation frame pump (coalescing/publishing)
+│   ├── StreamingRuntimeMetrics.cs           # Streaming runtime metrics
 │   └── TtsPlaybackCoordinator.cs            # TTS playback coordination (multi-owner, busy avoidance)
 ├── Database/              # Persistence layer
 │   ├── TranslationRecord.cs                 # Translation history model
 │   └── TranslationDbContext.cs              # EF Core SQLite context
 ├── Services/              # Business services
 │   ├── ITranslationService.cs               # Translation service interface
+│   ├── TranslationStreamEvent.cs            # Streaming event kinds (started / content delta / reasoning delta / completed)
 │   ├── OpenAITranslationService.cs          # OpenAI-compatible streaming translation
 │   ├── ProviderKind.cs                      # Official API host and provider parsing
 │   ├── ProviderModelCapabilities.cs         # Shared model capability descriptor
@@ -313,7 +320,9 @@ QuickTranslate/
 │   ├── TranslationDirectionDecision.cs      # Translation direction decision result
 │   ├── FloatingResultSession.cs             # Multi-mode session state
 │   ├── AnalysisPromptProfile.cs             # Custom analysis profile
+│   ├── AnalysisFollowUpRequest.cs           # Analysis follow-up request and semantic snapshot
 │   ├── TranslationTriggerMode.cs            # Translation trigger mode enum
+│   ├── ThinkingModePreference.cs            # Thinking-mode preference
 │   ├── FeedbackModels.cs                    # Feedback draft, diagnostics, and field models
 │   └── WordLookupModels.cs                  # Word lookup result models (definition / phonetic / example / collocation)
 ├── Helpers/               # Utilities
@@ -321,6 +330,7 @@ QuickTranslate/
 │   ├── Logger.cs                            # Async logger (JSON Lines / rotation / cleanup)
 │   ├── LogEvent.cs                          # Structured log event model
 │   ├── MarkdownRenderer.cs                  # Safe Markdown renderer
+│   ├── StreamingMarkdownRenderer.cs         # Streaming Markdown renderer
 │   ├── CodeSyntaxHighlighter.cs             # Local code-block syntax highlighting
 │   ├── Win32Api.cs                          # Win32 P/Invoke declarations
 │   ├── DpiHelper.cs                         # DPI coordinate conversion
@@ -328,6 +338,7 @@ QuickTranslate/
 │   └── AuthenticodeVerifier.cs              # Installer digital-signature verification
 ├── UI/                    # User interface
 │   ├── FloatingWindow.xaml/.cs              # Floating window (multi-mode / Markdown / TTS / pin)
+│   ├── MarkdownInteraction.cs               # Markdown interaction helper
 │   ├── RedDotWindow.xaml/.cs                # Red-dot guidance window
 │   ├── QuickLookupWindow.xaml/.cs           # Quick lookup window (structured definitions / speech)
 │   ├── TrayIconManager.cs                   # System tray (context menu / toast)
@@ -337,14 +348,17 @@ QuickTranslate/
 │   ├── ModelSelectorControl.xaml/.cs        # Current-session model selector
 │   ├── HistoryWindow.xaml/.cs               # Translation history viewer
 │   ├── LogViewerWindow.xaml/.cs             # Log viewer
+│   ├── ThoughtBlockView.cs                  # Thought-block view
 │   ├── LogEntryReader.cs                    # Log reading and filtering
 │   ├── FeedbackWindow.xaml/.cs              # Help and feedback window
 │   ├── CrashRecoveryPromptWindow.xaml/.cs   # Unclean-exit recovery prompt
 │   ├── SharedSettingsStyles.xaml            # Settings control styles reused by feedback UI
+│   ├── SharedToolWindowStyles.xaml          # Shared tool-window styles
 │   ├── FloatingWindowAnchor.cs              # Window anchor positioning
 │   ├── FloatingWindowPlacement.cs           # Window placement management
 │   ├── TrayPanelPlacement.cs                # Tray-panel placement for multi-monitor DPI
-│   └── FloatingStatusMessage.cs             # Status messages
+│   ├── FloatingStatusMessage.cs             # Status messages
+│   └── TransientButtonFeedback.cs           # Transient button feedback
 ├── Assets/                # App icon resources
 ├── app.manifest           # Windows application manifest
 ├── AssemblyInfo.cs        # Assembly metadata declarations
