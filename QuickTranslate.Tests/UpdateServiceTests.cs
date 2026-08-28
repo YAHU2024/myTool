@@ -27,6 +27,40 @@ public sealed class UpdateServiceTests : IDisposable
         // Restore production adapter (null triggers creation of real one on next Configure)
         UpdateService.SetAdapterForTesting(new AutoUpdaterAdapter());
     }
+    [Theory]
+    [InlineData("https://github.com/YAHU2024/myTool/releases/tag/v1.9.2", "YAHU2024", "myTool", "v1.9.2")]
+    [InlineData("https://github.com/YAHU2024/myTool/releases/latest", "YAHU2024", "myTool", null)]
+    [InlineData("https://github.com/YAHU2024/myTool/releases/v1.9.2", "YAHU2024", "myTool", "v1.9.2")]
+    [InlineData("https://github.com/YAHU2024/myTool/releases/tag/v1.9.2-beta.1", "YAHU2024", "myTool", "v1.9.2-beta.1")]
+    [InlineData("https://github.com/other/repo/releases/tag/1.0", "other", "repo", "1.0")]
+    public void TryParseChangelogUrl_ExtractsOwnerRepoAndTag(
+        string url, string expectedOwner, string expectedRepo, string? expectedTag)
+    {
+        Assert.True(UpdateService.TryParseChangelogUrl(url, out var owner, out var repo, out var tag));
+        Assert.Equal(expectedOwner, owner);
+        Assert.Equal(expectedRepo, repo);
+        Assert.Equal(expectedTag, tag);
+    }
+
+    [Theory]
+    [InlineData("https://example.com/releases/tag/v1.0")]
+    [InlineData("not a url")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void TryParseChangelogUrl_RejectsInvalidUrls(string? url)
+    {
+        Assert.False(UpdateService.TryParseChangelogUrl(url, out _, out _, out _));
+    }
+
+    [Fact]
+    public void TryParseChangelogUrl_UnescapesTag()
+    {
+        Assert.True(UpdateService.TryParseChangelogUrl(
+            "https://github.com/YAHU2024/myTool/releases/tag/v1.0%2Bbuild1",
+            out _, out _, out var tag));
+        Assert.Equal("v1.0+build1", tag);
+    }
+
     [Fact]
     public void CheckForUpdateOnStartup_DefaultsToTrue()
     {

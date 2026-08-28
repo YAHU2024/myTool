@@ -1,16 +1,14 @@
 using System;
 using System.Diagnostics;
-using System.IO;
-using System.Runtime.InteropServices;
 using System.Windows;
-using Microsoft.Web.WebView2.Core;
 using QuickTranslate.Helpers;
+using QuickTranslate.Services;
 
 namespace QuickTranslate.UI;
 
 /// <summary>
 /// Confirmation window shown when a new version is detected.
-/// Displays version info and renders the changelog URL in WebView2.
+/// Displays version info and renders the latest release notes (Markdown) locally.
 /// </summary>
 /// <remarks>
 /// The window adapts to mandatory updates: when <see cref="Mandatory"/> is
@@ -20,7 +18,6 @@ namespace QuickTranslate.UI;
 public partial class UpdateAvailableWindow : Window
 {
     private readonly Uri? _changelogUri;
-    private bool _ignoreNextCanceledNavigation;
     private bool _isClosed;
 
     /// <summary>
@@ -79,123 +76,40 @@ public partial class UpdateAvailableWindow : Window
             return;
         }
 
+        MarkdownInteraction.ConfigureSelectableHost(ChangelogBox, "更新说明");
+
         try
         {
-            var userDataFolder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "QuickTranslate",
-                "WebView2");
-            var environment = await CoreWebView2Environment.CreateAsync(
-                browserExecutableFolder: null,
-                userDataFolder: userDataFolder);
-
+            var markdown = await UpdateService.FetchReleaseNotesMarkdownAsync(
+                _changelogUri.AbsoluteUri);
             if (_isClosed)
                 return;
 
-            await ChangelogBrowser.EnsureCoreWebView2Async(environment);
-            if (_isClosed)
+            if (string.IsNullOrWhiteSpace(markdown))
+            {
+                ShowChangelogError(
+                    "无法获取更新说明",
+                    "请检查网络连接，可直接点击「立即更新」开始安装，或在浏览器中查看。",
+                    canOpenExternally: true);
                 return;
+            }
 
-            ConfigureBrowser();
-            ChangelogBrowser.Source = _changelogUri;
-        }
-        catch (Exception) when (_isClosed)
-        {
-            // Closing the window can interrupt WebView2 initialization.
-        }
-        catch (Exception ex) when (ex is WebView2RuntimeNotFoundException or InvalidOperationException or COMException)
-        {
-            Logger.Warn("Update", "update.changelog_browser_unavailable", new { error_type = ex.GetType().Name });
-            ShowChangelogError(
-                "无法加载更新说明",
-                "WebView2 不可用，可以改用系统浏览器查看。",
-                canOpenExternally: true);
+            var result = MarkdownRenderer.RenderDetailed(markdown);
+            ChangelogBox.Document = result.Document;
+            ChangelogStatusPanel.Visibility = Visibility.Collapsed;
+            ChangelogBox.Visibility = Visibility.Visible;
         }
         catch (Exception ex)
         {
-            Logger.Warn("Update", "update.changelog_browser_failed", new { error_type = ex.GetType().Name });
+            if (_isClosed)
+                return;
+
+            Logger.Warn("Update", "update.changelog_render_failed", new { error_type = ex.GetType().Name });
             ShowChangelogError(
-                "无法加载更新说明",
-                "内嵌页面初始化失败，可以改用系统浏览器查看。",
+                "无法显示更新说明",
+                "可以改用系统浏览器查看。",
                 canOpenExternally: true);
         }
-    }
-
-    private void ConfigureBrowser()
-    {
-        var settings = ChangelogBrowser.CoreWebView2.Settings;
-        settings.AreDefaultContextMenusEnabled = false;
-        settings.AreDevToolsEnabled = false;
-        settings.IsStatusBarEnabled = false;
-        settings.IsZoomControlEnabled = false;
-        ChangelogBrowser.CoreWebView2.NewWindowRequested += ChangelogBrowser_NewWindowRequested;
-    }
-
-    private void ChangelogBrowser_NavigationStarting(
-        object? sender,
-        CoreWebView2NavigationStartingEventArgs e)
-    {
-        if (!TryGetSafeChangelogUri(e.Uri, out _))
-        {
-            _ignoreNextCanceledNavigation = true;
-            e.Cancel = true;
-            Logger.Warn("Update", "update.changelog_navigation_rejected", new { });
-            ShowChangelogError(
-                "更新说明地址不安全",
-                "页面尝试跳转到非 HTTPS 地址，已阻止加载。",
-                canOpenExternally: true);
-            return;
-        }
-
-        if (!e.IsUserInitiated)
-            return;
-
-        _ignoreNextCanceledNavigation = true;
-        e.Cancel = true;
-        OpenExternalUri(e.Uri);
-    }
-
-    private void ChangelogBrowser_NewWindowRequested(
-        object? sender,
-        CoreWebView2NewWindowRequestedEventArgs e)
-    {
-        e.Handled = true;
-        if (e.IsUserInitiated)
-            OpenExternalUri(e.Uri);
-    }
-
-    private void ChangelogBrowser_NavigationCompleted(
-        object? sender,
-        CoreWebView2NavigationCompletedEventArgs e)
-    {
-        if (e.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled &&
-            _ignoreNextCanceledNavigation)
-        {
-            _ignoreNextCanceledNavigation = false;
-            return;
-        }
-
-        _ignoreNextCanceledNavigation = false;
-
-        if (_isClosed || e.IsSuccess)
-        {
-            if (!_isClosed)
-            {
-                ChangelogStatusPanel.Visibility = Visibility.Collapsed;
-                ChangelogBrowser.Visibility = Visibility.Visible;
-            }
-            return;
-        }
-
-        Logger.Warn("Update", "update.changelog_navigation_failed", new
-        {
-            web_error_status = e.WebErrorStatus.ToString(),
-            http_status = e.HttpStatusCode
-        });
-        ShowChangelogError(
-            "更新说明加载失败",
-            "请检查网络连接，或改用系统浏览器查看。",
-            canOpenExternally: true);
     }
 
     private void ShowChangelogError(string title, string detail, bool canOpenExternally)
@@ -203,7 +117,7 @@ public partial class UpdateAvailableWindow : Window
         if (_isClosed)
             return;
 
-        ChangelogBrowser.Visibility = Visibility.Collapsed;
+        ChangelogBox.Visibility = Visibility.Collapsed;
         ChangelogStatusPanel.Visibility = Visibility.Visible;
         ChangelogLoadingBar.Visibility = Visibility.Collapsed;
         ChangelogStatusTitle.Text = title;
@@ -257,16 +171,9 @@ public partial class UpdateAvailableWindow : Window
         Close();
     }
 
-    /// <summary>
-    /// Clean up WebView2 resources when the window is closing.
-    /// </summary>
     protected override void OnClosed(EventArgs e)
     {
         _isClosed = true;
-        if (ChangelogBrowser.CoreWebView2 is not null)
-            ChangelogBrowser.CoreWebView2.NewWindowRequested -= ChangelogBrowser_NewWindowRequested;
-        ChangelogBrowser.Dispose();
-
         base.OnClosed(e);
     }
 }

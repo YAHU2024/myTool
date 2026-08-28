@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Http;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -422,6 +423,89 @@ public static class UpdateService
         if (window.UpdateConfirmed)
         {
             _ = DownloadAndInstallAsync(args, owner);
+        }
+    }
+
+    /// <summary>
+    /// 从 GitHub release 页面 URL 解析仓库 owner/repo 与 tag。
+    /// 支持 <c>.../releases/tag/{tag}</c>、<c>.../releases/latest</c> 与
+    /// <c>.../releases/{tag}</c> 三种形态。解析失败返回 false。
+    /// </summary>
+    internal static bool TryParseChangelogUrl(
+        string? value,
+        out string owner,
+        out string repo,
+        out string? tag)
+    {
+        owner = repo = string.Empty;
+        tag = null;
+
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
+            !string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 2)
+            return false;
+
+        owner = Uri.UnescapeDataString(segments[0]);
+        repo = Uri.UnescapeDataString(segments[1]);
+
+        if (segments.Length >= 4 &&
+            string.Equals(segments[2], "releases", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.Equals(segments[3], "tag", StringComparison.OrdinalIgnoreCase))
+            {
+                if (segments.Length >= 5)
+                    tag = Uri.UnescapeDataString(segments[4]);
+            }
+            else if (!string.Equals(segments[3], "latest", StringComparison.OrdinalIgnoreCase))
+            {
+                tag = Uri.UnescapeDataString(segments[3]);
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 从 GitHub API 拉取指定 release 的说明（Markdown body），供更新窗口内嵌展示。
+    /// 网络失败、404 或限流时返回 null，由调用方降级为浏览器查看。
+    /// </summary>
+    internal static async Task<string?> FetchReleaseNotesMarkdownAsync(
+        string? changelogUrl,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryParseChangelogUrl(changelogUrl, out var owner, out var repo, out var tag))
+            return null;
+
+        var endpoint = string.IsNullOrWhiteSpace(tag)
+            ? $"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+            : $"https://api.github.com/repos/{owner}/{repo}/releases/tags/{Uri.EscapeDataString(tag)}";
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+            request.Headers.TryAddWithoutValidation("User-Agent", "QuickTranslate");
+            request.Headers.TryAddWithoutValidation("Accept", "application/vnd.github+json");
+
+            using var response = await HttpClient.SendAsync(request, timeoutCts.Token);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            await using var stream = await response.Content.ReadAsStreamAsync(timeoutCts.Token);
+            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: timeoutCts.Token);
+            return json.RootElement.TryGetProperty("body", out var body)
+                ? body.GetString()
+                : null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            Logger.Warn("Update", "update.changelog_fetch_failed", new { error_type = ex.GetType().Name });
+            return null;
         }
     }
 
