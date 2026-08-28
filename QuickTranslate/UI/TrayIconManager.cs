@@ -16,6 +16,8 @@ namespace QuickTranslate.UI
         private readonly System.Windows.Forms.Timer _singleClickTimer;
         private readonly ToolStripMenuItem _pauseResumeItem;
         private readonly ToolStripMenuItem _restoreItem;
+        private Icon _iconNormal;
+        private Icon _iconPaused;
         private bool _isPaused;
         private bool _disposed;
 
@@ -105,10 +107,12 @@ namespace QuickTranslate.UI
             _contextMenu.Items.Add(new ToolStripSeparator());
             _contextMenu.Items.Add(exitItem);
 
-            // 创建托盘图标
+            // 创建托盘图标（彩色为主图标，暂停翻译时切换为白色副图标）
+            _iconNormal = LoadTrayIcon("Assets/QuickTranslate.ico", Color.FromArgb(124, 58, 237));
+            _iconPaused = LoadTrayIcon("Assets/QuickTranslate-white.ico", Color.FromArgb(148, 163, 184));
             _notifyIcon = new NotifyIcon
             {
-                Icon = CreateDefaultIcon(),
+                Icon = _iconNormal,
                 Text = "QuickTranslate - 划词翻译",
                 ContextMenuStrip = _contextMenu,
                 Visible = true
@@ -139,14 +143,14 @@ namespace QuickTranslate.UI
         }
 
         /// <summary>
-        /// 创建默认托盘图标（紫色圆形 + "Q" 字母）
+        /// 从打包资源加载托盘图标；资源不可用时回退到绘制的圆形 + "Q" 图标。
         /// </summary>
-        private static Icon CreateDefaultIcon()
+        private static Icon LoadTrayIcon(string resourcePath, Color fallbackColor)
         {
             try
             {
                 var resource = System.Windows.Application.GetResourceStream(
-                    new Uri("/QuickTranslate;component/Assets/QuickTranslate.ico", UriKind.Relative));
+                    new Uri($"/QuickTranslate;component/{resourcePath}", UriKind.Relative));
                 if (resource is not null)
                 {
                     using var source = new Icon(resource.Stream);
@@ -164,11 +168,10 @@ namespace QuickTranslate.UI
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                 g.Clear(Color.Transparent);
 
-                // 紫色圆形背景
-                using var brush = new SolidBrush(Color.FromArgb(124, 58, 237)); // #7C3AED
+                // 回退：圆底 + "Q" 字母
+                using var brush = new SolidBrush(fallbackColor);
                 g.FillEllipse(brush, 1, 1, 30, 30);
 
-                // 白色 "Q" 字母
                 using var font = new System.Drawing.Font("Segoe UI", 16, System.Drawing.FontStyle.Bold);
                 using var textBrush = new SolidBrush(Color.White);
                 var sf = new StringFormat
@@ -216,6 +219,7 @@ namespace QuickTranslate.UI
         {
             _isPaused = isPaused;
             _pauseResumeItem.Text = _isPaused ? "恢复翻译" : "暂停翻译";
+            _notifyIcon.Icon = _isPaused ? _iconPaused : _iconNormal;
             if (raiseEvent)
                 PauseToggled?.Invoke(_isPaused);
         }
@@ -257,6 +261,12 @@ namespace QuickTranslate.UI
             catch { /* ignore */ }
 
             try { _notifyIcon.Dispose(); }
+            catch { /* ignore */ }
+
+            try { _iconNormal?.Dispose(); }
+            catch { /* ignore */ }
+
+            try { _iconPaused?.Dispose(); }
             catch { /* ignore */ }
 
             try { _contextMenu.Dispose(); }

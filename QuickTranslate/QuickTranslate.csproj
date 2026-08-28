@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <Resource Include="Assets\QuickTranslate.ico" />
+    <Resource Include="Assets\QuickTranslate-white.ico" />
   </ItemGroup>
 
   <ItemGroup>
