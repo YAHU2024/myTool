@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="QuickTranslate 更新" Height="220" Width="420"
         ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
-        WindowStyle="ToolWindow" ShowInTaskbar="False"
+        ShowInTaskbar="False"
         Topmost="True">
     <Grid Margin="16">
         <Grid.RowDefinitions>

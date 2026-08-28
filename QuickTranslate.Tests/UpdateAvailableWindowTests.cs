@@ -51,7 +51,7 @@ public sealed class UpdateAvailableWindowTests
             {
                 Assert.Equal("1.8.7", window.CurrentVersionText.Text);
                 Assert.Equal("1.9.0", window.NewVersionText.Text);
-                Assert.Equal(Visibility.Collapsed, window.ChangelogBox.Visibility);
+                Assert.Equal(Visibility.Collapsed, window.ChangelogBrowser.Visibility);
                 Assert.Equal(Visibility.Visible, window.ChangelogStatusPanel.Visibility);
                 Assert.Equal(Visibility.Visible, window.ChangelogLoadingBar.Visibility);
                 Assert.Equal(Visibility.Collapsed, window.OpenInBrowserButton.Visibility);
@@ -75,8 +75,8 @@ public sealed class UpdateAvailableWindowTests
 
             try
             {
-                Assert.Equal(Visibility.Collapsed, window.SkipButton.Visibility);
                 Assert.Equal(Visibility.Collapsed, window.RemindLaterButton.Visibility);
+                Assert.Equal(Visibility.Visible, window.OpenGitHubButton.Visibility);
                 Assert.Equal(Visibility.Visible, window.UpdateButton.Visibility);
             }
             finally

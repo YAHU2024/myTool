@@ -469,42 +469,57 @@ public static class UpdateService
     }
 
     /// <summary>
-    /// 从 GitHub API 拉取指定 release 的说明（Markdown body），供更新窗口内嵌展示。
-    /// 网络失败、404 或限流时返回 null，由调用方降级为浏览器查看。
+    /// 拉取最新 release 的说明（GitHub 渲染后的 HTML 片段），供更新窗口内嵌展示。
+    /// 数据源为 github.com 域的 <c>releases.atom</c>（网页域无 API 限流），
+    /// 规避 api.github.com 匿名限流（60 次/小时/IP，共享节点下频繁 403）。
+    /// 网络失败、解析失败时返回 null，由调用方降级为浏览器查看。
     /// </summary>
-    internal static async Task<string?> FetchReleaseNotesMarkdownAsync(
+    internal static async Task<string?> FetchReleaseNotesHtmlAsync(
         string? changelogUrl,
         CancellationToken cancellationToken = default)
     {
-        if (!TryParseChangelogUrl(changelogUrl, out var owner, out var repo, out var tag))
+        if (!TryParseChangelogUrl(changelogUrl, out var owner, out var repo, out _))
+        {
+            Logger.Warn("Update", "update.changelog_parse_failed", new { changelog_url = changelogUrl });
             return null;
+        }
 
-        var endpoint = string.IsNullOrWhiteSpace(tag)
-            ? $"https://api.github.com/repos/{owner}/{repo}/releases/latest"
-            : $"https://api.github.com/repos/{owner}/{repo}/releases/tags/{Uri.EscapeDataString(tag)}";
+        var atomUrl = $"https://github.com/{owner}/{repo}/releases.atom";
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+            using var request = new HttpRequestMessage(HttpMethod.Get, atomUrl);
             request.Headers.TryAddWithoutValidation("User-Agent", "QuickTranslate");
-            request.Headers.TryAddWithoutValidation("Accept", "application/vnd.github+json");
+            request.Headers.TryAddWithoutValidation("Accept", "application/atom+xml");
 
             using var response = await HttpClient.SendAsync(request, timeoutCts.Token);
             if (!response.IsSuccessStatusCode)
+            {
+                Logger.Warn("Update", "update.changelog_fetch_http_error",
+                    new { endpoint = atomUrl, status_code = (int)response.StatusCode });
                 return null;
+            }
 
-            await using var stream = await response.Content.ReadAsStreamAsync(timeoutCts.Token);
-            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: timeoutCts.Token);
-            return json.RootElement.TryGetProperty("body", out var body)
-                ? body.GetString()
-                : null;
+            var atomXml = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+            XNamespace ns = "http://www.w3.org/2005/Atom";
+            var doc = XDocument.Parse(atomXml);
+            var firstEntry = doc.Descendants(ns + "entry").FirstOrDefault();
+            var contentHtml = firstEntry?.Element(ns + "content")?.Value;
+            if (string.IsNullOrWhiteSpace(contentHtml))
+            {
+                Logger.Warn("Update", "update.changelog_empty_body", new { endpoint = atomUrl });
+                return null;
+            }
+
+            return contentHtml;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Xml.XmlException or JsonException)
         {
-            Logger.Warn("Update", "update.changelog_fetch_failed", new { error_type = ex.GetType().Name });
+            Logger.Warn("Update", "update.changelog_fetch_failed",
+                new { endpoint = atomUrl, error_type = ex.GetType().Name });
             return null;
         }
     }
