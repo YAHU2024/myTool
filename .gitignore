@@ -57,3 +57,8 @@ AGENTS.md
 
 ## Test output
 **/TestResults/
+
+## Site generated assets (synced from docs/images by scripts/sync-site-assets.py)
+site/assets/img/*
+!site/assets/img/.gitkeep
+!site/assets/img/brand-logo.ico

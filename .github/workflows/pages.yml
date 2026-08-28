@@ -25,6 +25,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Sync site assets (docs/images -> site/assets/img)
+        run: python3 scripts/sync-site-assets.py --sync
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
