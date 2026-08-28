@@ -248,14 +248,18 @@ namespace QuickTranslate.UI
                 }
             }
 
-            ModelComboBox.Text = _settings.ModelName;
             var current = _settings.SavedConfigs.FirstOrDefault(config =>
-                string.Equals(config.ModelName, _settings.ModelName, StringComparison.Ordinal) &&
-                string.Equals(config.ApiBaseUrl.TrimEnd('/'), _settings.ApiBaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(config.ApiKey, _settings.ApiKey, StringComparison.Ordinal));
+                IsCurrentActiveConfig(config, _settings));
             ModelAliasTextBox.Text = current is null
                 ? string.Empty
                 : ModelProfileCatalog.ResolveLegacyAlias(current);
+
+            // 高亮当前生效的已保存配置；预置与自由输入不定位（避免误触发预置分支清空 API Key）
+            ModelComboBox.SelectedItem = current is null
+                ? null
+                : ModelComboBox.Items.OfType<ComboBoxItem>()
+                    .FirstOrDefault(item => ReferenceEquals(item.Tag, current));
+            ModelComboBox.Text = _settings.ModelName;
         }
 
         private void AddModelGroupHeader(string title)
@@ -582,18 +586,29 @@ namespace QuickTranslate.UI
             if (confirmResult != MessageBoxResult.Yes)
                 return;
 
+            var isCurrent = IsCurrentActiveConfig(config, _settings);
             _settings.SavedConfigs.Remove(config);
             DeleteConfigButton.IsEnabled = false;
             _isDirty = true;
 
-            // 刷新模型下拉框
+            // 删除当前生效配置时，将当前模型重定位到剩余配置或预置默认，
+            // 避免下拉框残留已删除名称，并防止保存时被重新写回（复活）。
+            if (isCurrent)
+                RebaseCurrentModelAfterDelete(_settings);
+
+            // 刷新模型下拉框（内部会高亮剩余配置并回填 URL/Key/Alias）
             RefreshModelComboBox();
 
-            // 清空输入框
-            ApiBaseUrlTextBox.Text = string.Empty;
-            ApiKeyPasswordBox.Password = string.Empty;
-            ApiKeyVisibleTextBox.Text = string.Empty;
-            ModelAliasTextBox.Text = string.Empty;
+            // 回退到预置默认时下拉框无选中项，手动回填基础配置
+            if (isCurrent && _settings.SavedConfigs.Count == 0)
+            {
+                var preset = ProviderPresetCatalog.Default;
+                ApiBaseUrlTextBox.Text = preset.ApiBaseUrl;
+                ApiKeyPasswordBox.Password = string.Empty;
+                ApiKeyVisibleTextBox.Text = string.Empty;
+                ModelAliasTextBox.Text = string.Empty;
+                RefreshThinkingModeAvailability();
+            }
 
             // 显示反馈
             ModelFeedbackText.Text = $"已删除 {modelName}";
@@ -608,6 +623,42 @@ namespace QuickTranslate.UI
                 timer.Stop();
             };
             timer.Start();
+        }
+
+        /// <summary>
+        /// 判断配置是否为当前生效模型（模型名、Base URL、API Key 三要素全等；
+        /// Base URL 忽略末尾斜杠与大小写）。
+        /// </summary>
+        internal static bool IsCurrentActiveConfig(SavedConfig config, AppSettings settings) =>
+            string.Equals(config.ModelName, settings.ModelName, StringComparison.Ordinal) &&
+            string.Equals(
+                (config.ApiBaseUrl ?? string.Empty).TrimEnd('/'),
+                (settings.ApiBaseUrl ?? string.Empty).TrimEnd('/'),
+                StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(config.ApiKey, settings.ApiKey, StringComparison.Ordinal);
+
+        /// <summary>
+        /// 删除当前生效配置后，将当前模型重定位到剩余最近使用配置；
+        /// 无剩余时回退供应商预置默认（API Key 清空、思考模式跟随默认）。
+        /// 调用前提：被删配置已从 SavedConfigs 移除。
+        /// </summary>
+        internal static void RebaseCurrentModelAfterDelete(AppSettings settings)
+        {
+            var fallback = settings.SavedConfigs.FirstOrDefault();
+            if (fallback != null)
+            {
+                settings.ModelName = fallback.ModelName ?? string.Empty;
+                settings.ApiBaseUrl = fallback.ApiBaseUrl ?? string.Empty;
+                settings.ApiKey = fallback.ApiKey ?? string.Empty;
+                settings.ThinkingMode = ThinkingModePreferences.Normalize(fallback.ThinkingMode);
+                return;
+            }
+
+            var preset = ProviderPresetCatalog.Default;
+            settings.ModelName = preset.ModelName;
+            settings.ApiBaseUrl = preset.ApiBaseUrl;
+            settings.ApiKey = string.Empty;
+            settings.ThinkingMode = ThinkingModePreference.FollowProviderDefault;
         }
 
         /// <summary>
