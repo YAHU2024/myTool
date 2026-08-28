@@ -4,18 +4,17 @@
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="QuickTranslate 更新" Height="500" Width="520"
         ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
-        WindowStyle="ToolWindow" ShowInTaskbar="False"
+        ShowInTaskbar="False"
         Topmost="True"
         Background="#16191F"
         Foreground="#F2F4F7"
         FontFamily="Microsoft YaHei UI">
     <Window.Resources>
-        <SolidColorBrush x:Key="SurfaceBrush" Color="#20252D"/>
-        <SolidColorBrush x:Key="BorderBrush" Color="#343D49"/>
-        <SolidColorBrush x:Key="PrimaryBrush" Color="#4DB6AC"/>
-        <SolidColorBrush x:Key="PrimaryHoverBrush" Color="#66C7BD"/>
-        <SolidColorBrush x:Key="TextBrush" Color="#F2F4F7"/>
-        <SolidColorBrush x:Key="MutedTextBrush" Color="#A4AFBC"/>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/QuickTranslate;component/UI/SharedSettingsStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Window.Resources>
 
     <Grid Margin="20">
@@ -66,6 +65,7 @@
             <Grid>
                 <wv2:WebView2 x:Name="ChangelogBrowser"
                               Visibility="Collapsed"
+                              Margin="10,6,10,14"
                               NavigationStarting="ChangelogBrowser_NavigationStarting"
                               NavigationCompleted="ChangelogBrowser_NavigationCompleted"/>
 
@@ -82,12 +82,12 @@
                                  Background="{StaticResource BorderBrush}"
                                  Margin="0,0,0,16"/>
                     <TextBlock x:Name="ChangelogStatusTitle"
-                               Text="正在加载更新说明"
+                               Text="正在获取更新说明"
                                Foreground="{StaticResource TextBrush}"
                                FontSize="14" FontWeight="SemiBold"
                                TextAlignment="Center"/>
                     <TextBlock x:Name="ChangelogStatusDetail"
-                               Text="正在连接更新说明页面..."
+                               Text="正在连接更新说明服务器，可直接点击「立即更新」开始安装。"
                                Foreground="{StaticResource MutedTextBrush}"
                                FontSize="12" TextAlignment="Center"
                                TextWrapping="Wrap" Margin="0,8,0,0"/>
@@ -126,86 +126,16 @@
 
         <!-- 底部按钮 -->
         <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="SkipButton" Content="跳过此版本" Width="100" Height="32"
-                    Click="SkipButton_Click" Margin="0,0,10,0">
-                <Button.Style>
-                    <Style TargetType="Button">
-                        <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
-                        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
-                        <Setter Property="BorderThickness" Value="1"/>
-                        <Setter Property="Cursor" Value="Hand"/>
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}"
-                                            BorderBrush="{TemplateBinding BorderBrush}"
-                                            BorderThickness="{TemplateBinding BorderThickness}"
-                                            CornerRadius="4" Padding="16,6">
-                                        <ContentPresenter HorizontalAlignment="Center"
-                                                          VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                    </Style>
-                </Button.Style>
-            </Button>
+            <Button x:Name="OpenGitHubButton" Content="在 GitHub 中打开"
+                    Style="{StaticResource SecondaryButton}" Margin="0,0,10,0"
+                    Click="OpenGitHubButton_Click"/>
 
-            <Button x:Name="RemindLaterButton" Content="稍后提醒" Width="90" Height="32"
-                    Click="RemindLaterButton_Click" Margin="0,0,10,0">
-                <Button.Style>
-                    <Style TargetType="Button">
-                        <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-                        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/>
-                        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
-                        <Setter Property="BorderThickness" Value="1"/>
-                        <Setter Property="Cursor" Value="Hand"/>
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}"
-                                            BorderBrush="{TemplateBinding BorderBrush}"
-                                            BorderThickness="{TemplateBinding BorderThickness}"
-                                            CornerRadius="4" Padding="16,6">
-                                        <ContentPresenter HorizontalAlignment="Center"
-                                                          VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                    </Style>
-                </Button.Style>
-            </Button>
+            <Button x:Name="RemindLaterButton" Content="稍后提醒"
+                    Style="{StaticResource SecondaryButton}" Margin="0,0,10,0"
+                    Click="RemindLaterButton_Click"/>
 
-            <Button x:Name="UpdateButton" Content="立即更新" Width="90" Height="32"
-                    Click="UpdateButton_Click">
-                <Button.Style>
-                    <Style TargetType="Button">
-                        <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
-                        <Setter Property="Foreground" Value="#16191F"/>
-                        <Setter Property="FontWeight" Value="SemiBold"/>
-                        <Setter Property="BorderThickness" Value="0"/>
-                        <Setter Property="Cursor" Value="Hand"/>
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}"
-                                            CornerRadius="4" Padding="16,6">
-                                        <ContentPresenter HorizontalAlignment="Center"
-                                                          VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                        <Style.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="{StaticResource PrimaryHoverBrush}"/>
-                            </Trigger>
-                        </Style.Triggers>
-                    </Style>
-                </Button.Style>
-            </Button>
+            <Button x:Name="UpdateButton" Content="立即更新"
+                    Style="{StaticResource PrimaryButton}" Click="UpdateButton_Click"/>
         </StackPanel>
     </Grid>
 </Window>

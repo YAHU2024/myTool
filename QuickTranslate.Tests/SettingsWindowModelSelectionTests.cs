@@ -134,6 +134,88 @@ public sealed class SettingsWindowModelSelectionTests
         });
     }
 
+    [Theory]
+    [InlineData("gpt-4o-mini", "https://api.openai.com/v1", "key-a", "gpt-4o-mini", "https://api.openai.com/v1", "key-a", true)]
+    [InlineData("gpt-4o-mini", "https://api.openai.com/v1/", "key-a", "gpt-4o-mini", "https://api.openai.com/v1", "key-a", true)]
+    [InlineData("gpt-4o-mini", "https://api.openai.com/v1", "key-a", "gpt-4o-mini", "https://api.openai.com/V1", "key-a", true)]
+    [InlineData("gpt-4o-mini", "https://api.openai.com/v1", "key-a", "gpt-4o-mini", "https://api.openai.com/v1", "key-b", false)]
+    [InlineData("gpt-4o-mini", "https://api.openai.com/v1", "key-a", "gpt-4o", "https://api.openai.com/v1", "key-a", false)]
+    [InlineData("gpt-4o-mini", "https://api.openai.com/v1", "key-a", "gpt-4o-mini", "https://other.example/v1", "key-a", false)]
+    public void IsCurrentActiveConfig_MatchesOnModelUrlKeyTriple(
+        string configModel,
+        string configUrl,
+        string configKey,
+        string settingModel,
+        string settingUrl,
+        string settingKey,
+        bool expected)
+    {
+        var config = new SavedConfig { ModelName = configModel, ApiBaseUrl = configUrl, ApiKey = configKey };
+        var settings = new AppSettings { ModelName = settingModel, ApiBaseUrl = settingUrl, ApiKey = settingKey };
+
+        Assert.Equal(expected, SettingsWindow.IsCurrentActiveConfig(config, settings));
+    }
+
+    [Fact]
+    public void RebaseCurrentModelAfterDelete_FallsBackToMostRecentRemainingConfig()
+    {
+        var remaining = new SavedConfig
+        {
+            ModelName = "glm-4.7-flash",
+            ApiBaseUrl = "https://api.zhipuai.cn/v1",
+            ApiKey = "zhipu-key",
+            ThinkingMode = ThinkingModePreference.Disabled
+        };
+        var deleted = new SavedConfig
+        {
+            ModelName = "gpt-4o-mini",
+            ApiBaseUrl = "https://api.openai.com/v1",
+            ApiKey = "openai-key"
+        };
+        var settings = new AppSettings
+        {
+            ModelName = deleted.ModelName,
+            ApiBaseUrl = deleted.ApiBaseUrl,
+            ApiKey = deleted.ApiKey,
+            SavedConfigs = [remaining, deleted]
+        };
+
+        settings.SavedConfigs.Remove(deleted);
+        SettingsWindow.RebaseCurrentModelAfterDelete(settings);
+
+        Assert.Equal(remaining.ModelName, settings.ModelName);
+        Assert.Equal(remaining.ApiBaseUrl, settings.ApiBaseUrl);
+        Assert.Equal(remaining.ApiKey, settings.ApiKey);
+        Assert.Equal(ThinkingModePreference.Disabled, settings.ThinkingMode);
+    }
+
+    [Fact]
+    public void RebaseCurrentModelAfterDelete_FallsBackToPresetDefaultWhenNoConfigRemains()
+    {
+        var deleted = new SavedConfig
+        {
+            ModelName = "gpt-4o-mini",
+            ApiBaseUrl = "https://api.openai.com/v1",
+            ApiKey = "openai-key"
+        };
+        var settings = new AppSettings
+        {
+            ModelName = deleted.ModelName,
+            ApiBaseUrl = deleted.ApiBaseUrl,
+            ApiKey = deleted.ApiKey,
+            SavedConfigs = [deleted]
+        };
+
+        settings.SavedConfigs.Remove(deleted);
+        SettingsWindow.RebaseCurrentModelAfterDelete(settings);
+
+        var preset = ProviderPresetCatalog.Default;
+        Assert.Equal(preset.ModelName, settings.ModelName);
+        Assert.Equal(preset.ApiBaseUrl, settings.ApiBaseUrl);
+        Assert.Equal(string.Empty, settings.ApiKey);
+        Assert.Equal(ThinkingModePreference.FollowProviderDefault, settings.ThinkingMode);
+    }
+
     private static void RunOnSta(AppSettings settings, Action<SettingsWindow> assertion)
     {
         Exception? failure = null;

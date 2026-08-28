@@ -38,7 +38,7 @@ public sealed class UpdateAvailableWindowTests
     }
 
     [Fact]
-    public void Constructor_ShowsLoadingStateBeforeBrowserInitialization()
+    public void Constructor_ShowsLoadingStateBeforeChangelogRendered()
     {
         RunOnSta(() =>
         {
@@ -75,8 +75,8 @@ public sealed class UpdateAvailableWindowTests
 
             try
             {
-                Assert.Equal(Visibility.Collapsed, window.SkipButton.Visibility);
                 Assert.Equal(Visibility.Collapsed, window.RemindLaterButton.Visibility);
+                Assert.Equal(Visibility.Visible, window.OpenGitHubButton.Visibility);
                 Assert.Equal(Visibility.Visible, window.UpdateButton.Visibility);
             }
             finally

@@ -426,6 +426,104 @@ public static class UpdateService
     }
 
     /// <summary>
+    /// 从 GitHub release 页面 URL 解析仓库 owner/repo 与 tag。
+    /// 支持 <c>.../releases/tag/{tag}</c>、<c>.../releases/latest</c> 与
+    /// <c>.../releases/{tag}</c> 三种形态。解析失败返回 false。
+    /// </summary>
+    internal static bool TryParseChangelogUrl(
+        string? value,
+        out string owner,
+        out string repo,
+        out string? tag)
+    {
+        owner = repo = string.Empty;
+        tag = null;
+
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
+            !string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 2)
+            return false;
+
+        owner = Uri.UnescapeDataString(segments[0]);
+        repo = Uri.UnescapeDataString(segments[1]);
+
+        if (segments.Length >= 4 &&
+            string.Equals(segments[2], "releases", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.Equals(segments[3], "tag", StringComparison.OrdinalIgnoreCase))
+            {
+                if (segments.Length >= 5)
+                    tag = Uri.UnescapeDataString(segments[4]);
+            }
+            else if (!string.Equals(segments[3], "latest", StringComparison.OrdinalIgnoreCase))
+            {
+                tag = Uri.UnescapeDataString(segments[3]);
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 拉取最新 release 的说明（GitHub 渲染后的 HTML 片段），供更新窗口内嵌展示。
+    /// 数据源为 github.com 域的 <c>releases.atom</c>（网页域无 API 限流），
+    /// 规避 api.github.com 匿名限流（60 次/小时/IP，共享节点下频繁 403）。
+    /// 网络失败、解析失败时返回 null，由调用方降级为浏览器查看。
+    /// </summary>
+    internal static async Task<string?> FetchReleaseNotesHtmlAsync(
+        string? changelogUrl,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryParseChangelogUrl(changelogUrl, out var owner, out var repo, out _))
+        {
+            Logger.Warn("Update", "update.changelog_parse_failed", new { changelog_url = changelogUrl });
+            return null;
+        }
+
+        var atomUrl = $"https://github.com/{owner}/{repo}/releases.atom";
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, atomUrl);
+            request.Headers.TryAddWithoutValidation("User-Agent", "QuickTranslate");
+            request.Headers.TryAddWithoutValidation("Accept", "application/atom+xml");
+
+            using var response = await HttpClient.SendAsync(request, timeoutCts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                Logger.Warn("Update", "update.changelog_fetch_http_error",
+                    new { endpoint = atomUrl, status_code = (int)response.StatusCode });
+                return null;
+            }
+
+            var atomXml = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+            XNamespace ns = "http://www.w3.org/2005/Atom";
+            var doc = XDocument.Parse(atomXml);
+            var firstEntry = doc.Descendants(ns + "entry").FirstOrDefault();
+            var contentHtml = firstEntry?.Element(ns + "content")?.Value;
+            if (string.IsNullOrWhiteSpace(contentHtml))
+            {
+                Logger.Warn("Update", "update.changelog_empty_body", new { endpoint = atomUrl });
+                return null;
+            }
+
+            return contentHtml;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Xml.XmlException)
+        {
+            Logger.Warn("Update", "update.changelog_fetch_failed",
+                new { endpoint = atomUrl, error_type = ex.GetType().Name });
+            return null;
+        }
+    }
+
+    /// <summary>
     /// 下载安装包、验证 SHA256 和 Authenticode 签名，通过后启动安装程序。
     /// 这是独立信任链的核心实现。
     /// </summary>
