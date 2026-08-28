@@ -28,6 +28,8 @@
 - [Windows SDK SignTool](https://developer.microsoft.com/windows/downloads/windows-sdk/)（用于 Authenticode 签名，通常随 Visual Studio 安装）
 - 代码签名证书（`.pfx` 文件，私钥离线保管）
 
+> 发布前确认文档一致性：`python scripts/update-readme-tree.py --check`（README 项目结构由脚本维护，漂移会导致 CI 失败）。
+
 ---
 
 ## 第一步：更新版本号
