@@ -51,7 +51,7 @@ QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中�
 ### AI 划词翻译 · 红点引导
 
 <p align="center">
-  <img src="docs/images/红点翻译功能展示.gif" alt="划词翻译演示" width="85%">
+  <img src="docs/images/red-dot-demo.gif" alt="划词翻译演示" width="85%">
 </p>
 
 选中文本自动弹出红点引导，根据内容进入翻译、代码或术语模式，**流式输出 AI 结果**；支持拖拽、双击和三击触发。翻译模式会保守判断方向，也可在状态栏一键切换目标语言；悬浮窗的翻译、代码、术语和解析模式都支持为当前文本临时换用已保存模型，不会修改全局默认配置。
@@ -61,7 +61,7 @@ QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中�
 ### 解析追问 · 围绕结果继续理解
 
 <p align="center">
-  <img src="docs/images/解析追问功能展示.gif" alt="解析追问功能演示" width="85%">
+  <img src="docs/images/followup-demo.gif" alt="解析追问功能演示" width="85%">
 </p>
 
 完成深度解析后，可在同一悬浮窗继续提问；最多保留 10 轮上下文，回答流式呈现。生成过程中可随时停止并编辑当前问题，已完成的问题也可重新编辑发送；重新编辑较早轮次时，依赖其上下文的后续追问会被移除。
@@ -73,7 +73,7 @@ QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中�
 ### 设置窗口 · 多模型与快捷键管理
 
 <p align="center">
-  <img src="docs/images/设置页展示.gif" alt="设置页" width="85%">
+  <img src="docs/images/settings-demo.gif" alt="设置页" width="85%">
 </p>
 
 多模型切换、自定义全局快捷键、解析方案管理，**即时生效无需重启**。
@@ -83,7 +83,7 @@ QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中�
 ### AI 查词 · 本地词典打底，云端模型补全
 
 <p align="center">
-  <img src="docs/images/快速查词窗口.png" alt="快速查词窗口" width="85%">
+  <img src="docs/images/word-lookup.png" alt="快速查词窗口" width="85%">
 </p>
 
 单击托盘或 `Alt+W` 呼出紧凑查词面板。**本地词典（ECDICT + OEWN）优先**，缺失中文时一键 AI 补全；本地未命中时自动交给云端模型，生成结构化释义，并按结果提供音标、例句和搭配。
@@ -93,7 +93,7 @@ QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中�
 ### 翻译历史 · 本地检索与 Anki 导出
 
 <p align="center">
-  <img src="docs/images/翻译历史页面.png" alt="翻译历史" width="85%">
+  <img src="docs/images/history.png" alt="翻译历史" width="85%">
 </p>
 
 SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支持 **Anki 格式一键导出**。
@@ -103,7 +103,7 @@ SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支
 ### 日志查看器 · JSON Lines 与延迟指标
 
 <p align="center">
-  <img src="docs/images/日志查看器.png" alt="日志查看器" width="85%">
+  <img src="docs/images/log-viewer.png" alt="日志查看器" width="85%">
 </p>
 
 结构化 JSON Lines 日志，多文件切换、级别/关键字筛选，**P50/P95/P99 延迟统计**，自动清理过期日志。日志查看和保留策略位于设置中默认折叠的“开发者选项”，不会自动上传。

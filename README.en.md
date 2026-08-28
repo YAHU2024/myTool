@@ -50,7 +50,7 @@ The feedback window shows a public-content preview before leaving the app and le
 ### AI text selection translation · red-dot guidance
 
 <p align="center">
-  <img src="docs/images/红点翻译功能展示.gif" alt="Select-to-translate demo" width="85%">
+  <img src="docs/images/red-dot-demo.gif" alt="Select-to-translate demo" width="85%">
 </p>
 
 Select text to open a red-dot guide and route it into translation, code, or terminology mode. Results are streamed in real time. The feature supports drag, double-click, and triple-click activation. Translation mode makes a conservative direction decision by default, but you can switch the target language from the status bar with one click. The floating window also supports temporarily using a saved model for the current text without modifying the global default settings.
@@ -60,7 +60,7 @@ Select text to open a red-dot guide and route it into translation, code, or term
 ### Follow-up analysis · keep understanding the result
 
 <p align="center">
-  <img src="docs/images/解析追问功能展示.gif" alt="Analysis follow-up demo" width="85%">
+  <img src="docs/images/followup-demo.gif" alt="Analysis follow-up demo" width="85%">
 </p>
 
 After deep analysis, you can continue asking questions in the same floating window, with up to 10 turns of context retained. Answers stream in place, and you can revisit, locate, or retry the last turn from history nodes.
@@ -72,7 +72,7 @@ When a model explicitly returns a reasoning field for any streamed answer, the f
 ### Settings window · multi-model and shortcut management
 
 <p align="center">
-  <img src="docs/images/设置页展示.gif" alt="Settings page" width="85%">
+  <img src="docs/images/settings-demo.gif" alt="Settings page" width="85%">
 </p>
 
 Multi-model switching, custom global shortcuts, and analysis profile management — **changes apply immediately without restart**.
@@ -82,7 +82,7 @@ Multi-model switching, custom global shortcuts, and analysis profile management 
 ### AI lookup · local dictionary foundation, cloud-model completion
 
 <p align="center">
-  <img src="docs/images/快速查词窗口.png" alt="Quick Lookup window" width="85%">
+  <img src="docs/images/word-lookup.png" alt="Quick Lookup window" width="85%">
 </p>
 
 Click the tray icon or press `Alt+W` to open a compact lookup panel. **Local dictionaries (ECDICT + OEWN) take priority**, and AI fills in missing Chinese definitions when needed. When local results are absent, it falls back to the cloud model to generate structured definitions and optionally provide phonetics, examples, and collocations.
@@ -92,7 +92,7 @@ Click the tray icon or press `Alt+W` to open a compact lookup panel. **Local dic
 ### Translation history · local search and Anki export
 
 <p align="center">
-  <img src="docs/images/翻译历史页面.png" alt="Translation history" width="85%">
+  <img src="docs/images/history.png" alt="Translation history" width="85%">
 </p>
 
 SQLite keeps history locally, supports time/language search and filters, paginated browsing, and **one-click Anki export**.
@@ -102,7 +102,7 @@ SQLite keeps history locally, supports time/language search and filters, paginat
 ### Log viewer · JSON Lines and latency metrics
 
 <p align="center">
-  <img src="docs/images/日志查看器.png" alt="Log viewer" width="85%">
+  <img src="docs/images/log-viewer.png" alt="Log viewer" width="85%">
 </p>
 
 Structured JSON Lines logs, multi-file switching, level and keyword filtering, **P50/P95/P99 latency statistics**, and automatic cleanup of expired logs. Log viewing and retention controls live under the collapsed “开发者选项” (Developer options) section in Settings and are never uploaded automatically.
