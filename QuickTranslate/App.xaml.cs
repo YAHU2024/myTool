@@ -2566,6 +2566,7 @@ public partial class App : Application
         _selectionCts?.Cancel();
         _selectionCts?.Dispose();
         _selectionCts = null;
+        ClipboardHelper.Dispose();
         // 停止看门狗
         _watchdogTimer?.Dispose();
 
