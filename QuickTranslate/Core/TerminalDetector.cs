@@ -199,7 +199,7 @@ internal static class TerminalDetector
                 risk,
                 CopyDecisionReason.ExplicitTerminalMapping,
                 mappedShortcut!,
-                restoreClipboard: false,
+                restoreClipboard: true,
                 ClassifyTerminalShortcutRisk(mappedShortcut!));
         }
 
@@ -210,7 +210,7 @@ internal static class TerminalDetector
                 risk,
                 CopyDecisionReason.WindowsTerminalSafeDefault,
                 CopyShortcut.CtrlShiftC,
-                restoreClipboard: false,
+                restoreClipboard: true,
                 CopyActionRisk.NonInterruptingTerminalCopy);
         }
 
@@ -222,7 +222,7 @@ internal static class TerminalDetector
                 risk,
                 CopyDecisionReason.EmbeddedTerminalSafeDefault,
                 CopyShortcut.CtrlShiftC,
-                restoreClipboard: false,
+                restoreClipboard: true,
                 CopyActionRisk.NonInterruptingTerminalCopy);
         }
 
@@ -242,7 +242,7 @@ internal static class TerminalDetector
                 risk,
                 CopyDecisionReason.CompatibleTerminalShortcut,
                 CopyShortcut.CtrlShiftC,
-                restoreClipboard: false,
+                restoreClipboard: true,
                 CopyActionRisk.NonInterruptingTerminalCopy);
         }
 

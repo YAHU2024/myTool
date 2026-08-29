@@ -63,7 +63,10 @@ internal static class SelectionCapturePlanner
                 "该终端复制键可能中断正在运行的命令，已取消取词");
         }
 
-        if (decision.Risk != TerminalRiskKind.NonTerminal &&
+        // 证据门槛用于避免把可能中断命令的按键盲注入终端；Ctrl+Shift+C 这类
+        // 非中断快捷键没选区时注入只是复制不到内容，最坏提示"请先选中"，无需门槛。
+        if (decision.ActionRisk != CopyActionRisk.NonInterruptingTerminalCopy &&
+            decision.Risk != TerminalRiskKind.NonTerminal &&
             evidence != SelectionEvidenceKind.UiaTextSelectionBounds &&
             !intent.HasMeaningfulDrag)
         {

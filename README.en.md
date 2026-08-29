@@ -253,6 +253,7 @@ QuickTranslate/
 │   ├── BrowserDetector.cs                   # Browser window awareness
 │   ├── TerminalDetector.cs                  # Terminal host awareness + copy-risk detection
 │   ├── SelectionCapturePolicy.cs            # Selection-copy safety policy
+│   ├── RecentSelectionCopyEvaluator.cs      # Select-to-copy detection (OSC52 / copyOnSelection)
 │   ├── UiaCircuitBreaker.cs                 # UIA failure breaker and recovery
 │   ├── CopyShortcut.cs                      # Copy shortcut helper
 │   ├── AnalysisConversationFormatter.cs     # Analysis follow-up conversation formatting

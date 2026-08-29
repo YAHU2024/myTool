@@ -161,7 +161,7 @@ public sealed class TerminalDetectorTests
         Assert.Equal(TerminalRiskKind.EmbeddedTerminal, decision.Risk);
         Assert.Equal(CopyDecisionReason.EmbeddedTerminalSafeDefault, decision.Reason);
         Assert.Equal(CopyShortcut.CtrlShiftC, decision.Shortcut);
-        Assert.False(decision.RestoreClipboard);
+        Assert.True(decision.RestoreClipboard);
         Assert.Equal(CopyActionRisk.NonInterruptingTerminalCopy, decision.ActionRisk);
     }
 
@@ -222,7 +222,7 @@ public sealed class TerminalDetectorTests
         Assert.True(decision.IsAllowed);
         Assert.Equal(CopyDecisionReason.WindowsTerminalSafeDefault, decision.Reason);
         Assert.Equal(CopyShortcut.CtrlShiftC, decision.Shortcut);
-        Assert.False(decision.RestoreClipboard);
+        Assert.True(decision.RestoreClipboard);
         Assert.Equal(CopyActionRisk.NonInterruptingTerminalCopy, decision.ActionRisk);
     }
 
@@ -251,7 +251,7 @@ public sealed class TerminalDetectorTests
         Assert.True(decision.IsAllowed);
         Assert.Equal(CopyDecisionReason.ExplicitTerminalMapping, decision.Reason);
         Assert.Equal(CopyShortcut.CtrlShiftC, decision.Shortcut);
-        Assert.False(decision.RestoreClipboard);
+        Assert.True(decision.RestoreClipboard);
         Assert.Equal(CopyActionRisk.NonInterruptingTerminalCopy, decision.ActionRisk);
     }
 
@@ -263,6 +263,35 @@ public sealed class TerminalDetectorTests
         Assert.True(decision.IsAllowed);
         Assert.Equal(CopyDecisionReason.CompatibleTerminalShortcut, decision.Reason);
         Assert.Equal(CopyShortcut.CtrlShiftC, decision.Shortcut);
+        Assert.True(decision.RestoreClipboard);
+    }
+
+    [Fact]
+    public void SelectionCapturePlanner_AllowsOrdinaryApplicationWithoutEvidence()
+    {
+        // 普通应用不经过终端选区证据门槛：无 UIA 证据也按普通 Ctrl+C 注入。
+        var plan = SelectionCapturePlanner.Create(
+            CreateWindow("notepad"),
+            CreateSettings("Smart"),
+            SelectionEvidenceKind.None,
+            CreateIntent(SelectionGestureKind.HotKey));
+
+        Assert.True(plan.IsAllowed);
+        Assert.NotNull(plan.Request);
+        Assert.Equal(TerminalRiskKind.NonTerminal, plan.Request!.TerminalRisk);
+        Assert.Equal(CopyShortcut.CtrlC, plan.Request.Shortcut);
+        Assert.True(plan.Request.RestoreClipboard);
+        Assert.Equal(CopyActionRisk.OrdinaryCopy, plan.Request.ActionRisk);
+    }
+
+    [Fact]
+    public void ClipboardHelper_ProbesRecentAutoCopyOnlyForTerminalRisk()
+    {
+        Assert.True(ClipboardHelper.ShouldProbeRecentAutoCopy(TerminalRiskKind.KnownTerminal));
+        Assert.True(ClipboardHelper.ShouldProbeRecentAutoCopy(TerminalRiskKind.EmbeddedTerminal));
+        Assert.True(ClipboardHelper.ShouldProbeRecentAutoCopy(TerminalRiskKind.EmbeddedWebView));
+        Assert.True(ClipboardHelper.ShouldProbeRecentAutoCopy(TerminalRiskKind.SuspectedTerminal));
+        Assert.False(ClipboardHelper.ShouldProbeRecentAutoCopy(TerminalRiskKind.NonTerminal));
     }
 
     [Fact]
@@ -337,7 +366,7 @@ public sealed class TerminalDetectorTests
     }
 
     [Fact]
-    public void SelectionCapturePlanner_RejectsTerminalMultiClickWithoutUiaEvidence()
+    public void SelectionCapturePlanner_AllowsTerminalMultiClickWithoutUiaEvidence()
     {
         var plan = SelectionCapturePlanner.Create(
             CreateWindow("WindowsTerminal"),
@@ -345,13 +374,14 @@ public sealed class TerminalDetectorTests
             SelectionEvidenceKind.GestureIntent,
             CreateIntent(SelectionGestureKind.MultiClick));
 
-        Assert.False(plan.IsAllowed);
-        Assert.Null(plan.Request);
-        Assert.Contains("多击", plan.RejectionMessage, StringComparison.Ordinal);
+        Assert.True(plan.IsAllowed);
+        Assert.NotNull(plan.Request);
+        Assert.Equal(CopyShortcut.CtrlShiftC, plan.Request!.Shortcut);
+        Assert.True(plan.Request.RestoreClipboard);
     }
 
     [Fact]
-    public void SelectionCapturePlanner_RejectsTerminalHotKeyWithoutUiaEvidence()
+    public void SelectionCapturePlanner_AllowsTerminalHotKeyWithoutUiaEvidence()
     {
         var plan = SelectionCapturePlanner.Create(
             CreateWindow("WindowsTerminal"),
@@ -359,9 +389,10 @@ public sealed class TerminalDetectorTests
             SelectionEvidenceKind.None,
             CreateIntent(SelectionGestureKind.HotKey));
 
-        Assert.False(plan.IsAllowed);
-        Assert.Null(plan.Request);
-        Assert.Contains("快捷键", plan.RejectionMessage, StringComparison.Ordinal);
+        Assert.True(plan.IsAllowed);
+        Assert.NotNull(plan.Request);
+        Assert.Equal(CopyShortcut.CtrlShiftC, plan.Request!.Shortcut);
+        Assert.True(plan.Request.RestoreClipboard);
     }
 
     [Fact]
@@ -437,9 +468,11 @@ public sealed class TerminalDetectorTests
             SelectionEvidenceKind.GestureIntent,
             CreateIntent(SelectionGestureKind.Drag, endX: 5));
 
-        Assert.False(plan.IsAllowed);
-        Assert.Null(plan.Request);
-        Assert.Contains("距离不足", plan.RejectionMessage, StringComparison.Ordinal);
+        // 非中断快捷键不再受选区证据门槛约束：距离不足时注入 Ctrl+Shift+C
+        // 最多复制不到内容，由"请先选中"提示兜底。
+        Assert.True(plan.IsAllowed);
+        Assert.NotNull(plan.Request);
+        Assert.Equal(CopyShortcut.CtrlShiftC, plan.Request!.Shortcut);
     }
 
     [Fact]
