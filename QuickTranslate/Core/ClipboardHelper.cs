@@ -66,7 +66,10 @@ namespace QuickTranslate.Core
                 return null;
             }
 
+            // 普通复制（含 webview 面板）允许 Ctrl+C；其余终端风险下的 Ctrl+C 一律拒绝，
+            // 防止把中断信号注入真实终端。
             if (request.TerminalRisk != TerminalRiskKind.NonTerminal &&
+                request.ActionRisk != CopyActionRisk.OrdinaryCopy &&
                 request.Shortcut == CopyShortcut.CtrlC &&
                 request.DecisionReason != CopyDecisionReason.ExplicitTerminalMapping)
             {
@@ -88,6 +91,16 @@ namespace QuickTranslate.Core
                 uint copiedSequence = 0;
                 try
                 {
+                    // 0. “选中即复制”快速路径：终端应用的选区复制发生在鼠标抬起时
+                    //    （OSC 52 / copyOnSelection），文字在注入按键前已在剪贴板中，
+                    //    直接采用可避免注入空操作与漫长的等待窗口。只读取、不写入。
+                    if (ShouldProbeRecentAutoCopy(request.TerminalRisk) &&
+                        TryReadRecentAutoCopiedSelection(out var autoCopiedText))
+                    {
+                        result = autoCopiedText;
+                        return;
+                    }
+
                     if (!WaitForModifiersReleased() || !IsExpectedWindow(request))
                     {
                         Logger.Debug("ClipboardHelper", "[Clipboard] Source window changed or modifier keys are still pressed");
@@ -118,8 +131,11 @@ namespace QuickTranslate.Core
                     }
 
                     // 4. Wait once for the requested copy command; never retry by injecting another shortcut.
+                    //    终端复制落剪贴板可能明显慢于普通应用（如 VSCode 无障碍模式的异步写入），给更长窗口。
+                    var pollWindowMs = request.TerminalRisk == TerminalRiskKind.NonTerminal ? 500 : 1500;
+                    var fallbackWindowMs = request.TerminalRisk == TerminalRiskKind.NonTerminal ? 300 : 800;
                     var pollStart = DateTime.UtcNow;
-                    var deadline = pollStart.AddMilliseconds(500);
+                    var deadline = pollStart.AddMilliseconds(pollWindowMs);
                     while (DateTime.UtcNow < deadline)
                     {
                         var seqNow = Win32Api.GetClipboardSequenceNumber();
@@ -159,8 +175,8 @@ namespace QuickTranslate.Core
                     // 5. Give applications with asynchronous clipboard ownership one final read window.
                     if (result == null)
                     {
-                        Logger.Debug("ClipboardHelper", $"[剪贴板] 轮询 500ms 未成功，进入兜底等待 300ms");
-                        Thread.Sleep(300);
+                        Logger.Debug("ClipboardHelper", $"[剪贴板] 轮询 {pollWindowMs}ms 未成功，进入兜底等待 {fallbackWindowMs}ms");
+                        Thread.Sleep(fallbackWindowMs);
                         var seqAfter = Win32Api.GetClipboardSequenceNumber();
                         if (seqAfter != seqBefore)
                         {
@@ -241,6 +257,49 @@ namespace QuickTranslate.Core
         private static bool IsExpectedWindow(CopyRequest request) =>
             request.ExpectedForegroundWindow != IntPtr.Zero &&
             Win32Api.GetForegroundWindow() == request.ExpectedForegroundWindow;
+
+        /// <summary>
+        /// “选中即复制”快速路径只对终端风险生效；普通应用的 Ctrl+C 注入
+        /// 可靠且带剪贴板恢复，不应被剪贴板旧内容短路。提取为纯函数便于回归测试。
+        /// </summary>
+        internal static bool ShouldProbeRecentAutoCopy(TerminalRiskKind risk) =>
+            risk != TerminalRiskKind.NonTerminal;
+
+        /// <summary>
+        /// 探测剪贴板中是否已有目标应用刚自动复制的选区内容。
+        /// 只读取不写入；判定依据 SelectionDetector 的鼠标选区基线。
+        /// </summary>
+        private static bool TryReadRecentAutoCopiedSelection(out string? text)
+        {
+            text = null;
+            try
+            {
+                var (sequenceAtMouseDown, mouseDownTick, mouseUpTick) = SelectionDetector.LastSelectionBaseline;
+                if (!RecentSelectionCopyEvaluator.IsAutoCopySuspected(
+                        sequenceAtMouseDown,
+                        mouseDownTick,
+                        mouseUpTick,
+                        Win32Api.GetClipboardSequenceNumber(),
+                        Environment.TickCount64))
+                    return false;
+
+                if (!Clipboard.ContainsText())
+                    return false;
+
+                var candidate = Clipboard.GetText();
+                if (string.IsNullOrWhiteSpace(candidate))
+                    return false;
+
+                text = candidate;
+                Logger.Debug("ClipboardHelper", "clipboard.autocopy_selection_reused", new { text_len = text.Length });
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("ClipboardHelper", "clipboard.autocopy_probe_failed", new { error_type = ex.GetType().Name });
+                return false;
+            }
+        }
 
         private static bool WaitForModifiersReleased()
         {

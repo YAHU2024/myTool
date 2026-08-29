@@ -252,6 +252,7 @@ QuickTranslate/
 │   ├── BrowserDetector.cs                   # 浏览器窗口感知
 │   ├── TerminalDetector.cs                  # 终端宿主识别与复制风险判断
 │   ├── SelectionCapturePolicy.cs            # 选区复制动作安全策略
+│   ├── RecentSelectionCopyEvaluator.cs      # 选中即复制判定（OSC52/copyOnSelection）
 │   ├── UiaCircuitBreaker.cs                 # UIA 失败熔断与恢复
 │   ├── CopyShortcut.cs                      # 复制快捷键辅助
 │   ├── AnalysisConversationFormatter.cs     # 解析追问对话上下文格式化

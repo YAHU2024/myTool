@@ -27,6 +27,20 @@ namespace QuickTranslate.Core
         private Win32Api.POINT _mouseDownPos;
         private Win32Api.POINT _mouseUpPos;
 
+        // “选中即复制”检测基线（钩子线程写入、取词线程读取）。
+        // 鼠标按下时的剪贴板序列号位于任何选区复制发生之前，是可靠基线；
+        // 取词时若序列号已变化且选区动作足够新，说明目标应用已自动复制选区
+        // （如 Claude Code 的 OSC 52、编辑器的 copyOnSelection）。
+        private static long _clipboardSeqAtMouseDown = -1;
+        private static long _lastMouseDownTick = -1;
+        private static long _lastMouseUpTick = -1;
+
+        /// <summary>最近一次选区动作的剪贴板基线（序列号、按下/抬起时刻，毫秒时钟）。</summary>
+        internal static (long SequenceAtMouseDown, long MouseDownTick, long MouseUpTick) LastSelectionBaseline =>
+            (Interlocked.Read(ref _clipboardSeqAtMouseDown),
+             Interlocked.Read(ref _lastMouseDownTick),
+             Interlocked.Read(ref _lastMouseUpTick));
+
         // 双击/三击检测（仅在钩子线程访问）
         private int _clickCount;
         private Win32Api.POINT _lastClickPos;
@@ -184,6 +198,8 @@ namespace QuickTranslate.Core
                         _isLeftButtonDown = true;
                         _isDragging = false;
                         _mouseDownPos = lParam.pt;
+                        Interlocked.Exchange(ref _clipboardSeqAtMouseDown, Win32Api.GetClipboardSequenceNumber());
+                        Interlocked.Exchange(ref _lastMouseDownTick, Environment.TickCount64);
                     }
                     else if (wParam == (IntPtr)Win32Api.WM_MOUSEMOVE && _isLeftButtonDown)
                     {
@@ -198,6 +214,7 @@ namespace QuickTranslate.Core
                     else if (wParam == (IntPtr)Win32Api.WM_LBUTTONUP)
                     {
                         _mouseUpPos = lParam.pt;
+                        Interlocked.Exchange(ref _lastMouseUpTick, Environment.TickCount64);
 
                         if (_isDragging)
                         {

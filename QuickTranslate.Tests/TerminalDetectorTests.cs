@@ -109,7 +109,27 @@ public sealed class TerminalDetectorTests
     }
 
     [Fact]
-    public void EvaluateCopyPolicy_AmbiguousEmbeddedFocusMetadataIsConservative()
+    public void EvaluateCopyPolicy_AllowsEmbeddedWebViewFocusWithCtrlC()
+    {
+        var target = CreateWindow(
+            "Code",
+            focusedAutomationId: "root|RootWebArea|active-frame|c2e41810-c690-4441-b54c-dd35b8c4f917",
+            focusedClassName: "messageInput_cKsPxg|vscode-dark vscode-using-screen-reader",
+            focusedControlType: "ControlType.Edit|ControlType.Group|ControlType.Document",
+            focusMetadataAvailable: true);
+
+        var decision = TerminalDetector.EvaluateCopyPolicy(target, CreateSettings("Smart"));
+
+        Assert.True(decision.IsAllowed);
+        Assert.Equal(TerminalRiskKind.EmbeddedWebView, decision.Risk);
+        Assert.Equal(CopyDecisionReason.EmbeddedWebViewOrdinaryCopy, decision.Reason);
+        Assert.Equal(CopyShortcut.CtrlC, decision.Shortcut);
+        Assert.True(decision.RestoreClipboard);
+        Assert.Equal(CopyActionRisk.OrdinaryCopy, decision.ActionRisk);
+    }
+
+    [Fact]
+    public void EvaluateCopyPolicy_DisabledRejectsEmbeddedWebViewFocus()
     {
         var target = CreateWindow(
             "Code",
@@ -117,17 +137,17 @@ public sealed class TerminalDetectorTests
             focusedControlType: "ControlType.Pane",
             focusMetadataAvailable: true);
 
-        var decision = TerminalDetector.EvaluateCopyPolicy(target, CreateSettings("Smart"));
+        var decision = TerminalDetector.EvaluateCopyPolicy(target, CreateSettings("Disabled"));
 
         Assert.False(decision.IsAllowed);
-        Assert.Equal(TerminalRiskKind.SuspectedTerminal, decision.Risk);
-        Assert.Equal(CopyDecisionReason.TerminalShortcutNotConfigured, decision.Reason);
+        Assert.Equal(TerminalRiskKind.EmbeddedWebView, decision.Risk);
+        Assert.Equal(CopyDecisionReason.TerminalCaptureDisabled, decision.Reason);
     }
 
     [Theory]
     [InlineData("Smart")]
     [InlineData("Compatible")]
-    public void EvaluateCopyPolicy_EmbeddedTerminalRequiresExplicitMapping(string mode)
+    public void EvaluateCopyPolicy_AllowsEmbeddedTerminalByDefault(string mode)
     {
         var target = CreateWindow(
             "Code",
@@ -137,9 +157,27 @@ public sealed class TerminalDetectorTests
 
         var decision = TerminalDetector.EvaluateCopyPolicy(target, CreateSettings(mode));
 
-        Assert.False(decision.IsAllowed);
+        Assert.True(decision.IsAllowed);
         Assert.Equal(TerminalRiskKind.EmbeddedTerminal, decision.Risk);
-        Assert.Equal(CopyDecisionReason.TerminalShortcutNotConfigured, decision.Reason);
+        Assert.Equal(CopyDecisionReason.EmbeddedTerminalSafeDefault, decision.Reason);
+        Assert.Equal(CopyShortcut.CtrlShiftC, decision.Shortcut);
+        Assert.True(decision.RestoreClipboard);
+        Assert.Equal(CopyActionRisk.NonInterruptingTerminalCopy, decision.ActionRisk);
+    }
+
+    [Fact]
+    public void EvaluateCopyPolicy_ExplicitMappingTakesPrecedenceOverEmbeddedDefault()
+    {
+        var target = CreateWindow(
+            "Code",
+            focusedAutomationId: "workbench.panel.terminal",
+            focusedClassName: "xterm-helper-textarea",
+            focusMetadataAvailable: true);
+
+        var decision = TerminalDetector.EvaluateCopyPolicy(target, CreateSettings("Smart", "Code=Ctrl+Shift+C"));
+
+        Assert.True(decision.IsAllowed);
+        Assert.Equal(CopyDecisionReason.ExplicitTerminalMapping, decision.Reason);
     }
 
     [Fact]
@@ -184,7 +222,7 @@ public sealed class TerminalDetectorTests
         Assert.True(decision.IsAllowed);
         Assert.Equal(CopyDecisionReason.WindowsTerminalSafeDefault, decision.Reason);
         Assert.Equal(CopyShortcut.CtrlShiftC, decision.Shortcut);
-        Assert.False(decision.RestoreClipboard);
+        Assert.True(decision.RestoreClipboard);
         Assert.Equal(CopyActionRisk.NonInterruptingTerminalCopy, decision.ActionRisk);
     }
 
@@ -213,7 +251,7 @@ public sealed class TerminalDetectorTests
         Assert.True(decision.IsAllowed);
         Assert.Equal(CopyDecisionReason.ExplicitTerminalMapping, decision.Reason);
         Assert.Equal(CopyShortcut.CtrlShiftC, decision.Shortcut);
-        Assert.False(decision.RestoreClipboard);
+        Assert.True(decision.RestoreClipboard);
         Assert.Equal(CopyActionRisk.NonInterruptingTerminalCopy, decision.ActionRisk);
     }
 
@@ -225,6 +263,35 @@ public sealed class TerminalDetectorTests
         Assert.True(decision.IsAllowed);
         Assert.Equal(CopyDecisionReason.CompatibleTerminalShortcut, decision.Reason);
         Assert.Equal(CopyShortcut.CtrlShiftC, decision.Shortcut);
+        Assert.True(decision.RestoreClipboard);
+    }
+
+    [Fact]
+    public void SelectionCapturePlanner_AllowsOrdinaryApplicationWithoutEvidence()
+    {
+        // 普通应用不经过终端选区证据门槛：无 UIA 证据也按普通 Ctrl+C 注入。
+        var plan = SelectionCapturePlanner.Create(
+            CreateWindow("notepad"),
+            CreateSettings("Smart"),
+            SelectionEvidenceKind.None,
+            CreateIntent(SelectionGestureKind.HotKey));
+
+        Assert.True(plan.IsAllowed);
+        Assert.NotNull(plan.Request);
+        Assert.Equal(TerminalRiskKind.NonTerminal, plan.Request!.TerminalRisk);
+        Assert.Equal(CopyShortcut.CtrlC, plan.Request.Shortcut);
+        Assert.True(plan.Request.RestoreClipboard);
+        Assert.Equal(CopyActionRisk.OrdinaryCopy, plan.Request.ActionRisk);
+    }
+
+    [Fact]
+    public void ClipboardHelper_ProbesRecentAutoCopyOnlyForTerminalRisk()
+    {
+        Assert.True(ClipboardHelper.ShouldProbeRecentAutoCopy(TerminalRiskKind.KnownTerminal));
+        Assert.True(ClipboardHelper.ShouldProbeRecentAutoCopy(TerminalRiskKind.EmbeddedTerminal));
+        Assert.True(ClipboardHelper.ShouldProbeRecentAutoCopy(TerminalRiskKind.EmbeddedWebView));
+        Assert.True(ClipboardHelper.ShouldProbeRecentAutoCopy(TerminalRiskKind.SuspectedTerminal));
+        Assert.False(ClipboardHelper.ShouldProbeRecentAutoCopy(TerminalRiskKind.NonTerminal));
     }
 
     [Fact]
@@ -299,7 +366,7 @@ public sealed class TerminalDetectorTests
     }
 
     [Fact]
-    public void SelectionCapturePlanner_RejectsTerminalMultiClickWithoutUiaEvidence()
+    public void SelectionCapturePlanner_AllowsTerminalMultiClickWithoutUiaEvidence()
     {
         var plan = SelectionCapturePlanner.Create(
             CreateWindow("WindowsTerminal"),
@@ -307,13 +374,14 @@ public sealed class TerminalDetectorTests
             SelectionEvidenceKind.GestureIntent,
             CreateIntent(SelectionGestureKind.MultiClick));
 
-        Assert.False(plan.IsAllowed);
-        Assert.Null(plan.Request);
-        Assert.Contains("多击", plan.RejectionMessage, StringComparison.Ordinal);
+        Assert.True(plan.IsAllowed);
+        Assert.NotNull(plan.Request);
+        Assert.Equal(CopyShortcut.CtrlShiftC, plan.Request!.Shortcut);
+        Assert.True(plan.Request.RestoreClipboard);
     }
 
     [Fact]
-    public void SelectionCapturePlanner_RejectsTerminalHotKeyWithoutUiaEvidence()
+    public void SelectionCapturePlanner_AllowsTerminalHotKeyWithoutUiaEvidence()
     {
         var plan = SelectionCapturePlanner.Create(
             CreateWindow("WindowsTerminal"),
@@ -321,10 +389,62 @@ public sealed class TerminalDetectorTests
             SelectionEvidenceKind.None,
             CreateIntent(SelectionGestureKind.HotKey));
 
+        Assert.True(plan.IsAllowed);
+        Assert.NotNull(plan.Request);
+        Assert.Equal(CopyShortcut.CtrlShiftC, plan.Request!.Shortcut);
+        Assert.True(plan.Request.RestoreClipboard);
+    }
+
+    [Fact]
+    public void SelectionCapturePlanner_RejectsEmbeddedWebViewHotKeyWithoutUiaEvidence()
+    {
+        var plan = SelectionCapturePlanner.Create(
+            CreateEmbeddedWebViewWindow(),
+            CreateSettings("Smart"),
+            SelectionEvidenceKind.None,
+            CreateIntent(SelectionGestureKind.HotKey));
+
         Assert.False(plan.IsAllowed);
         Assert.Null(plan.Request);
-        Assert.Contains("快捷键", plan.RejectionMessage, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void SelectionCapturePlanner_AllowsEmbeddedWebViewHotKeyWithUiaEvidence()
+    {
+        var plan = SelectionCapturePlanner.Create(
+            CreateEmbeddedWebViewWindow(),
+            CreateSettings("Smart"),
+            SelectionEvidenceKind.UiaTextSelectionBounds,
+            CreateIntent(SelectionGestureKind.HotKey));
+
+        Assert.True(plan.IsAllowed);
+        Assert.NotNull(plan.Request);
+        Assert.Equal(CopyShortcut.CtrlC, plan.Request!.Shortcut);
+        Assert.True(plan.Request.RestoreClipboard);
+        Assert.Equal(CopyActionRisk.OrdinaryCopy, plan.Request.ActionRisk);
+    }
+
+    [Fact]
+    public void SelectionCapturePlanner_AllowsEmbeddedWebViewDragWithGestureEvidence()
+    {
+        var plan = SelectionCapturePlanner.Create(
+            CreateEmbeddedWebViewWindow(),
+            CreateSettings("Smart"),
+            SelectionEvidenceKind.GestureIntent,
+            CreateIntent(SelectionGestureKind.Drag, endX: 20));
+
+        Assert.True(plan.IsAllowed);
+        Assert.NotNull(plan.Request);
+        Assert.Equal(CopyShortcut.CtrlC, plan.Request!.Shortcut);
+    }
+
+    private static ForegroundWindowInfo CreateEmbeddedWebViewWindow() =>
+        CreateWindow(
+            "Code",
+            focusedAutomationId: "root|RootWebArea|active-frame|c2e41810-c690-4441-b54c-dd35b8c4f917",
+            focusedClassName: "messageInput_cKsPxg|vscode-dark vscode-using-screen-reader",
+            focusedControlType: "ControlType.Edit|ControlType.Group|ControlType.Document",
+            focusMetadataAvailable: true);
 
     [Fact]
     public void SelectionCapturePlanner_AllowsTerminalMultiClickWithUiaEvidence()
@@ -348,9 +468,11 @@ public sealed class TerminalDetectorTests
             SelectionEvidenceKind.GestureIntent,
             CreateIntent(SelectionGestureKind.Drag, endX: 5));
 
-        Assert.False(plan.IsAllowed);
-        Assert.Null(plan.Request);
-        Assert.Contains("距离不足", plan.RejectionMessage, StringComparison.Ordinal);
+        // 非中断快捷键不再受选区证据门槛约束：距离不足时注入 Ctrl+Shift+C
+        // 最多复制不到内容，由"请先选中"提示兜底。
+        Assert.True(plan.IsAllowed);
+        Assert.NotNull(plan.Request);
+        Assert.Equal(CopyShortcut.CtrlShiftC, plan.Request!.Shortcut);
     }
 
     [Fact]
@@ -363,7 +485,7 @@ public sealed class TerminalDetectorTests
     }
 
     [Fact]
-    public void EvaluateCopyPolicy_GenericDocumentSurfaceRemainsConservative()
+    public void EvaluateCopyPolicy_GenericDocumentSurfaceTreatedAsEmbeddedWebView()
     {
         var decision = TerminalDetector.EvaluateCopyPolicy(
             CreateWindow(
@@ -373,8 +495,11 @@ public sealed class TerminalDetectorTests
                 focusMetadataAvailable: true),
             CreateSettings("Smart"));
 
-        Assert.False(decision.IsAllowed);
-        Assert.Equal(TerminalRiskKind.SuspectedTerminal, decision.Risk);
+        Assert.True(decision.IsAllowed);
+        Assert.Equal(TerminalRiskKind.EmbeddedWebView, decision.Risk);
+        Assert.Equal(CopyDecisionReason.EmbeddedWebViewOrdinaryCopy, decision.Reason);
+        Assert.Equal(CopyShortcut.CtrlC, decision.Shortcut);
+        Assert.True(decision.RestoreClipboard);
     }
 
     [Fact]
