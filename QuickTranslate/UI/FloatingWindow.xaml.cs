@@ -66,6 +66,10 @@ public partial class FloatingWindow : Window
     private const int ResizeBorderPhysical = 8;
     private string _rawText = string.Empty;
     private ModeResultStatus _modeStatus = ModeResultStatus.NotStarted;
+
+    // 取词被拒的临时警告过期后，不应回落到上一次会话遗留的“已完成”，
+    // 该标记使状态栏回落为“就绪”，直到下一次真实内容呈现时清除。
+    private bool _captureFeedbackSuppressesCompletion;
     private ModeResultQuality _modeQuality = ModeResultQuality.Unassessed;
     private TtsPlaybackCoordinator? _tts;
     private bool _ttsEnabled = true;
@@ -713,6 +717,7 @@ public partial class FloatingWindow : Window
         _activeMode = mode;
         ApplyConversationFontSize(mode);
         _modeStatus = state.Status;
+        _captureFeedbackSuppressesCompletion = false;
         _modeQuality = state.Quality;
         SetActiveModeButton(mode);
         _rawText = state.RawText;
@@ -763,6 +768,7 @@ public partial class FloatingWindow : Window
         {
             SetGenerationActivity(true);
             _modeStatus = ModeResultStatus.Loading;
+            _captureFeedbackSuppressesCompletion = false;
             _ = StopTtsAsync();
         }
 
@@ -827,9 +833,15 @@ public partial class FloatingWindow : Window
         _copyText = translation;
         _speechText = translation;
         if (!_isLoading)
+        {
             _modeStatus = ModeResultStatus.Completed;
+            _captureFeedbackSuppressesCompletion = false;
+        }
         else
+        {
             _modeStatus = ModeResultStatus.Loading;
+            _captureFeedbackSuppressesCompletion = false;
+        }
         ApplyConversationFontSize(contentType);
         _streamingMarkdown = null;
         _rootCompositionMetrics.Reset();
@@ -1826,6 +1838,7 @@ public partial class FloatingWindow : Window
             _sessionId = Guid.Empty;
         _activeMode = ContentType.Translation;
         _modeStatus = ModeResultStatus.NotStarted;
+        _captureFeedbackSuppressesCompletion = false;
         _modeQuality = ModeResultQuality.Unassessed;
         _translationEffectiveTargetLanguage = null;
         _translationAlternateTargetLanguage = null;
@@ -2219,8 +2232,11 @@ public partial class FloatingWindow : Window
     internal void ShowAnalysisFollowUpFeedback(string message) =>
         ShowTransientStatus(message, FloatingStatusKind.Warning);
 
-    internal void ShowSelectionCaptureFeedback(string message) =>
+    internal void ShowSelectionCaptureFeedback(string message)
+    {
+        _captureFeedbackSuppressesCompletion = true;
         ShowTransientStatus(message, FloatingStatusKind.Warning);
+    }
 
     private void ClearAllStatusMessages()
     {
@@ -2322,6 +2338,9 @@ public partial class FloatingWindow : Window
 
     private StatusMessageEntry DefaultStatusEntry()
     {
+        if (_captureFeedbackSuppressesCompletion)
+            return new("ready", "就绪", FloatingStatusKind.Info, null, null);
+
         if (_activeMode == ContentType.Analysis &&
             _analysisConversation.Turns.LastOrDefault() is { } followUp)
         {

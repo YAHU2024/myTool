@@ -10,6 +10,7 @@ internal enum TerminalRiskKind
     NonTerminal,
     KnownTerminal,
     EmbeddedTerminal,
+    EmbeddedWebView,
     SuspectedTerminal
 }
 
@@ -18,6 +19,8 @@ internal enum CopyDecisionReason
     OrdinaryApplication,
     ExplicitTerminalMapping,
     WindowsTerminalSafeDefault,
+    EmbeddedTerminalSafeDefault,
+    EmbeddedWebViewOrdinaryCopy,
     CompatibleTerminalShortcut,
     TerminalCaptureDisabled,
     TerminalShortcutNotConfigured,
@@ -211,6 +214,28 @@ internal static class TerminalDetector
                 CopyActionRisk.NonInterruptingTerminalCopy);
         }
 
+        if (risk == TerminalRiskKind.EmbeddedTerminal)
+        {
+            // EmbeddedTerminal 只有在 UIA 焦点元数据确认终端后才产生，
+            // 与 Windows Terminal 的安全默认同置信度，智能/兼容模式可直接放行。
+            return Allow(
+                risk,
+                CopyDecisionReason.EmbeddedTerminalSafeDefault,
+                CopyShortcut.CtrlShiftC,
+                restoreClipboard: false,
+                CopyActionRisk.NonInterruptingTerminalCopy);
+        }
+
+        if (risk == TerminalRiskKind.EmbeddedWebView)
+        {
+            return Allow(
+                risk,
+                CopyDecisionReason.EmbeddedWebViewOrdinaryCopy,
+                CopyShortcut.CtrlC,
+                restoreClipboard: true,
+                CopyActionRisk.OrdinaryCopy);
+        }
+
         if (mode == "Compatible" && risk == TerminalRiskKind.KnownTerminal)
         {
             return Allow(
@@ -224,7 +249,7 @@ internal static class TerminalDetector
         return Reject(
             risk,
             CopyDecisionReason.TerminalShortcutNotConfigured,
-            $"未为 {target.ProcessName} 配置安全复制快捷键");
+            $"未为 {target.ProcessName} 配置安全复制快捷键，可在设置的“终端复制快捷键”中添加 {target.ProcessName}=Ctrl+Shift+C");
     }
 
     internal static bool ShouldSuppressSelection(ForegroundWindowInfo target, AppSettings settings)
@@ -262,7 +287,9 @@ internal static class TerminalDetector
                 return TerminalRiskKind.NonTerminal;
             }
 
-            return TerminalRiskKind.SuspectedTerminal;
+            // 焦点元数据可用但既非终端也非编辑器：VSCode 等宿主的 webview
+            // 面板（如 Claude Code 插件），对 Ctrl+C 而言等同普通文本区域。
+            return TerminalRiskKind.EmbeddedWebView;
         }
 
         return TerminalRiskKind.NonTerminal;

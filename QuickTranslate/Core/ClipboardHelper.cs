@@ -66,7 +66,10 @@ namespace QuickTranslate.Core
                 return null;
             }
 
+            // 普通复制（含 webview 面板）允许 Ctrl+C；其余终端风险下的 Ctrl+C 一律拒绝，
+            // 防止把中断信号注入真实终端。
             if (request.TerminalRisk != TerminalRiskKind.NonTerminal &&
+                request.ActionRisk != CopyActionRisk.OrdinaryCopy &&
                 request.Shortcut == CopyShortcut.CtrlC &&
                 request.DecisionReason != CopyDecisionReason.ExplicitTerminalMapping)
             {
