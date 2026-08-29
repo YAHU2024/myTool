@@ -58,6 +58,15 @@ AGENTS.md
 ## Test output
 **/TestResults/
 
+## Local OCR fixture data and preview output (may contain sensitive text)
+/local-ocr-fixtures/
+**/.m3-run-build/
+**/.m3-test-build/
+/.m3-scene-venv/
+/.m3-scene-v6-venv/
+/.m3-scene-output/
+/m3-scene-output/
+
 ## Site generated assets (synced from docs/images by scripts/sync-site-assets.py)
 site/assets/img/*
 !site/assets/img/.gitkeep

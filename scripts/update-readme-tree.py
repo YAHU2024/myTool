@@ -24,9 +24,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IGNORE_TOP = {
     ".git", ".workbuddy", ".idea", ".vs", "publish", "bin", "obj",
     ".build-output", "__pycache__", ".agents", ".claude", "AGENTS.md",
+    "local-ocr-fixtures", "m3-scene-output",
 }
 # QuickTranslate/ 下不入库或无需展示的项（Data 为本地词典数据，*.db 被 gitignore）
-IGNORE_QUICK = {".build-output", "__pycache__", "bin", "obj", "Data"}
+IGNORE_QUICK = {".build-output", ".m3-run-build", "__pycache__", "bin", "obj", "Data"}
 
 
 def _mk(*pairs):
