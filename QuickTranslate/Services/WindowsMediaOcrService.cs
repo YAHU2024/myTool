@@ -109,7 +109,12 @@ public sealed class WindowsMediaOcrService : IOcrService
             var maxImageDimension = OcrEngine.MaxImageDimension <= int.MaxValue
                 ? (int)OcrEngine.MaxImageDimension
                 : (int?)null;
-            return OcrCapability.Available(languages, maxImageDimension);
+            return OcrCapability.Available(
+                languages,
+                maxImageDimension,
+                engineId: "windows-media-ocr",
+                supportsPolygons: false,
+                supportsConfidence: false);
         }
         catch (Exception ex)
         {

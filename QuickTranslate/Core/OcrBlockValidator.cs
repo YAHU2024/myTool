@@ -21,6 +21,13 @@ public static class OcrBlockValidator
         {
             throw new ArgumentException("OCR 块置信度必须为空或位于 0 到 1 之间。", nameof(block));
         }
+        if (block.OrientationDegrees is { } orientation &&
+            (double.IsNaN(orientation) || double.IsInfinity(orientation) || orientation is < -360 or > 360))
+        {
+            throw new ArgumentException("OCR 块方向必须为空或位于 -360 到 360 度之间。", nameof(block));
+        }
+        if (block.Polygon is { } polygon)
+            ValidatePolygon(polygon, pixelWidth, pixelHeight, block);
     }
 
     public static void Validate(OcrTextBlock block, OcrImage image)
@@ -47,5 +54,32 @@ public static class OcrBlockValidator
         ArgumentNullException.ThrowIfNull(image);
         image.Validate();
         ValidateAll(blocks, image.PixelWidth, image.PixelHeight);
+    }
+
+    private static void ValidatePolygon(
+        IReadOnlyList<OcrPoint> polygon,
+        int pixelWidth,
+        int pixelHeight,
+        OcrTextBlock block)
+    {
+        if (polygon.Count < 4)
+            throw new ArgumentException("OCR 块多边形至少需要四个点。", nameof(block));
+
+        var twiceArea = 0d;
+        for (var index = 0; index < polygon.Count; index++)
+        {
+            var current = polygon[index];
+            var next = polygon[(index + 1) % polygon.Count];
+            if (!current.IsFinite || current.X < 0 || current.Y < 0 ||
+                current.X > pixelWidth || current.Y > pixelHeight)
+            {
+                throw new ArgumentException("OCR 块多边形点必须为有限值并落在图像范围内。", nameof(block));
+            }
+
+            twiceArea += current.X * next.Y - next.X * current.Y;
+        }
+
+        if (Math.Abs(twiceArea) < 0.5)
+            throw new ArgumentException("OCR 块多边形面积必须大于 0。", nameof(block));
     }
 }

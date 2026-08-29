@@ -64,12 +64,21 @@ public readonly record struct OcrBounds(int X, int Y, int Width, int Height)
     }
 }
 
+/// <summary>OCR 场景文字多边形中的一个局部物理像素点。</summary>
+public readonly record struct OcrPoint(double X, double Y)
+{
+    public bool IsFinite => !double.IsNaN(X) && !double.IsInfinity(X) &&
+                            !double.IsNaN(Y) && !double.IsInfinity(Y);
+}
+
 /// <summary>OCR 识别出的一个文本块。坐标相对于输入图像左上角。</summary>
 public sealed record OcrTextBlock(
     string BlockId,
     string Text,
     OcrBounds Bounds,
-    double? Confidence = null);
+    double? Confidence = null,
+    IReadOnlyList<OcrPoint>? Polygon = null,
+    double? OrientationDegrees = null);
 
 /// <summary>一次识别的完整结果。</summary>
 public sealed record OcrResult(
@@ -84,19 +93,33 @@ public sealed record OcrCapability(
     bool IsAvailable,
     string UnavailableReason,
     IReadOnlyList<string> SupportedLanguageTags,
-    int? MaxImageDimension)
+    int? MaxImageDimension,
+    string EngineId = "",
+    bool SupportsPolygons = false,
+    bool SupportsConfidence = false)
 {
     public static OcrCapability Unavailable(string reason) =>
         new(false, string.IsNullOrWhiteSpace(reason) ? "OCR 引擎不可用。" : reason, Array.Empty<string>(), null);
 
     public static OcrCapability Available(
         IEnumerable<string> supportedLanguageTags,
-        int? maxImageDimension) =>
-        CreateAvailable(supportedLanguageTags, maxImageDimension);
+        int? maxImageDimension,
+        string engineId = "",
+        bool supportsPolygons = false,
+        bool supportsConfidence = false) =>
+        CreateAvailable(
+            supportedLanguageTags,
+            maxImageDimension,
+            engineId,
+            supportsPolygons,
+            supportsConfidence);
 
     private static OcrCapability CreateAvailable(
         IEnumerable<string> supportedLanguageTags,
-        int? maxImageDimension)
+        int? maxImageDimension,
+        string engineId,
+        bool supportsPolygons,
+        bool supportsConfidence)
     {
         ArgumentNullException.ThrowIfNull(supportedLanguageTags);
         if (maxImageDimension is <= 0)
@@ -109,7 +132,10 @@ public sealed record OcrCapability(
                 .Where(static tag => !string.IsNullOrWhiteSpace(tag))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray()),
-            maxImageDimension);
+            maxImageDimension,
+            engineId ?? string.Empty,
+            supportsPolygons,
+            supportsConfidence);
     }
 }
 

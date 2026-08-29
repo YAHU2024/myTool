@@ -45,4 +45,61 @@ public sealed class OcrBlockValidationTests
         OcrBlockValidator.Validate(noConfidence, 100, 100);
         Assert.Throws<ArgumentException>(() => OcrBlockValidator.Validate(invalid, 100, 100));
     }
+
+    [Fact]
+    public void Validate_AcceptsPolygonAndOrientation()
+    {
+        var block = new OcrTextBlock(
+            "b0001",
+            "text",
+            new OcrBounds(10, 10, 80, 30),
+            0.92,
+            new OcrPoint[]
+            {
+                new(10, 12), new(88, 10), new(90, 38), new(12, 40)
+            },
+            2.5);
+
+        OcrBlockValidator.Validate(block, 100, 100);
+    }
+
+    [Fact]
+    public void Validate_RejectsInvalidPolygonGeometry()
+    {
+        var tooFewPoints = new OcrTextBlock(
+            "b0001",
+            "text",
+            new OcrBounds(0, 0, 20, 10),
+            Polygon: new OcrPoint[] { new(0, 0), new(20, 0), new(20, 10) });
+        var outOfRange = tooFewPoints with
+        {
+            Polygon = new OcrPoint[]
+            {
+                new(0, 0), new(20, 0), new(20, 10), new(-1, 10)
+            }
+        };
+        var zeroArea = tooFewPoints with
+        {
+            Polygon = new OcrPoint[]
+            {
+                new(0, 0), new(10, 0), new(20, 0), new(30, 0)
+            }
+        };
+
+        Assert.Throws<ArgumentException>(() => OcrBlockValidator.Validate(tooFewPoints, 100, 100));
+        Assert.Throws<ArgumentException>(() => OcrBlockValidator.Validate(outOfRange, 100, 100));
+        Assert.Throws<ArgumentException>(() => OcrBlockValidator.Validate(zeroArea, 100, 100));
+    }
+
+    [Fact]
+    public void Validate_RejectsInvalidOrientation()
+    {
+        var block = new OcrTextBlock(
+            "b0001",
+            "text",
+            new OcrBounds(0, 0, 20, 10),
+            OrientationDegrees: double.NaN);
+
+        Assert.Throws<ArgumentException>(() => OcrBlockValidator.Validate(block, 100, 100));
+    }
 }

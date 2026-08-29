@@ -317,6 +317,7 @@ QuickTranslate/
 │   ├── IScreenshotCaptureService.cs         # 截图捕获接口
 │   ├── GdiScreenshotCaptureService.cs       # GDI 物理像素截图捕获
 │   ├── WindowsMediaOcrService.cs            # Windows 内置 OCR 适配器
+│   ├── RapidOcrWorkerService.cs             # 隔离 RapidOCR/ONNX Worker 服务
 │   ├── IWordLookupService.cs                # 查词服务接口
 │   ├── IWordLookupEnrichmentService.cs      # AI 查词增强接口
 │   ├── OpenAIWordLookupService.cs           # OpenAI 兼容查词服务

@@ -62,6 +62,8 @@ AGENTS.md
 /local-ocr-fixtures/
 **/.m3-run-build/
 **/.m3-test-build/
+**/.m3-*-build/
+**/.m3-*/
 /.m3-scene-venv/
 /.m3-scene-v6-venv/
 /.m3-scene-output/

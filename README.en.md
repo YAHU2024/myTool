@@ -318,6 +318,7 @@ QuickTranslate/
 │   ├── IScreenshotCaptureService.cs         # Screenshot capture interface
 │   ├── GdiScreenshotCaptureService.cs       # GDI physical-pixel screenshot capture
 │   ├── WindowsMediaOcrService.cs            # Windows built-in OCR adapter
+│   ├── RapidOcrWorkerService.cs             # Isolated RapidOCR/ONNX worker service
 │   ├── IWordLookupService.cs                # Word lookup service interface
 │   ├── IWordLookupEnrichmentService.cs      # AI word lookup enrichment interface
 │   ├── OpenAIWordLookupService.cs           # OpenAI-compatible word lookup service
