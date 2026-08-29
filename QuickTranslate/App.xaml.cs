@@ -49,6 +49,7 @@ public partial class App : Application
     private RedDotWindow? _redDotWindow;
     private ScreenshotSelectionWindow? _screenshotWindow;
     private ScreenshotTranslationOverlayWindow? _screenshotOverlayWindow;
+    private ScreenshotTranslationProgressWindow? _screenshotProgressWindow;
     private IOcrService? _screenshotOcrService;
     private ScreenshotTranslationCoordinator? _screenshotTranslationCoordinator;
     private CancellationTokenSource? _screenshotTranslationCts;
@@ -542,6 +543,7 @@ public partial class App : Application
     private void StartScreenshotCapture()
     {
         if (_isExiting || _screenshotWindow is not null || _screenshotOverlayWindow is not null ||
+            _screenshotProgressWindow is not null ||
             _screenshotTranslationCts is not null)
             return;
         if (!Win32Api.GetCursorPos(out var cursor))
@@ -635,6 +637,15 @@ public partial class App : Application
                 stride = image.Stride,
                 payload_bytes = image.BgraPixels.Length
             });
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (_isExiting || cancellationToken.IsCancellationRequested)
+                    return;
+                var progress = new ScreenshotTranslationProgressWindow(region);
+                _screenshotProgressWindow = progress;
+                progress.CancelRequested += () => _screenshotTranslationCts?.Cancel();
+                progress.ShowProgress();
+            }, DispatcherPriority.ApplicationIdle);
             var ocrService = _screenshotOcrService;
             var coordinator = _screenshotTranslationCoordinator;
             var translationService = _translationService;
@@ -760,6 +771,11 @@ public partial class App : Application
         }
         finally
         {
+            if (_screenshotProgressWindow is { } progress)
+            {
+                _screenshotProgressWindow = null;
+                progress.Close();
+            }
             if (ReferenceEquals(_screenshotWindow, window))
                 _screenshotWindow = null;
             _screenshotTranslationCts = null;
@@ -2694,6 +2710,8 @@ public partial class App : Application
         _screenshotTranslationCts = null;
         _screenshotOverlayWindow?.Close();
         _screenshotOverlayWindow = null;
+        _screenshotProgressWindow?.Close();
+        _screenshotProgressWindow = null;
         Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
         _selectionCts?.Dispose();
