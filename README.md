@@ -248,6 +248,7 @@ QuickTranslate/
 │   ├── SelectionDetector.cs                 # 鼠标钩子选词检测（拖拽/双击/三击）
 │   ├── SelectionLocator.cs                  # UIA 像素级选区定位
 │   ├── ClipboardHelper.cs                   # 零污染剪贴板（序列号检测+恢复）
+│   ├── ClipboardRestoreCoordinator.cs       # 后台剪贴板恢复队列
 │   ├── ContentTypeDetector.cs               # 智能内容识别（Translation/Code/Term）
 │   ├── BrowserDetector.cs                   # 浏览器窗口感知
 │   ├── TerminalDetector.cs                  # 终端宿主识别与复制风险判断
@@ -315,6 +316,7 @@ QuickTranslate/
 │   ├── ScreenshotTranslationMapping.cs      # 截图翻译 UnitId 映射
 │   ├── IScreenshotCaptureService.cs         # 截图捕获接口
 │   ├── GdiScreenshotCaptureService.cs       # GDI 物理像素截图捕获
+│   ├── WindowsMediaOcrService.cs            # Windows 内置 OCR 适配器
 │   ├── IWordLookupService.cs                # 查词服务接口
 │   ├── IWordLookupEnrichmentService.cs      # AI 查词增强接口
 │   ├── OpenAIWordLookupService.cs           # OpenAI 兼容查词服务

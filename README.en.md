@@ -249,6 +249,7 @@ QuickTranslate/
 │   ├── SelectionDetector.cs                 # Mouse hook selection detection (drag/double/triple-click)
 │   ├── SelectionLocator.cs                  # UIA pixel-level selection locator
 │   ├── ClipboardHelper.cs                   # Zero-pollution clipboard (serial detection + restore)
+│   ├── ClipboardRestoreCoordinator.cs       # Background clipboard restore queue
 │   ├── ContentTypeDetector.cs               # Smart content detection (Translation / Code / Term)
 │   ├── BrowserDetector.cs                   # Browser window awareness
 │   ├── TerminalDetector.cs                  # Terminal host awareness + copy-risk detection
@@ -316,6 +317,7 @@ QuickTranslate/
 │   ├── ScreenshotTranslationMapping.cs      # Screenshot translation UnitId mapping
 │   ├── IScreenshotCaptureService.cs         # Screenshot capture interface
 │   ├── GdiScreenshotCaptureService.cs       # GDI physical-pixel screenshot capture
+│   ├── WindowsMediaOcrService.cs            # Windows built-in OCR adapter
 │   ├── IWordLookupService.cs                # Word lookup service interface
 │   ├── IWordLookupEnrichmentService.cs      # AI word lookup enrichment interface
 │   ├── OpenAIWordLookupService.cs           # OpenAI-compatible word lookup service
