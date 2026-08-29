@@ -20,6 +20,7 @@ namespace QuickTranslate;
 /// </summary>
 public partial class App : Application
 {
+    private const int MaxConcurrentScreenshotTranslations = 3;
     private sealed record PendingSelectionCapture(
         ForegroundWindowInfo SourceWindow,
         SelectionIntent Intent,
@@ -653,19 +654,25 @@ public partial class App : Application
                 image,
                 async (units, token) =>
                 {
-                    var translated = new List<TranslatedTextUnit>(units.Count);
-                    foreach (var unit in units)
+                    using var gate = new SemaphoreSlim(MaxConcurrentScreenshotTranslations);
+                    var tasks = units.Select(async unit =>
                     {
-                        token.ThrowIfCancellationRequested();
-                        var translation = await translationService.TranslateAsync(
-                            unit.SourceText,
-                            settings.TargetLanguage,
-                            ContentType.Translation,
-                            token).ConfigureAwait(false);
-                        translated.Add(new TranslatedTextUnit(unit.UnitId, translation));
-                    }
-
-                    return translated;
+                        await gate.WaitAsync(token).ConfigureAwait(false);
+                        try
+                        {
+                            var translation = await translationService.TranslateAsync(
+                                unit.SourceText,
+                                settings.TargetLanguage,
+                                ContentType.Translation,
+                                token).ConfigureAwait(false);
+                            return new TranslatedTextUnit(unit.UnitId, translation);
+                        }
+                        finally
+                        {
+                            gate.Release();
+                        }
+                    });
+                    return await Task.WhenAll(tasks).ConfigureAwait(false);
                 },
                 new OcrRecognitionOptions(LanguageHint: null, AllowLanguageFallback: true),
                 cancellationToken).ConfigureAwait(true);

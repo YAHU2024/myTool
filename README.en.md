@@ -55,6 +55,12 @@ The feedback window shows a public-content preview before leaving the app and le
 
 Select text to open a red-dot guide and route it into translation, code, or terminology mode. Results are streamed in real time. The feature supports drag, double-click, and triple-click activation. Translation mode makes a conservative direction decision by default, but you can switch the target language from the status bar with one click. The floating window also supports temporarily using a saved model for the current text without modifying the global default settings.
 
+### Screenshot Translation · Local OCR Overlay
+
+Choose “Screenshot Translation” from the tray menu and select a region on one monitor. QuickTranslate recognizes text locally, calls the current translation model, and places translated text back over the captured region. Press `Esc` or click the overlay to close it and restore the original view; screenshots, OCR text, and translations stay in memory by default and are not written to history or logs.
+
+An installed RapidOCR/ONNX local scene-OCR Worker is preferred for complex backgrounds, Japanese, and rotated text; without the local model runtime, the app falls back to Windows built-in OCR. From a source checkout, run `scripts\install-ocr-runtime.ps1` when needed to create the isolated runtime. Release packages must distribute the runtime and models as verified local resources; the app never downloads models at runtime. Complex background erasure currently uses a translucent mask/card fallback, and low-confidence or unsafe mappings are not overlaid automatically.
+
 ---
 
 ### Follow-up analysis · keep understanding the result
@@ -115,6 +121,7 @@ Structured JSON Lines logs, multi-file switching, level and keyword filtering, *
   - [Three AI Experiences, One Open Entry Point](#three-ai-experiences-one-open-entry-point)
   - [Features](#features)
     - [AI text selection translation · red-dot guidance](#ai-text-selection-translation--red-dot-guidance)
+    - [Screenshot Translation · Local OCR Overlay](#screenshot-translation--local-ocr-overlay)
     - [Follow-up analysis · keep understanding the result](#follow-up-analysis--keep-understanding-the-result)
     - [Settings window · multi-model and shortcut management](#settings-window--multi-model-and-shortcut-management)
     - [AI lookup · local dictionary foundation, cloud-model completion](#ai-lookup--local-dictionary-foundation-cloud-model-completion)

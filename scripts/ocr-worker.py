@@ -103,7 +103,7 @@ def handle(engine: Any, request: dict[str, Any]) -> None:
         response(
             request_id,
             status="ok",
-            used_language_tag="und",
+            used_language_tag=str(request.get("language_hint") or "multi"),
             language_fallback_used=False,
             text_angle_degrees=0.0,
             elapsed_ms=float(result.elapse * 1000),

@@ -66,7 +66,7 @@ public sealed class RapidOcrWorkerService : IOcrService, IDisposable
         }
 
         return OcrCapability.Available(
-            new[] { "und" },
+            new[] { "multi" },
             _limits.MaxImageDimension,
             engineId: "rapidocr-onnx-worker",
             supportsPolygons: true,
@@ -116,7 +116,7 @@ public sealed class RapidOcrWorkerService : IOcrService, IDisposable
                 return new(
                     blocks,
                     string.IsNullOrWhiteSpace(response.UsedLanguageTag)
-                        ? "und"
+                        ? "multi"
                         : response.UsedLanguageTag,
                     response.LanguageFallbackUsed,
                     response.TextAngleDegrees,

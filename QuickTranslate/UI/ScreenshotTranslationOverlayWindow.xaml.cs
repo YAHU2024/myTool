@@ -90,6 +90,7 @@ public partial class ScreenshotTranslationOverlayWindow : Window
             var y = item.Bounds.Y / _dpiScale.Y;
             var width = item.Bounds.Width / _dpiScale.X;
             var height = item.Bounds.Height / _dpiScale.Y;
+            var availableWidth = Math.Max(width, Width - x - 8);
             var border = new Border
             {
                 Background = new SolidColorBrush(Color.FromArgb(218, 15, 23, 42)),
@@ -97,10 +98,9 @@ public partial class ScreenshotTranslationOverlayWindow : Window
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(4, 2, 4, 2),
                 CornerRadius = new CornerRadius(2),
-                Width = Math.Max(width, 24),
+                Width = Math.Min(Math.Max(width, 24), availableWidth),
                 MinHeight = Math.Max(height, 20),
-                MaxWidth = Math.Max(width, 24),
-                MaxHeight = Math.Max(height, 20),
+                MaxWidth = availableWidth,
                 Child = new TextBlock
                 {
                     Text = item.Translation.Trim(),
@@ -108,7 +108,6 @@ public partial class ScreenshotTranslationOverlayWindow : Window
                     FontFamily = new FontFamily("Microsoft YaHei UI"),
                     FontSize = Math.Clamp(height * 0.62, 10, 28),
                     TextWrapping = TextWrapping.Wrap,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
                     VerticalAlignment = VerticalAlignment.Center,
                     HorizontalAlignment = HorizontalAlignment.Left
                 }
