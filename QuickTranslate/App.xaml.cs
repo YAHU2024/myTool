@@ -47,6 +47,10 @@ public partial class App : Application
     private FloatingWindow? _floatingWindow;
     private RedDotWindow? _redDotWindow;
     private ScreenshotSelectionWindow? _screenshotWindow;
+    private ScreenshotTranslationOverlayWindow? _screenshotOverlayWindow;
+    private IOcrService? _screenshotOcrService;
+    private ScreenshotTranslationCoordinator? _screenshotTranslationCoordinator;
+    private CancellationTokenSource? _screenshotTranslationCts;
     private TrayIconManager? _trayIcon;
     private SettingsWindow? _settingsWindow;
     private ModelSettingsContext? _modelSettingsContext;
@@ -184,6 +188,17 @@ public partial class App : Application
 
         // 初始化翻译服务
         _translationService = new OpenAITranslationService(_settings);
+        _screenshotOcrService = ScreenshotOcrServiceFactory.Create();
+        _screenshotTranslationCoordinator = new ScreenshotTranslationCoordinator(_screenshotOcrService);
+        var screenshotOcrCapability = _screenshotOcrService.Probe();
+        Logger.Info("Screenshot", "screenshot.ocr_engine_selected", new
+        {
+            engine = screenshotOcrCapability.EngineId,
+            available = screenshotOcrCapability.IsAvailable,
+            supports_polygons = screenshotOcrCapability.SupportsPolygons,
+            supports_confidence = screenshotOcrCapability.SupportsConfidence,
+            language_count = screenshotOcrCapability.SupportedLanguageTags.Count
+        });
 
         // 初始化悬浮窗（单例复用）
         _floatingWindow = new FloatingWindow();
@@ -525,7 +540,8 @@ public partial class App : Application
     /// </summary>
     private void StartScreenshotCapture()
     {
-        if (_isExiting || _screenshotWindow is not null)
+        if (_isExiting || _screenshotWindow is not null || _screenshotOverlayWindow is not null ||
+            _screenshotTranslationCts is not null)
             return;
         if (!Win32Api.GetCursorPos(out var cursor))
         {
@@ -602,9 +618,12 @@ public partial class App : Application
     {
         // Let the hidden overlay leave the compositor before copying screen pixels.
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-        if (_isExiting)
+        if (_isExiting || _screenshotTranslationCts is not null)
             return;
 
+        using var translationCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        _screenshotTranslationCts = translationCts;
+        var cancellationToken = translationCts.Token;
         try
         {
             var image = await Task.Run(() => _screenshotCaptureService.Capture(region));
@@ -615,9 +634,106 @@ public partial class App : Application
                 stride = image.Stride,
                 payload_bytes = image.BgraPixels.Length
             });
+            var ocrService = _screenshotOcrService;
+            var coordinator = _screenshotTranslationCoordinator;
+            var translationService = _translationService;
+            var settings = _settings;
+            if (ocrService is null || coordinator is null || translationService is null || settings is null)
+                throw new InvalidOperationException("截图翻译服务尚未初始化。");
+
+            var capability = ocrService.Probe();
+            if (!capability.IsAvailable)
+                throw new OcrEngineUnavailableException(capability.UnavailableReason);
             _trayIcon?.ShowBalloonTip(
                 "截图翻译",
-                $"已捕获 {image.PixelWidth} × {image.PixelHeight} 物理像素区域。",
+                "正在本地识别并翻译，请稍候…",
+                System.Windows.Forms.ToolTipIcon.Info);
+
+            var pipeline = await coordinator.ExecuteAsync(
+                image,
+                async (units, token) =>
+                {
+                    var translated = new List<TranslatedTextUnit>(units.Count);
+                    foreach (var unit in units)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        var translation = await translationService.TranslateAsync(
+                            unit.SourceText,
+                            settings.TargetLanguage,
+                            ContentType.Translation,
+                            token).ConfigureAwait(false);
+                        translated.Add(new TranslatedTextUnit(unit.UnitId, translation));
+                    }
+
+                    return translated;
+                },
+                new OcrRecognitionOptions(LanguageHint: null, AllowLanguageFallback: true),
+                cancellationToken).ConfigureAwait(true);
+
+            if (pipeline.Status == ScreenshotTranslationPipelineStatus.NoText)
+            {
+                _trayIcon?.ShowBalloonTip(
+                    "截图翻译",
+                    "未识别到可翻译文字。",
+                    System.Windows.Forms.ToolTipIcon.Info);
+                return;
+            }
+
+            if (pipeline.Status != ScreenshotTranslationPipelineStatus.Completed)
+                throw new InvalidOperationException("译文无法安全映射回截图区域。");
+
+            var overlayItems = pipeline.Units
+                .Zip(pipeline.Mapping.MappedUnits)
+                .Select(static pair => new ScreenshotOverlayItem(
+                    pair.First.Bounds,
+                    pair.Second.Translation))
+                .ToArray();
+            if (overlayItems.Length == 0)
+            {
+                _trayIcon?.ShowBalloonTip(
+                    "截图翻译",
+                    "未生成可显示的译文。",
+                    System.Windows.Forms.ToolTipIcon.Warning);
+                return;
+            }
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (_isExiting || cancellationToken.IsCancellationRequested)
+                    return;
+                var overlay = new ScreenshotTranslationOverlayWindow(region, image, overlayItems);
+                _screenshotOverlayWindow = overlay;
+                overlay.Closed += (_, _) =>
+                {
+                    if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+                        _screenshotOverlayWindow = null;
+                    RestoreScreenshotUi(restoreState);
+                };
+                try
+                {
+                    overlay.ShowOverlay();
+                }
+                catch
+                {
+                    if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+                        _screenshotOverlayWindow = null;
+                    overlay.Close();
+                    throw;
+                }
+                Logger.Info("Screenshot", "screenshot.overlay_presented", new
+                {
+                    block_count = pipeline.OcrResult.Blocks.Count,
+                    unit_count = pipeline.Units.Count,
+                    engine = capability.EngineId,
+                    used_language = pipeline.OcrResult.UsedLanguageTag
+                });
+            }, DispatcherPriority.ApplicationIdle);
+        }
+        catch (OperationCanceledException)
+        {
+            _trayIcon?.ShowBalloonTip(
+                "截图翻译",
+                "截图翻译已取消。",
                 System.Windows.Forms.ToolTipIcon.Info);
         }
         catch (Exception ex)
@@ -630,14 +746,18 @@ public partial class App : Application
             });
             _trayIcon?.ShowBalloonTip(
                 "截图翻译",
-                "截图捕获失败，请缩小区域后重试。",
+                ex is OcrEngineUnavailableException
+                    ? "本机 OCR 引擎不可用，请安装对应语言包或配置本地 OCR 模型。"
+                    : "截图翻译失败，请缩小区域后重试。",
                 System.Windows.Forms.ToolTipIcon.Warning);
         }
         finally
         {
             if (ReferenceEquals(_screenshotWindow, window))
                 _screenshotWindow = null;
-            RestoreScreenshotUi(restoreState);
+            _screenshotTranslationCts = null;
+            if (_screenshotOverlayWindow is null)
+                RestoreScreenshotUi(restoreState);
         }
     }
 
@@ -2562,6 +2682,11 @@ public partial class App : Application
         _lookupDeactivationTimer.Stop();
         _screenshotWindow?.CancelSelection();
         _screenshotWindow = null;
+        _screenshotTranslationCts?.Cancel();
+        _screenshotTranslationCts?.Dispose();
+        _screenshotTranslationCts = null;
+        _screenshotOverlayWindow?.Close();
+        _screenshotOverlayWindow = null;
         Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
         _selectionCts?.Dispose();
@@ -2635,6 +2760,10 @@ public partial class App : Application
         _keyboardHook?.Dispose();
         _quickLookupHook?.Dispose();
         _selectionDetector?.Dispose();
+        if (_screenshotOcrService is IDisposable screenshotOcrDisposable)
+            screenshotOcrDisposable.Dispose();
+        _screenshotOcrService = null;
+        _screenshotTranslationCoordinator = null;
         _translationService?.Dispose();
         _dbContext?.Dispose();
 

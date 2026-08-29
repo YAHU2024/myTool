@@ -1,0 +1,30 @@
+<Window x:Class="QuickTranslate.UI.ScreenshotTranslationOverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        ShowActivated="True"
+        Topmost="True"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Focusable="True"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        MouseLeftButtonDown="Window_MouseLeftButtonDown">
+    <Grid x:Name="RootGrid" ClipToBounds="True">
+        <Image x:Name="ScreenshotImage" Stretch="Fill" SnapsToDevicePixels="True" />
+        <Canvas x:Name="OverlayCanvas" IsHitTestVisible="False" />
+        <Border HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Margin="12"
+                Padding="8,4"
+                Background="#D91E293B"
+                CornerRadius="3"
+                IsHitTestVisible="False">
+            <TextBlock Text="Esc 或单击关闭"
+                       Foreground="White"
+                       FontSize="12"
+                       FontFamily="Microsoft YaHei UI" />
+        </Border>
+    </Grid>
+</Window>
