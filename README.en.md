@@ -274,7 +274,13 @@ QuickTranslate/
 │   ├── StreamingDispatcherMetrics.cs        # Streaming dispatch metrics
 │   ├── StreamingPresentationPump.cs         # Streaming presentation frame pump (coalescing/publishing)
 │   ├── StreamingRuntimeMetrics.cs           # Streaming runtime metrics
-│   └── TtsPlaybackCoordinator.cs            # TTS playback coordination (multi-owner, busy avoidance)
+│   ├── TtsPlaybackCoordinator.cs            # TTS playback coordination (multi-owner, busy avoidance)
+│   ├── OcrBlockValidator.cs                 # OCR text-block and resource-boundary validation
+│   ├── OcrBlockAggregator.cs                # Deterministic OCR line-block aggregation
+│   ├── OcrLanguageSelector.cs               # OCR language selection and fallback
+│   ├── OcrTextNormalizer.cs                 # OCR text normalization
+│   ├── ScreenshotTranslationCoordinator.cs  # Screenshot OCR-to-translation coordination
+│   └── ScreenshotSelection.cs               # Physical screenshot region and resource gate
 ├── Database/              # Persistence layer
 │   ├── TranslationRecord.cs                 # Translation history model
 │   └── TranslationDbContext.cs              # EF Core SQLite context
@@ -306,6 +312,10 @@ QuickTranslate/
 │   ├── EdgeTtsClient.cs                     # Edge TTS WebSocket client
 │   ├── TtsTextSelector.cs                   # TTS text selector
 │   ├── TtsSpeakException.cs                 # TTS exception class
+│   ├── IOcrService.cs                       # Engine-agnostic OCR interface
+│   ├── ScreenshotTranslationMapping.cs      # Screenshot translation UnitId mapping
+│   ├── IScreenshotCaptureService.cs         # Screenshot capture interface
+│   ├── GdiScreenshotCaptureService.cs       # GDI physical-pixel screenshot capture
 │   ├── IWordLookupService.cs                # Word lookup service interface
 │   ├── IWordLookupEnrichmentService.cs      # AI word lookup enrichment interface
 │   ├── OpenAIWordLookupService.cs           # OpenAI-compatible word lookup service
@@ -325,7 +335,8 @@ QuickTranslate/
 │   ├── TranslationTriggerMode.cs            # Translation trigger mode enum
 │   ├── ThinkingModePreference.cs            # Thinking-mode preference
 │   ├── FeedbackModels.cs                    # Feedback draft, diagnostics, and field models
-│   └── WordLookupModels.cs                  # Word lookup result models (definition / phonetic / example / collocation)
+│   ├── WordLookupModels.cs                  # Word lookup result models (definition / phonetic / example / collocation)
+│   └── OcrModels.cs                         # OCR image, text-block, and resource-limit models
 ├── Helpers/               # Utilities
 │   ├── ConfigManager.cs                     # JSON configuration read/write + migration
 │   ├── Logger.cs                            # Async logger (JSON Lines / rotation / cleanup)
@@ -341,6 +352,7 @@ QuickTranslate/
 │   ├── FloatingWindow.xaml/.cs              # Floating window (multi-mode / Markdown / TTS / pin)
 │   ├── MarkdownInteraction.cs               # Markdown interaction helper
 │   ├── RedDotWindow.xaml/.cs                # Red-dot guidance window
+│   ├── ScreenshotSelectionWindow.xaml/.cs   # Single-monitor screenshot selection overlay
 │   ├── QuickLookupWindow.xaml/.cs           # Quick lookup window (structured definitions / speech)
 │   ├── TrayIconManager.cs                   # System tray (context menu / toast)
 │   ├── SettingsWindow.xaml/.cs              # Settings (models / hotkeys / profiles / updates)

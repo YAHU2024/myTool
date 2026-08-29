@@ -273,7 +273,13 @@ QuickTranslate/
 │   ├── StreamingDispatcherMetrics.cs        # 流式分发指标
 │   ├── StreamingPresentationPump.cs         # 流式展示帧泵（帧合并/发布）
 │   ├── StreamingRuntimeMetrics.cs           # 流式运行指标
-│   └── TtsPlaybackCoordinator.cs            # TTS 播放协调（多所有者、忙避让）
+│   ├── TtsPlaybackCoordinator.cs            # TTS 播放协调（多所有者、忙避让）
+│   ├── OcrBlockValidator.cs                 # OCR 文本块与资源边界校验
+│   ├── OcrBlockAggregator.cs                # OCR 行块确定性聚合
+│   ├── OcrLanguageSelector.cs               # OCR 语言选择与降级
+│   ├── OcrTextNormalizer.cs                 # OCR 文本规范化
+│   ├── ScreenshotTranslationCoordinator.cs  # 截图翻译 OCR 到译文协调
+│   └── ScreenshotSelection.cs               # 截图框选物理矩形与资源门禁
 ├── Database/              # 持久化层
 │   ├── TranslationRecord.cs                 # 翻译历史模型
 │   └── TranslationDbContext.cs              # EF Core SQLite 上下文
@@ -305,6 +311,10 @@ QuickTranslate/
 │   ├── EdgeTtsClient.cs                     # Edge TTS WebSocket 客户端
 │   ├── TtsTextSelector.cs                   # TTS 文本选择器
 │   ├── TtsSpeakException.cs                 # TTS 异常类
+│   ├── IOcrService.cs                       # OCR 引擎无关接口
+│   ├── ScreenshotTranslationMapping.cs      # 截图翻译 UnitId 映射
+│   ├── IScreenshotCaptureService.cs         # 截图捕获接口
+│   ├── GdiScreenshotCaptureService.cs       # GDI 物理像素截图捕获
 │   ├── IWordLookupService.cs                # 查词服务接口
 │   ├── IWordLookupEnrichmentService.cs      # AI 查词增强接口
 │   ├── OpenAIWordLookupService.cs           # OpenAI 兼容查词服务
@@ -324,7 +334,8 @@ QuickTranslate/
 │   ├── TranslationTriggerMode.cs            # 翻译触发模式枚举
 │   ├── ThinkingModePreference.cs            # 思考模式偏好
 │   ├── FeedbackModels.cs                    # 反馈草稿、诊断摘要与字段模型
-│   └── WordLookupModels.cs                  # 查词结果模型（释义/音标/例句/搭配）
+│   ├── WordLookupModels.cs                  # 查词结果模型（释义/音标/例句/搭配）
+│   └── OcrModels.cs                         # OCR 图像、文本块与资源限制模型
 ├── Helpers/               # 工具类
 │   ├── ConfigManager.cs                     # JSON 配置读写 + 旧配置迁移
 │   ├── Logger.cs                            # 异步日志器（JSON Lines/轮转/清理）
@@ -340,6 +351,7 @@ QuickTranslate/
 │   ├── FloatingWindow.xaml/.cs              # 悬浮窗（多模式/Markdown/TTS/图钉）
 │   ├── MarkdownInteraction.cs               # Markdown 交互辅助
 │   ├── RedDotWindow.xaml/.cs                # 红点引导窗口
+│   ├── ScreenshotSelectionWindow.xaml/.cs   # 单显示器截图框选遮罩
 │   ├── QuickLookupWindow.xaml/.cs           # 快速查词窗口（结构化释义/朗读）
 │   ├── TrayIconManager.cs                   # 系统托盘（右键菜单/气泡通知）
 │   ├── SettingsWindow.xaml/.cs              # 设置窗口（模型/快捷键/解析方案/更新管理）

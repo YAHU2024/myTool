@@ -27,6 +27,10 @@ public partial class App : Application
         FloatingWindowAnchor Anchor,
         long Generation);
 
+    private sealed record ScreenshotUiState(
+        bool FloatingWindowVisible,
+        bool QuickLookupWindowVisible);
+
     private sealed record ModelSettingsContext(Guid SessionId, ContentType Mode);
 
     private GlobalKeyboardHook? _keyboardHook;
@@ -42,6 +46,7 @@ public partial class App : Application
     private AppSettings? _settings;
     private FloatingWindow? _floatingWindow;
     private RedDotWindow? _redDotWindow;
+    private ScreenshotSelectionWindow? _screenshotWindow;
     private TrayIconManager? _trayIcon;
     private SettingsWindow? _settingsWindow;
     private ModelSettingsContext? _modelSettingsContext;
@@ -57,6 +62,7 @@ public partial class App : Application
     private readonly ModelSelectionCoordinator _modelSelection = new();
     private readonly TranslationCacheService _translationCache = new();
     private readonly TranslationMetrics _translationMetrics = new();
+    private readonly IScreenshotCaptureService _screenshotCaptureService = new GdiScreenshotCaptureService();
     private readonly WordLookupSessionCoordinator _lookupSessions = new();
     private readonly RecentLookupBuffer _recentLookups = new();
     private readonly TrayClickCoordinator _trayClicks = new();
@@ -266,6 +272,7 @@ public partial class App : Application
 
         // 初始化系统托盘图标
         _trayIcon = new TrayIconManager();
+        _trayIcon.ScreenshotTranslationRequested += OnScreenshotTranslationRequested;
         _trayIcon.SettingsRequested += OnSettingsRequested;
         _trayIcon.RestoreRequested += OnRestoreRequested;
         _trayIcon.LookupClickStarted += OnLookupClickStarted;
@@ -506,6 +513,142 @@ public partial class App : Application
                 ShowQuickLookupCentered();
             }
         });
+    }
+
+    private void OnScreenshotTranslationRequested()
+    {
+        Dispatcher.BeginInvoke(StartScreenshotCapture);
+    }
+
+    /// <summary>
+    /// 从托盘进入单显示器截图框选。选区和捕获均使用物理像素，窗口只负责绘制遮罩。
+    /// </summary>
+    private void StartScreenshotCapture()
+    {
+        if (_isExiting || _screenshotWindow is not null)
+            return;
+        if (!Win32Api.GetCursorPos(out var cursor))
+        {
+            _trayIcon?.ShowBalloonTip("截图翻译", "无法读取当前鼠标位置，请重试。", System.Windows.Forms.ToolTipIcon.Warning);
+            return;
+        }
+
+        var monitor = Win32Api.GetPhysicalMonitorAreaAtPoint(new Point(cursor.X, cursor.Y));
+        if (monitor.IsEmpty)
+        {
+            _trayIcon?.ShowBalloonTip("截图翻译", "无法确定当前显示器，请重试。", System.Windows.Forms.ToolTipIcon.Warning);
+            return;
+        }
+
+        var monitorRegion = new ScreenshotRegion(
+            checked((int)monitor.Left),
+            checked((int)monitor.Top),
+            checked((int)monitor.Width),
+            checked((int)monitor.Height));
+        var restoreState = new ScreenshotUiState(
+            _floatingWindow?.IsVisible == true,
+            _quickLookupWindow?.IsVisible == true);
+
+        // Cancel any pending text-selection red dot before taking control of the mouse.
+        OnSelectionCancelled();
+        if (restoreState.FloatingWindowVisible)
+            _floatingWindow?.Hide();
+        if (restoreState.QuickLookupWindowVisible)
+            _quickLookupWindow?.Hide();
+
+        ScreenshotSelectionWindow? window = null;
+        try
+        {
+            window = new ScreenshotSelectionWindow(monitorRegion);
+            _screenshotWindow = window;
+            window.SelectionCompleted += region =>
+                OnScreenshotSelectionCompleted(window, restoreState, region);
+            window.Cancelled += () =>
+                OnScreenshotSelectionCancelled(window, restoreState);
+            window.ShowSelection();
+            Logger.Info("Screenshot", "screenshot.selection_started", new
+            {
+                monitor_width = monitorRegion.Width,
+                monitor_height = monitorRegion.Height
+            });
+        }
+        catch (Exception ex)
+        {
+            window?.CancelSelection();
+            Logger.Warn("Screenshot", "screenshot.selection_start_failed", new
+            {
+                exception_type = ex.GetType().Name
+            });
+            RestoreScreenshotUi(restoreState);
+            _screenshotWindow = null;
+            _trayIcon?.ShowBalloonTip("截图翻译", "无法启动截图框选，请重试。", System.Windows.Forms.ToolTipIcon.Warning);
+        }
+    }
+
+    private void OnScreenshotSelectionCancelled(
+        ScreenshotSelectionWindow window,
+        ScreenshotUiState restoreState)
+    {
+        if (ReferenceEquals(_screenshotWindow, window))
+            _screenshotWindow = null;
+        Logger.Info("Screenshot", "screenshot.selection_cancelled", new { });
+        RestoreScreenshotUi(restoreState);
+    }
+
+    private async void OnScreenshotSelectionCompleted(
+        ScreenshotSelectionWindow window,
+        ScreenshotUiState restoreState,
+        ScreenshotRegion region)
+    {
+        // Let the hidden overlay leave the compositor before copying screen pixels.
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+        if (_isExiting)
+            return;
+
+        try
+        {
+            var image = await Task.Run(() => _screenshotCaptureService.Capture(region));
+            Logger.Info("Screenshot", "screenshot.capture_completed", new
+            {
+                width = image.PixelWidth,
+                height = image.PixelHeight,
+                stride = image.Stride,
+                payload_bytes = image.BgraPixels.Length
+            });
+            _trayIcon?.ShowBalloonTip(
+                "截图翻译",
+                $"已捕获 {image.PixelWidth} × {image.PixelHeight} 物理像素区域。",
+                System.Windows.Forms.ToolTipIcon.Info);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn("Screenshot", "screenshot.capture_failed", new
+            {
+                exception_type = ex.GetType().Name,
+                width = region.Width,
+                height = region.Height
+            });
+            _trayIcon?.ShowBalloonTip(
+                "截图翻译",
+                "截图捕获失败，请缩小区域后重试。",
+                System.Windows.Forms.ToolTipIcon.Warning);
+        }
+        finally
+        {
+            if (ReferenceEquals(_screenshotWindow, window))
+                _screenshotWindow = null;
+            RestoreScreenshotUi(restoreState);
+        }
+    }
+
+    private void RestoreScreenshotUi(ScreenshotUiState restoreState)
+    {
+        if (_isExiting)
+            return;
+        if (restoreState.FloatingWindowVisible)
+            _floatingWindow?.ShowExistingResult();
+        if (restoreState.QuickLookupWindowVisible && _quickLookupWindow is { } quickLookup)
+            quickLookup.Show();
     }
 
     /// <summary>
@@ -1786,7 +1929,8 @@ public partial class App : Application
         Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
         _selectionCts = null;
-        _selectionDetector!.IsRedDotVisible = false;
+        if (_selectionDetector is not null)
+            _selectionDetector.IsRedDotVisible = false;
         _redDotWindow?.Hide();
         _pendingSelection = null;
     }
@@ -2416,6 +2560,8 @@ public partial class App : Application
         CancelActiveTranslationRequest();
         _lookupSessions.CancelCurrent();
         _lookupDeactivationTimer.Stop();
+        _screenshotWindow?.CancelSelection();
+        _screenshotWindow = null;
         Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
         _selectionCts?.Dispose();

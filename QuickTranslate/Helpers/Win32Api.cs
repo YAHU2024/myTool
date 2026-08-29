@@ -228,6 +228,25 @@ namespace QuickTranslate.Helpers
             return new Rect(mi.rcWork.Left, mi.rcWork.Top, mi.rcWork.Right - mi.rcWork.Left, mi.rcWork.Bottom - mi.rcWork.Top);
         }
 
+        /// <summary>
+        /// 获取指定物理屏幕坐标所在显示器的完整物理像素矩形。
+        /// </summary>
+        public static Rect GetPhysicalMonitorAreaAtPoint(Point physicalPoint)
+        {
+            var hMon = MonitorFromPoint(
+                new POINT { X = (int)physicalPoint.X, Y = (int)physicalPoint.Y },
+                MONITOR_DEFAULTTONEAREST);
+            var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+            if (hMon == IntPtr.Zero || !GetMonitorInfo(hMon, ref mi))
+                return Rect.Empty;
+
+            return new Rect(
+                mi.rcMonitor.Left,
+                mi.rcMonitor.Top,
+                mi.rcMonitor.Right - mi.rcMonitor.Left,
+                mi.rcMonitor.Bottom - mi.rcMonitor.Top);
+        }
+
         [DllImport("user32.dll")]
         public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
 
