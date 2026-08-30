@@ -664,6 +664,28 @@ public partial class App : Application
                 async (units, token) =>
                 {
                     stage = "translation";
+                    if (translationService is IScreenshotBatchTranslationService batchTranslationService)
+                    {
+                        Interlocked.Increment(ref translationRequestCount);
+                        try
+                        {
+                            return await batchTranslationService
+                                .TranslateScreenshotBatchAsync(units, settings.TargetLanguage, token)
+                                .ConfigureAwait(false);
+                        }
+                        catch (ScreenshotTranslationBatchFormatException ex) when (!token.IsCancellationRequested)
+                        {
+                            Logger.Warn("Screenshot", "screenshot.batch_mapping_rejected", new
+                            {
+                                reason = ex.Reason,
+                                unit_count = units.Count
+                            });
+                            // Only a structurally invalid batch response is safe to
+                            // retry per unit. Transport, auth, quota, and cancellation
+                            // errors must propagate without multiplying requests.
+                        }
+                    }
+
                     using var gate = new SemaphoreSlim(MaxConcurrentScreenshotTranslations);
                     var tasks = units.Select(async unit =>
                     {

@@ -323,6 +323,7 @@ QuickTranslate/
 │   ├── TtsSpeakException.cs                          # TTS 异常类
 │   ├── IOcrService.cs                                # OCR 引擎无关接口
 │   ├── ScreenshotTranslationMapping.cs               # 截图翻译 UnitId 映射
+│   ├── IScreenshotBatchTranslationService.cs         # 截图结构化批量翻译接口
 │   ├── IScreenshotCaptureService.cs                  # 截图捕获接口
 │   ├── GdiScreenshotCaptureService.cs                # GDI 物理像素截图捕获
 │   ├── WindowsMediaOcrService.cs                     # Windows 内置 OCR 适配器

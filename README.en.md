@@ -324,6 +324,7 @@ QuickTranslate/
 │   ├── TtsSpeakException.cs                          # TTS exception class
 │   ├── IOcrService.cs                                # Engine-agnostic OCR interface
 │   ├── ScreenshotTranslationMapping.cs               # Screenshot translation UnitId mapping
+│   ├── IScreenshotBatchTranslationService.cs         # Screenshot structured batch translation interface
 │   ├── IScreenshotCaptureService.cs                  # Screenshot capture interface
 │   ├── GdiScreenshotCaptureService.cs                # GDI physical-pixel screenshot capture
 │   ├── WindowsMediaOcrService.cs                     # Windows built-in OCR adapter

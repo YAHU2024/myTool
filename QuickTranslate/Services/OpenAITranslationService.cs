@@ -12,7 +12,7 @@ namespace QuickTranslate.Services;
 /// <summary>
 /// OpenAI-compatible translation service with streaming SSE support.
 /// </summary>
-public sealed class OpenAITranslationService : ITranslationService, IDisposable
+public sealed class OpenAITranslationService : ITranslationService, IScreenshotBatchTranslationService, IDisposable
 {
     internal const int MaxInitialRequestRunes = 20000;
     internal const int MaxAnalysisRequestRunes = 30000;
@@ -432,6 +432,103 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<TranslatedTextUnit>> TranslateScreenshotBatchAsync(
+        IReadOnlyList<ScreenshotTranslationUnit> units,
+        string targetLanguage,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(units);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetLanguage);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (units.Count == 0)
+            return Array.Empty<TranslatedTextUnit>();
+
+        ValidateScreenshotBatchUnits(units);
+        var context = CaptureRequestContext(targetLanguage);
+        var batchInput = BuildScreenshotBatchInput(units);
+        EnsureInputLength(batchInput, MaxInitialRequestRunes, "截图批量请求");
+        var direction = TranslationDirectionResolver.Resolve(
+            batchInput,
+            targetLanguage,
+            context.FallbackLanguage,
+            context.AutoDetectLanguage,
+            ContentType.Translation,
+            TranslationDirectionPreference.FixedRequestedTarget);
+        var request = new TranslationRequest(
+            TranslationRequestKind.Translation,
+            batchInput,
+            direction,
+            ContentType.Translation,
+            context.ApiBaseUrl,
+            context.ApiKey,
+            context.ModelName,
+            TranslationPromptBuilder.BuildScreenshotBatchPrompt(
+                targetLanguage,
+                context.CustomTranslationPrompt),
+            context.EnableThinking);
+        ValidateRequest(request);
+
+        var startedAt = Stopwatch.GetTimestamp();
+        Logger.Info("TranslationService", "screenshot_batch.started", new
+        {
+            unit_count = units.Count,
+            text_len = units.Sum(static unit => unit.SourceText.Length),
+            requested_target_language = targetLanguage
+        });
+
+        string responseBody;
+        using (var response = await SendAsync(
+                   request.ApiBaseUrl,
+                   request.ApiKey,
+                   BuildRequestBody(
+                       request.ModelName,
+                       [
+                           new ChatCompletionMessage("system", request.SystemPrompt),
+                           new ChatCompletionMessage("user", PromptInputContract.Wrap(request.Text))
+                       ],
+                       request.ApiBaseUrl,
+                       request.EnableThinking,
+                       stream: false),
+                   HttpCompletionOption.ResponseContentRead,
+                   cancellationToken).ConfigureAwait(false))
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                throw await ProviderHttpError.CreateExceptionAsync(
+                    "screenshot batch translation",
+                    response,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            responseBody = await response.Content
+                .ReadAsStringAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        string content;
+        try
+        {
+            content = ExtractTranslation(responseBody);
+        }
+        catch (FormatException ex)
+        {
+            throw new ScreenshotTranslationBatchFormatException("invalid_provider_response", ex);
+        }
+
+        var mapped = ScreenshotTranslationMapper.ParseAndMap(content, units);
+        if (!mapped.Accepted)
+            throw new ScreenshotTranslationBatchFormatException(mapped.Reason);
+
+        Logger.Info("TranslationService", "screenshot_batch.completed", new
+        {
+            unit_count = units.Count,
+            mapped_count = mapped.MappedCount,
+            duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+            requested_target_language = targetLanguage
+        });
+        return mapped.MappedUnits;
+    }
+
     private async Task<string> TranslateAsyncCore(
         string text,
         string targetLang,
@@ -465,6 +562,34 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         return ExtractTranslation(responseBody);
+    }
+
+    private static void ValidateScreenshotBatchUnits(
+        IReadOnlyList<ScreenshotTranslationUnit> units)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var unit in units)
+        {
+            ArgumentNullException.ThrowIfNull(unit);
+            if (string.IsNullOrWhiteSpace(unit.UnitId) || !ids.Add(unit.UnitId))
+                throw new ArgumentException("截图批量翻译单元 ID 必须非空且唯一。", nameof(units));
+            if (string.IsNullOrWhiteSpace(unit.SourceText))
+                throw new ArgumentException("截图批量翻译单元文本不能为空。", nameof(units));
+        }
+    }
+
+    private static string BuildScreenshotBatchInput(
+        IReadOnlyList<ScreenshotTranslationUnit> units)
+    {
+        var payload = new
+        {
+            units = units.Select(static unit => new
+            {
+                id = unit.UnitId,
+                text = unit.SourceText
+            })
+        };
+        return JsonSerializer.Serialize(payload, JsonOptions);
     }
 
     public async Task<string> AnalyzeStreamingAsync(
