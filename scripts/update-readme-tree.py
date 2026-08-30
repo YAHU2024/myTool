@@ -76,6 +76,7 @@ ZH_QUICK = _mk(
     ("Core/OcrLanguageSelector.cs", "OCR 语言选择与降级"),
     ("Core/OcrTextNormalizer.cs", "OCR 文本规范化"),
     ("Core/ScreenshotTranslationCoordinator.cs", "截图翻译 OCR 到译文协调"),
+    ("Core/ScreenshotTranslationTiming.cs", "截图翻译分段耗时与计数"),
     ("Core/ScreenshotSelection.cs", "截图框选物理矩形与资源门禁"),
     # Database
     ("Database/", "持久化层"),
@@ -251,6 +252,7 @@ EN_QUICK = _mk(
     ("Core/OcrLanguageSelector.cs", "OCR language selection and fallback"),
     ("Core/OcrTextNormalizer.cs", "OCR text normalization"),
     ("Core/ScreenshotTranslationCoordinator.cs", "Screenshot OCR-to-translation coordination"),
+    ("Core/ScreenshotTranslationTiming.cs", "Screenshot pipeline stage timings and counts"),
     ("Core/ScreenshotSelection.cs", "Physical screenshot region and resource gate"),
     ("Database/", "Persistence layer"),
     ("Database/TranslationRecord.cs", "Translation history model"),

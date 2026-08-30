@@ -59,7 +59,7 @@ Select text to open a red-dot guide and route it into translation, code, or term
 
 Choose “Screenshot Translation” from the tray menu and select a region on one monitor. QuickTranslate recognizes text locally, calls the current translation model, and places translated text back over the captured region. Press `Esc` or click the overlay to close it and restore the original view; screenshots, OCR text, and translations stay in memory by default and are not written to history or logs.
 
-An installed RapidOCR/ONNX local scene-OCR Worker is preferred for complex backgrounds, Japanese, and rotated text; without the local model runtime, the app falls back to Windows built-in OCR. From a source checkout, run `scripts\install-ocr-runtime.ps1` when needed to create the isolated runtime. Release packages must distribute the runtime and models as verified local resources; the app never downloads models at runtime. Complex background erasure currently uses a translucent mask/card fallback, and low-confidence or unsafe mappings are not overlaid automatically.
+An installed RapidOCR/ONNX local scene-OCR Worker is preferred for complex backgrounds, Japanese, and rotated text; without a local model, the app falls back to Windows built-in OCR. The Full package will include a baseline model that passes the quality and license gates, while both Standard and Full packages can explicitly download, verify, and switch other supported models from Settings. The app never downloads models automatically at startup or when a screenshot is captured. From a source checkout, run `scripts\install-ocr-runtime.ps1` when needed to create the isolated runtime. Complex background erasure currently uses a translucent mask/card fallback, and low-confidence or unsafe mappings are not overlaid automatically.
 
 ---
 
@@ -288,6 +288,7 @@ QuickTranslate/
 │   ├── OcrLanguageSelector.cs                        # OCR language selection and fallback
 │   ├── OcrTextNormalizer.cs                          # OCR text normalization
 │   ├── ScreenshotTranslationCoordinator.cs           # Screenshot OCR-to-translation coordination
+│   ├── ScreenshotTranslationTiming.cs                # Screenshot pipeline stage timings and counts
 │   └── ScreenshotSelection.cs                        # Physical screenshot region and resource gate
 ├── Database/              # Persistence layer
 │   ├── TranslationRecord.cs                          # Translation history model

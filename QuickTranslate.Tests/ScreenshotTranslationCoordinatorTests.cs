@@ -32,6 +32,11 @@ public sealed class ScreenshotTranslationCoordinatorTests
         Assert.Equal(ScreenshotTranslationPipelineStatus.Completed, result.Status);
         Assert.True(result.Mapping.Accepted);
         Assert.Equal(new[] { "u0001", "u0002" }, result.Mapping.MappedUnits.Select(unit => unit.UnitId));
+        Assert.Equal(3, result.Timings.OcrBlockCount);
+        Assert.Equal(2, result.Timings.TranslationUnitCount);
+        Assert.True(result.Timings.OcrElapsed >= TimeSpan.Zero);
+        Assert.True(result.Timings.TranslationElapsed >= TimeSpan.Zero);
+        Assert.True(result.Timings.MappingElapsed >= TimeSpan.Zero);
     }
 
     [Fact]
@@ -53,6 +58,8 @@ public sealed class ScreenshotTranslationCoordinatorTests
         Assert.Equal(ScreenshotTranslationPipelineStatus.NoText, result.Status);
         Assert.False(called);
         Assert.True(result.Mapping.Accepted);
+        Assert.Equal(0, result.Timings.OcrBlockCount);
+        Assert.Equal(0, result.Timings.TranslationUnitCount);
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using QuickTranslate.Models;
 using QuickTranslate.Services;
 
@@ -14,7 +15,10 @@ public sealed record ScreenshotTranslationPipelineResult(
     ScreenshotTranslationPipelineStatus Status,
     OcrResult OcrResult,
     IReadOnlyList<ScreenshotTranslationUnit> Units,
-    ScreenshotTranslationMappingResult Mapping);
+    ScreenshotTranslationMappingResult Mapping)
+{
+    public ScreenshotTranslationStageTimings Timings { get; init; } = ScreenshotTranslationStageTimings.Empty;
+}
 
 /// <summary>
 /// M1 的最小协调器：用 OCR 服务产出稳定单元，再交给可替换的批量翻译函数。
@@ -43,9 +47,11 @@ public sealed class ScreenshotTranslationCoordinator
         ArgumentNullException.ThrowIfNull(translateAsync);
         image.Validate(_limits);
 
+        var ocrWatch = Stopwatch.StartNew();
         var ocrResult = await _ocrService
             .RecognizeAsync(image, options, cancellationToken)
             .ConfigureAwait(false);
+        ocrWatch.Stop();
 
         if (ocrResult.Blocks.Count > _limits.MaxBlockCount)
             throw new ArgumentException("OCR 块数超过允许上限。", nameof(ocrResult));
@@ -70,15 +76,35 @@ public sealed class ScreenshotTranslationCoordinator
         if (units.Count == 0)
         {
             var emptyMapping = ScreenshotTranslationMapper.Map(units, Array.Empty<TranslatedTextUnit>());
-            return new(ScreenshotTranslationPipelineStatus.NoText, ocrResult, units, emptyMapping);
+            return new(ScreenshotTranslationPipelineStatus.NoText, ocrResult, units, emptyMapping)
+            {
+                Timings = new(
+                    ocrWatch.Elapsed,
+                    TimeSpan.Zero,
+                    TimeSpan.Zero,
+                    normalizedBlocks.Length,
+                    0)
+            };
         }
 
+        var translationWatch = Stopwatch.StartNew();
         var translated = await translateAsync(units, cancellationToken).ConfigureAwait(false);
+        translationWatch.Stop();
         cancellationToken.ThrowIfCancellationRequested();
+        var mappingWatch = Stopwatch.StartNew();
         var mapping = ScreenshotTranslationMapper.Map(units, translated);
+        mappingWatch.Stop();
         var status = mapping.Accepted
             ? ScreenshotTranslationPipelineStatus.Completed
             : ScreenshotTranslationPipelineStatus.TranslationMappingRejected;
-        return new(status, ocrResult, units, mapping);
+        return new(status, ocrResult, units, mapping)
+        {
+            Timings = new(
+                ocrWatch.Elapsed,
+                translationWatch.Elapsed,
+                mappingWatch.Elapsed,
+                normalizedBlocks.Length,
+                units.Count)
+        };
     }
 }

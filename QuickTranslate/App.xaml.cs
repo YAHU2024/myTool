@@ -591,6 +591,16 @@ public partial class App : Application
         ScreenshotUiState restoreState,
         ScreenshotRegion region)
     {
+        var pipelineWatch = Stopwatch.StartNew();
+        var captureElapsed = TimeSpan.Zero;
+        var overlayLayoutElapsed = TimeSpan.Zero;
+        var stage = "capture";
+        var pipelineStatus = "not_started";
+        var pipelineTimings = ScreenshotTranslationStageTimings.Empty;
+        var translationRequestCount = 0;
+        string? selectedOcrEngine = null;
+        string? failureType = null;
+
         // Let the hidden overlay leave the compositor before copying screen pixels.
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
         if (_isExiting || _screenshotTranslationCts is not null)
@@ -601,7 +611,16 @@ public partial class App : Application
         var cancellationToken = translationCts.Token;
         try
         {
-            var image = await Task.Run(() => _screenshotCaptureService.Capture(region));
+            var captureWatch = Stopwatch.StartNew();
+            OcrImage image;
+            try
+            {
+                image = await Task.Run(() => _screenshotCaptureService.Capture(region));
+            }
+            finally
+            {
+                captureElapsed = captureWatch.Elapsed;
+            }
             Logger.Info("Screenshot", "screenshot.capture_completed", new
             {
                 width = image.PixelWidth,
@@ -626,6 +645,7 @@ public partial class App : Application
                 throw new InvalidOperationException("截图翻译服务尚未初始化。");
 
             var capability = ocrService.Probe();
+            selectedOcrEngine = capability.EngineId;
             if (!capability.IsAvailable)
                 throw new OcrEngineUnavailableException(capability.UnavailableReason);
             _trayIcon?.ShowBalloonTip(
@@ -633,16 +653,20 @@ public partial class App : Application
                 "正在本地识别并翻译，请稍候…",
                 System.Windows.Forms.ToolTipIcon.Info);
 
+            stage = "ocr";
+            pipelineStatus = "running";
             var pipeline = await coordinator.ExecuteAsync(
                 image,
                 async (units, token) =>
                 {
+                    stage = "translation";
                     using var gate = new SemaphoreSlim(MaxConcurrentScreenshotTranslations);
                     var tasks = units.Select(async unit =>
                     {
                         await gate.WaitAsync(token).ConfigureAwait(false);
                         try
                         {
+                            Interlocked.Increment(ref translationRequestCount);
                             var translation = await translationService.TranslateAsync(
                                 unit.SourceText,
                                 settings.TargetLanguage,
@@ -660,6 +684,9 @@ public partial class App : Application
                 new OcrRecognitionOptions(LanguageHint: null, AllowLanguageFallback: true),
                 cancellationToken).ConfigureAwait(true);
 
+            pipelineTimings = pipeline.Timings;
+            pipelineStatus = pipeline.Status.ToString();
+
             if (pipeline.Status == ScreenshotTranslationPipelineStatus.NoText)
             {
                 _trayIcon?.ShowBalloonTip(
@@ -672,55 +699,67 @@ public partial class App : Application
             if (pipeline.Status != ScreenshotTranslationPipelineStatus.Completed)
                 throw new InvalidOperationException("译文无法安全映射回截图区域。");
 
-            var overlayItems = pipeline.Units
-                .Zip(pipeline.Mapping.MappedUnits)
-                .Select(static pair => new ScreenshotOverlayItem(
-                    pair.First.Bounds,
-                    pair.Second.Translation))
-                .ToArray();
-            if (overlayItems.Length == 0)
+            stage = "overlay_layout";
+            var overlayWatch = Stopwatch.StartNew();
+            try
             {
-                _trayIcon?.ShowBalloonTip(
-                    "截图翻译",
-                    "未生成可显示的译文。",
-                    System.Windows.Forms.ToolTipIcon.Warning);
-                return;
-            }
-
-            await Dispatcher.InvokeAsync(() =>
-            {
-                if (_isExiting || cancellationToken.IsCancellationRequested)
+                var overlayItems = pipeline.Units
+                    .Zip(pipeline.Mapping.MappedUnits)
+                    .Select(static pair => new ScreenshotOverlayItem(
+                        pair.First.Bounds,
+                        pair.Second.Translation))
+                    .ToArray();
+                if (overlayItems.Length == 0)
+                {
+                    _trayIcon?.ShowBalloonTip(
+                        "截图翻译",
+                        "未生成可显示的译文。",
+                        System.Windows.Forms.ToolTipIcon.Warning);
                     return;
-                var overlay = new ScreenshotTranslationOverlayWindow(region, image, overlayItems);
-                _screenshotOverlayWindow = overlay;
-                overlay.Closed += (_, _) =>
-                {
-                    if (ReferenceEquals(_screenshotOverlayWindow, overlay))
-                        _screenshotOverlayWindow = null;
-                    RestoreScreenshotUi(restoreState);
-                };
-                try
-                {
-                    overlay.ShowOverlay();
                 }
-                catch
+
+                await Dispatcher.InvokeAsync(() =>
                 {
-                    if (ReferenceEquals(_screenshotOverlayWindow, overlay))
-                        _screenshotOverlayWindow = null;
-                    overlay.Close();
-                    throw;
-                }
-                Logger.Info("Screenshot", "screenshot.overlay_presented", new
-                {
-                    block_count = pipeline.OcrResult.Blocks.Count,
-                    unit_count = pipeline.Units.Count,
-                    engine = capability.EngineId,
-                    used_language = pipeline.OcrResult.UsedLanguageTag
-                });
-            }, DispatcherPriority.ApplicationIdle);
+                    if (_isExiting || cancellationToken.IsCancellationRequested)
+                        return;
+                    var overlay = new ScreenshotTranslationOverlayWindow(region, image, overlayItems);
+                    _screenshotOverlayWindow = overlay;
+                    overlay.Closed += (_, _) =>
+                    {
+                        if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+                            _screenshotOverlayWindow = null;
+                        RestoreScreenshotUi(restoreState);
+                    };
+                    try
+                    {
+                        overlay.ShowOverlay();
+                    }
+                    catch
+                    {
+                        if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+                            _screenshotOverlayWindow = null;
+                        overlay.Close();
+                        throw;
+                    }
+                    Logger.Info("Screenshot", "screenshot.overlay_presented", new
+                    {
+                        block_count = pipeline.OcrResult.Blocks.Count,
+                        unit_count = pipeline.Units.Count,
+                        engine = capability.EngineId,
+                        used_language = pipeline.OcrResult.UsedLanguageTag
+                    });
+                }, DispatcherPriority.ApplicationIdle);
+                stage = "overlay_presented";
+            }
+            finally
+            {
+                overlayLayoutElapsed = overlayWatch.Elapsed;
+            }
         }
         catch (OperationCanceledException)
         {
+            pipelineStatus = "cancelled";
+            failureType = nameof(OperationCanceledException);
             _trayIcon?.ShowBalloonTip(
                 "截图翻译",
                 "截图翻译已取消。",
@@ -728,6 +767,8 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
+            pipelineStatus = "failed";
+            failureType = ex.GetType().Name;
             Logger.Warn("Screenshot", "screenshot.capture_failed", new
             {
                 exception_type = ex.GetType().Name,
@@ -743,6 +784,24 @@ public partial class App : Application
         }
         finally
         {
+            pipelineWatch.Stop();
+            Logger.Info("Screenshot", "screenshot.pipeline_completed", new
+            {
+                status = pipelineStatus,
+                terminal_stage = stage,
+                failure_type = failureType,
+                engine = selectedOcrEngine ?? "unknown",
+                capture_elapsed_ms = Math.Round(captureElapsed.TotalMilliseconds, 2),
+                ocr_elapsed_ms = Math.Round(pipelineTimings.OcrElapsed.TotalMilliseconds, 2),
+                translation_elapsed_ms = Math.Round(pipelineTimings.TranslationElapsed.TotalMilliseconds, 2),
+                mapping_elapsed_ms = Math.Round(pipelineTimings.MappingElapsed.TotalMilliseconds, 2),
+                overlay_layout_elapsed_ms = Math.Round(overlayLayoutElapsed.TotalMilliseconds, 2),
+                total_elapsed_ms = Math.Round(pipelineWatch.Elapsed.TotalMilliseconds, 2),
+                ocr_block_count = pipelineTimings.OcrBlockCount,
+                translation_unit_count = pipelineTimings.TranslationUnitCount,
+                translation_request_count = Volatile.Read(ref translationRequestCount),
+                cancelled = cancellationToken.IsCancellationRequested
+            });
             if (_screenshotProgressWindow is { } progress)
             {
                 _screenshotProgressWindow = null;

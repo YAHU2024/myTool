@@ -60,7 +60,7 @@ QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中�
 
 从托盘菜单选择“截图翻译”，框选同一显示器内的区域后，程序在本地识别文字并调用当前翻译模型，将译文覆盖回原截图位置。按 `Esc` 或单击覆盖层即可关闭并恢复原画面；截图、OCR 文本和译文默认只保存在当前内存，不写入历史或日志。
 
-程序优先使用已安装的 RapidOCR/ONNX 本地场景 OCR Worker，适合复杂背景、日文和倾斜文字；未安装本地模型时自动回退 Windows 内置 OCR。源码环境可按需运行 `scripts\install-ocr-runtime.ps1` 安装隔离运行时，生产安装包必须将运行时和模型作为已校验的本地资源随包分发，应用不会在运行时联网下载模型。复杂背景擦除暂采用半透明遮罩卡片降级，低置信度或无法安全映射的结果不会自动覆盖。
+程序优先使用已安装的 RapidOCR/ONNX 本地场景 OCR Worker，适合复杂背景、日文和倾斜文字；未安装本地模型时自动回退 Windows 内置 OCR。完整版会内置通过质量与许可证门禁的基线模型，标准版和完整版都可在设置页主动下载、校验和切换其他已适配模型；应用不会在启动或截图时自动联网下载。源码环境可按需运行 `scripts\install-ocr-runtime.ps1` 安装隔离运行时。复杂背景擦除暂采用半透明遮罩卡片降级，低置信度或无法安全映射的结果不会自动覆盖。
 
 ---
 
@@ -287,6 +287,7 @@ QuickTranslate/
 │   ├── OcrLanguageSelector.cs                        # OCR 语言选择与降级
 │   ├── OcrTextNormalizer.cs                          # OCR 文本规范化
 │   ├── ScreenshotTranslationCoordinator.cs           # 截图翻译 OCR 到译文协调
+│   ├── ScreenshotTranslationTiming.cs                # 截图翻译分段耗时与计数
 │   └── ScreenshotSelection.cs                        # 截图框选物理矩形与资源门禁
 ├── Database/              # 持久化层
 │   ├── TranslationRecord.cs                          # 翻译历史模型
