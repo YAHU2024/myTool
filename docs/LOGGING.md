@@ -511,7 +511,7 @@ Each of the stages above also appends one best-effort line to `shutdown-trace.lo
 [yyyy-MM-dd HH:mm:ss.fff] tray.exit.requested dispatcher_access=False thread_id=12
 ```
 
-Existing VEH / ConsoleCtrl / `Dispatcher.ShutdownFinished` / `ProcessExit` writers may still append raw lines to the same file.
+The DEBUG-only ConsoleCtrl / `Dispatcher.ShutdownFinished` / `ProcessExit` writers may still append raw lines to the same file. The application deliberately does not install a managed vectored exception handler: executing managed code or file I/O from a VEH callback can destabilize the CLR during a native failure. Native crash evidence is collected by Windows Error Reporting instead.
 
 ### How to read a hang
 

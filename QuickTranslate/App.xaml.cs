@@ -86,12 +86,6 @@ public partial class App : Application
     private Timer? _watchdogTimer; // 看门狗线程，定期写入状态文件
     private bool _isExiting;
 
-    // 非托管异常处理
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr AddVectoredExceptionHandler(uint first, VectoredExceptionHandler handler);
-    private delegate IntPtr VectoredExceptionHandler(IntPtr exceptionInfo);
-    private static VectoredExceptionHandler? _vehHandler; // 防止 GC 回收
-
     // 控制台信号处理
     [DllImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -308,10 +302,6 @@ public partial class App : Application
         // 根据配置更新托盘提示
         UpdateTrayToolTip();
 
-        // ★ 注册非托管异常处理器（捕获 access violation 等 native 异常）
-        _vehHandler = VehCallback;
-        AddVectoredExceptionHandler(1, _vehHandler);
-
         // ★ 看门狗线程：每 2 秒写入状态文件，用于定位进程死亡时刻
         var tracePath = Path.Combine(Logger.LogDirectory, "watchdog.trace");
         _watchdogTimer = new Timer(_ =>
@@ -358,24 +348,6 @@ public partial class App : Application
         {
             ScheduleStartupUpdateCheck(delaySeconds: 5);
         }
-    }
-
-    /// <summary>
-    /// 非托管异常向量处理器（在 CLR 异常处理之前执行，可捕获 access violation）
-    /// </summary>
-    private static IntPtr VehCallback(IntPtr exceptionInfo)
-    {
-        try
-        {
-            // EXCEPTION_POINTERS 结构: [ExceptionRecord*][ContextRecord*]
-            var excRecord = Marshal.ReadIntPtr(exceptionInfo);
-            var exceptionCode = Marshal.ReadInt32(excRecord); // ExceptionCode 在偏移 0
-            File.AppendAllText(
-                Path.Combine(Logger.LogDirectory, "shutdown-trace.log"),
-                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] VEH: native exception code=0x{exceptionCode:X8}\n");
-        }
-        catch { }
-        return IntPtr.Zero; // EXCEPTION_CONTINUE_SEARCH
     }
 
     /// <summary>
