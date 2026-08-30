@@ -10,12 +10,18 @@ public sealed record OcrParagraph(
 
 /// <summary>
 /// 将 OCR 块按确定性的阅读顺序聚合为行和段落。
+/// 同行块允许有限横向间距，段落行则要求横向显著重叠，避免跨栏目粘连。
 /// </summary>
 public static class OcrBlockAggregator
 {
     private const double MinimumVerticalOverlap = 0.35;
     private const double MaximumParagraphGapRatio = 0.75;
     private const int MinimumParagraphGapPixels = 4;
+    private const double MaximumInlineGapRatio = 1.25;
+    private const int MinimumInlineGapPixels = 8;
+    private const int MaximumInlineGapPixels = 32;
+    private const double MinimumParagraphHorizontalOverlapRatio = 0.2;
+    private const int MinimumParagraphHorizontalOverlapPixels = 4;
 
     public static IReadOnlyList<OcrParagraph> Aggregate(
         IReadOnlyList<OcrTextBlock> blocks)
@@ -54,11 +60,20 @@ public static class OcrBlockAggregator
             for (var index = 0; index < lines.Count; index++)
             {
                 var overlap = VerticalOverlapRatio(block.Bounds, lines[index].Bounds);
-                if (overlap >= MinimumVerticalOverlap && overlap > bestOverlap)
+                if (overlap < MinimumVerticalOverlap ||
+                    !HasHorizontalAffinity(
+                        block.Bounds,
+                        lines[index].Bounds,
+                        MaximumInlineGapRatio,
+                        MinimumInlineGapPixels,
+                        MaximumInlineGapPixels) ||
+                    overlap <= bestOverlap)
                 {
-                    bestOverlap = overlap;
-                    matchingIndex = index;
+                    continue;
                 }
+
+                bestOverlap = overlap;
+                matchingIndex = index;
             }
 
             if (matchingIndex < 0)
@@ -97,7 +112,7 @@ public static class OcrBlockAggregator
             var threshold = Math.Max(
                 MinimumParagraphGapPixels,
                 (int)Math.Round(Math.Max(line.Bounds.Height, previous.Bounds.Height) * MaximumParagraphGapRatio));
-            if (gap <= threshold)
+            if (gap <= threshold && HasParagraphAffinity(line.Bounds, previous.Bounds))
                 current.Add(line);
             else
                 paragraphs.Add(new List<AggregatedLine> { line });
@@ -112,6 +127,54 @@ public static class OcrBlockAggregator
         if (overlap == 0)
             return 0;
         return (double)overlap / Math.Min(first.Height, second.Height);
+    }
+
+    private static bool HasHorizontalAffinity(
+        OcrBounds first,
+        OcrBounds second,
+        double maximumGapRatio,
+        int minimumGapPixels,
+        int maximumGapPixels)
+    {
+        var gap = HorizontalGap(first, second);
+        if (gap == 0)
+            return true;
+
+        var threshold = Math.Clamp(
+            (int)Math.Ceiling(Math.Max(first.Height, second.Height) * maximumGapRatio),
+            minimumGapPixels,
+            maximumGapPixels);
+        return gap <= threshold;
+    }
+
+    private static long HorizontalGap(OcrBounds first, OcrBounds second)
+    {
+        var firstLeft = first.X;
+        var firstRight = (long)first.X + first.Width;
+        var secondLeft = second.X;
+        var secondRight = (long)second.X + second.Width;
+        if (firstRight < secondLeft)
+            return secondLeft - firstRight;
+        if (secondRight < firstLeft)
+            return firstLeft - secondRight;
+        return 0;
+    }
+
+    private static bool HasParagraphAffinity(OcrBounds first, OcrBounds second)
+    {
+        // Paragraph lines normally share a left edge or overlap horizontally.
+        // Requiring an actual overlap here is intentionally stricter than the
+        // same-row word rule above: a small gap between two columns, buttons, or
+        // cards must not turn their union into one large translation box.
+        var overlap = Math.Min((long)first.X + first.Width, (long)second.X + second.Width) -
+                      Math.Max(first.X, second.X);
+        if (overlap <= 0)
+            return false;
+
+        var requiredOverlap = Math.Max(
+            MinimumParagraphHorizontalOverlapPixels,
+            (int)Math.Ceiling(Math.Min(first.Width, second.Width) * MinimumParagraphHorizontalOverlapRatio));
+        return overlap >= requiredOverlap;
     }
 
     private sealed class AggregatedLine

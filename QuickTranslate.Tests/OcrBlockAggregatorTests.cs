@@ -59,6 +59,58 @@ public sealed class OcrBlockAggregatorTests
             second.Select(paragraph => (paragraph.ParagraphId, paragraph.SourceText, paragraph.Bounds)));
     }
 
+    [Fact]
+    public void Aggregate_DoesNotJoinDistantBlocksOnTheSameRow()
+    {
+        var paragraphs = OcrBlockAggregator.Aggregate(new[]
+        {
+            Block("left", "Home", 10, 10),
+            Block("right", "Settings", 180, 10)
+        });
+
+        Assert.Equal(2, paragraphs.Count);
+        Assert.Equal(new[] { "Home", "Settings" }, paragraphs.Select(paragraph => paragraph.SourceText));
+    }
+
+    [Fact]
+    public void Aggregate_DoesNotJoinNearbyRowsFromDifferentColumns()
+    {
+        var paragraphs = OcrBlockAggregator.Aggregate(new[]
+        {
+            Block("left", "Article title", 10, 10),
+            Block("right", "Sidebar link", 180, 34)
+        });
+
+        Assert.Equal(2, paragraphs.Count);
+        Assert.Equal(new[] { "Article title", "Sidebar link" }, paragraphs.Select(paragraph => paragraph.SourceText));
+    }
+
+    [Fact]
+    public void Aggregate_DoesNotJoinNearbyRowsWhenColumnsHaveASmallGap()
+    {
+        var paragraphs = OcrBlockAggregator.Aggregate(new[]
+        {
+            Block("left", "Main column", 10, 10),
+            Block("right", "Side column", 122, 34)
+        });
+
+        Assert.Equal(2, paragraphs.Count);
+        Assert.Equal(new[] { "Main column", "Side column" }, paragraphs.Select(paragraph => paragraph.SourceText));
+    }
+
+    [Fact]
+    public void Aggregate_DoesNotJoinNearbyRowsWhenColumnsOnlyBarelyOverlap()
+    {
+        var paragraphs = OcrBlockAggregator.Aggregate(new[]
+        {
+            Block("left", "Main column", 10, 10),
+            Block("right", "Side column", 118, 34)
+        });
+
+        Assert.Equal(2, paragraphs.Count);
+        Assert.Equal(new[] { "Main column", "Side column" }, paragraphs.Select(paragraph => paragraph.SourceText));
+    }
+
     private static OcrTextBlock Block(string id, string text, int x, int y) =>
         new(id, text, new OcrBounds(x, y, text.Length * 10, 20));
 }
