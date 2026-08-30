@@ -671,7 +671,7 @@ public partial class App : Application
                         try
                         {
                             Interlocked.Increment(ref translationRequestCount);
-                            var translation = await translationService.TranslateAsync(
+                            var translation = await translationService.TranslateToRequestedTargetAsync(
                                 unit.SourceText,
                                 settings.TargetLanguage,
                                 ContentType.Translation,

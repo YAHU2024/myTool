@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text.Json;
 using QuickTranslate.Core;
 using QuickTranslate.Models;
 using QuickTranslate.Services;
@@ -91,6 +93,56 @@ public class OpenAITranslationServicePromptTests
         Assert.Contains("Translate the user text into English", prompt);
         Assert.DoesNotContain("If the input is code", prompt);
         Assert.True(fallbackUsed);
+    }
+
+    [Fact]
+    public void CreateScreenshotRequest_FixesRequestedTargetAndOverridesFallback()
+    {
+        var service = CreateService(new AppSettings
+        {
+            AutoDetectLanguage = true,
+            FallbackLanguage = "English",
+            CustomTranslationPrompt = "Translate this screenshot to English if needed."
+        });
+        var context = service.CaptureRequestContext("简体中文");
+
+        var request = service.CreateRequest(
+            "这是一段明确的中文正文，用于截图翻译统一输出语言。",
+            ContentType.Translation,
+            TranslationRequestKind.Translation,
+            context,
+            TranslationDirectionPreference.FixedRequestedTarget);
+
+        Assert.Equal("简体中文", request.EffectiveTargetLanguage);
+        Assert.Equal(TranslationDirectionReason.ScreenshotFixedTarget, request.Direction.Reason);
+        Assert.False(request.FallbackUsed);
+        Assert.Contains("Screenshot translation policy (mandatory)", request.SystemPrompt);
+        Assert.Contains("Never switch to a fallback language", request.SystemPrompt);
+        Assert.Contains("This policy overrides conflicting custom requirements", request.SystemPrompt);
+    }
+
+    [Fact]
+    public async Task TranslateToRequestedTargetAsync_UsesFixedTargetForChineseSource()
+    {
+        var handler = new ScreenshotTranslationHandler();
+        using var service = new OpenAITranslationService(
+            new AppSettings
+            {
+                ApiBaseUrl = "https://example.test/v1",
+                ApiKey = "key",
+                ModelName = "model",
+                AutoDetectLanguage = true,
+                FallbackLanguage = "English"
+            },
+            handler);
+
+        var result = await service.TranslateToRequestedTargetAsync(
+            "这是一段明确的中文正文，用于截图翻译统一输出语言。",
+            "简体中文");
+
+        Assert.Equal("中文结果", result);
+        Assert.Contains("Translate the user text into 简体中文", handler.SystemPrompt);
+        Assert.Contains("Never switch to a fallback language", handler.SystemPrompt);
     }
 
     [Fact]
@@ -303,5 +355,31 @@ public class OpenAITranslationServicePromptTests
     private static OpenAITranslationService CreateService(AppSettings settings)
     {
         return new OpenAITranslationService(settings);
+    }
+
+    private sealed class ScreenshotTranslationHandler : HttpMessageHandler
+    {
+        public string SystemPrompt { get; private set; } = string.Empty;
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            using var document = JsonDocument.Parse(body);
+            SystemPrompt = document.RootElement
+                .GetProperty("messages")[0]
+                .GetProperty("content")
+                .GetString() ?? string.Empty;
+
+            var response = JsonSerializer.Serialize(new
+            {
+                choices = new[] { new { message = new { content = "中文结果" } } }
+            });
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(response, System.Text.Encoding.UTF8, "application/json")
+            };
+        }
     }
 }

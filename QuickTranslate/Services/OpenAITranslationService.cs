@@ -121,7 +121,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             prompt = TranslationPromptBuilder.Build(
                 contentType,
                 direction.EffectiveTargetLanguage,
-                context.CustomTranslationPrompt);
+                context.CustomTranslationPrompt,
+                directionPreference == TranslationDirectionPreference.FixedRequestedTarget);
         }
 
         var request = new TranslationRequest(
@@ -405,7 +406,45 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         ContentType contentType = ContentType.Translation,
         CancellationToken cancellationToken = default)
     {
-        var request = CreateRequest(text, targetLang, contentType);
+        return await TranslateAsyncCore(
+            text,
+            targetLang,
+            contentType,
+            TranslationDirectionPreference.Auto,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 翻译为指定目标语言，不执行“同语言切换到备选语言”的普通划词策略。
+    /// 截图翻译使用此入口，确保一张截图中的所有单元保持同一输出语言。
+    /// </summary>
+    public async Task<string> TranslateToRequestedTargetAsync(
+        string text,
+        string targetLang,
+        ContentType contentType = ContentType.Translation,
+        CancellationToken cancellationToken = default)
+    {
+        return await TranslateAsyncCore(
+            text,
+            targetLang,
+            contentType,
+            TranslationDirectionPreference.FixedRequestedTarget,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<string> TranslateAsyncCore(
+        string text,
+        string targetLang,
+        ContentType contentType,
+        TranslationDirectionPreference directionPreference,
+        CancellationToken cancellationToken)
+    {
+        var request = CreateRequest(
+            text,
+            contentType,
+            TranslationRequestKind.Translation,
+            CaptureRequestContext(targetLang),
+            directionPreference);
         ValidateRequest(request);
 
         var requestBody = BuildRequestBody(request, stream: false);

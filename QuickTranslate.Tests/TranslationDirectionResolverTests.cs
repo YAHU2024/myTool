@@ -128,6 +128,22 @@ public sealed class TranslationDirectionResolverTests
     }
 
     [Fact]
+    public void Resolve_ScreenshotFixedTarget_NeverUsesFallbackForSameLanguageSource()
+    {
+        var decision = TranslationDirectionResolver.Resolve(
+            "这是一段明确的中文正文，用于截图翻译统一输出语言。",
+            "简体中文",
+            "English",
+            autoDetectLanguage: true,
+            ContentType.Translation,
+            TranslationDirectionPreference.FixedRequestedTarget);
+
+        Assert.Equal("简体中文", decision.EffectiveTargetLanguage);
+        Assert.Equal(TranslationDirectionReason.ScreenshotFixedTarget, decision.Reason);
+        Assert.False(decision.FallbackUsed);
+    }
+
+    [Fact]
     public void Resolve_ManualFallbackWorksWhenAutoDetectionIsDisabled()
     {
         var decision = TranslationDirectionResolver.Resolve(

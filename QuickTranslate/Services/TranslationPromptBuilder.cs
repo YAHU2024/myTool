@@ -10,7 +10,8 @@ internal static class TranslationPromptBuilder
     public static string Build(
         ContentType contentType,
         string effectiveTargetLanguage,
-        string customTranslationPrompt)
+        string customTranslationPrompt,
+        bool fixedTarget = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(effectiveTargetLanguage);
 
@@ -20,12 +21,16 @@ internal static class TranslationPromptBuilder
             ContentType.Term => BuildTermPrompt(effectiveTargetLanguage),
             ContentType.Translation => BuildTranslationPrompt(
                 effectiveTargetLanguage,
-                customTranslationPrompt),
+                customTranslationPrompt,
+                fixedTarget),
             _ => throw new ArgumentOutOfRangeException(nameof(contentType), contentType, null)
         };
     }
 
-    private static string BuildTranslationPrompt(string targetLanguage, string customPrompt)
+    private static string BuildTranslationPrompt(
+        string targetLanguage,
+        string customPrompt,
+        bool fixedTarget)
     {
         var prompt =
             $"Translate the user text into {targetLanguage}. Translate all natural language completely. " +
@@ -35,14 +40,25 @@ internal static class TranslationPromptBuilder
             "Output only the translation. " +
             TranslationSourceInstruction;
 
-        if (string.IsNullOrWhiteSpace(customPrompt))
-            return prompt;
+        if (!string.IsNullOrWhiteSpace(customPrompt))
+        {
+            var additionalRequirements = customPrompt.Replace(
+                "{targetLang}",
+                targetLanguage,
+                StringComparison.Ordinal);
+            prompt = $"{prompt} Additional requirements (do not replace the translation task): {additionalRequirements}";
+        }
 
-        var additionalRequirements = customPrompt.Replace(
-            "{targetLang}",
-            targetLanguage,
-            StringComparison.Ordinal);
-        return $"{prompt} Additional requirements (do not replace the translation task): {additionalRequirements}";
+        if (fixedTarget)
+        {
+            prompt +=
+                $" Screenshot translation policy (mandatory): output every natural-language segment in {targetLanguage}. " +
+                "Never switch to a fallback language based on the source language. " +
+                "If a segment is already in the target language, preserve its wording unless a faithful target-language conversion is required. " +
+                "This policy overrides conflicting custom requirements.";
+        }
+
+        return prompt;
     }
 
     private static string BuildCodePrompt(string targetLanguage) =>

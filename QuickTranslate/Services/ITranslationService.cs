@@ -64,6 +64,11 @@ namespace QuickTranslate.Services
         Task<string> TranslateAsync(string text, string targetLang, ContentType contentType = ContentType.Translation, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// 翻译为指定目标语言，不根据源语言切换到备选语言。截图翻译使用此策略。
+        /// </summary>
+        Task<string> TranslateToRequestedTargetAsync(string text, string targetLang, ContentType contentType = ContentType.Translation, CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// 流式解析文本（用目标语言深度解析）
         /// </summary>
         Task<string> AnalyzeStreamingAsync(string text, string targetLang, Action<string> onChunk, CancellationToken cancellationToken = default);
