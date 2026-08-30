@@ -598,6 +598,10 @@ public partial class App : Application
         var pipelineStatus = "not_started";
         var pipelineTimings = ScreenshotTranslationStageTimings.Empty;
         var translationRequestCount = 0;
+        var overlayItemCount = 0;
+        var overlayPlacedCount = 0;
+        var overlayDegradedCount = 0;
+        var overlaySkippedCount = 0;
         string? selectedOcrEngine = null;
         string? failureType = null;
 
@@ -707,8 +711,12 @@ public partial class App : Application
                     .Zip(pipeline.Mapping.MappedUnits)
                     .Select(static pair => new ScreenshotOverlayItem(
                         pair.First.Bounds,
-                        pair.Second.Translation))
+                        pair.Second.Translation,
+                        pair.First.Blocks.Count == 1 ? pair.First.Blocks[0].Polygon : null,
+                        pair.First.UnitId,
+                        AverageConfidence(pair.First.Blocks)))
                     .ToArray();
+                overlayItemCount = overlayItems.Length;
                 if (overlayItems.Length == 0)
                 {
                     _trayIcon?.ShowBalloonTip(
@@ -718,11 +726,29 @@ public partial class App : Application
                     return;
                 }
 
-                await Dispatcher.InvokeAsync(() =>
+                var overlayPresented = await Dispatcher.InvokeAsync(() =>
                 {
                     if (_isExiting || cancellationToken.IsCancellationRequested)
-                        return;
+                        return false;
                     var overlay = new ScreenshotTranslationOverlayWindow(region, image, overlayItems);
+                    overlayItemCount = overlay.LayoutResult.Items.Count;
+                    overlayPlacedCount = overlay.LayoutResult.PlacedCount;
+                    overlayDegradedCount = overlay.LayoutResult.DegradedCount;
+                    overlaySkippedCount = overlay.LayoutResult.SkippedCount;
+                    if (!overlay.HasRenderableItems)
+                    {
+                        Logger.Info("Screenshot", "screenshot.overlay_skipped", new
+                        {
+                            item_count = overlay.LayoutResult.Items.Count,
+                            skipped_count = overlay.LayoutResult.SkippedCount
+                        });
+                        _trayIcon?.ShowBalloonTip(
+                            "截图翻译",
+                            "译文无法在截图范围内完整显示。",
+                            System.Windows.Forms.ToolTipIcon.Warning);
+                        return false;
+                    }
+
                     _screenshotOverlayWindow = overlay;
                     overlay.Closed += (_, _) =>
                     {
@@ -745,11 +771,15 @@ public partial class App : Application
                     {
                         block_count = pipeline.OcrResult.Blocks.Count,
                         unit_count = pipeline.Units.Count,
+                        placed_count = overlay.LayoutResult.PlacedCount,
+                        degraded_count = overlay.LayoutResult.DegradedCount,
+                        skipped_count = overlay.LayoutResult.SkippedCount,
                         engine = capability.EngineId,
                         used_language = pipeline.OcrResult.UsedLanguageTag
                     });
+                    return true;
                 }, DispatcherPriority.ApplicationIdle);
-                stage = "overlay_presented";
+                stage = overlayPresented ? "overlay_presented" : "overlay_skipped";
             }
             finally
             {
@@ -796,6 +826,10 @@ public partial class App : Application
                 translation_elapsed_ms = Math.Round(pipelineTimings.TranslationElapsed.TotalMilliseconds, 2),
                 mapping_elapsed_ms = Math.Round(pipelineTimings.MappingElapsed.TotalMilliseconds, 2),
                 overlay_layout_elapsed_ms = Math.Round(overlayLayoutElapsed.TotalMilliseconds, 2),
+                overlay_item_count = overlayItemCount,
+                overlay_placed_count = overlayPlacedCount,
+                overlay_degraded_count = overlayDegradedCount,
+                overlay_skipped_count = overlaySkippedCount,
                 total_elapsed_ms = Math.Round(pipelineWatch.Elapsed.TotalMilliseconds, 2),
                 ocr_block_count = pipelineTimings.OcrBlockCount,
                 translation_unit_count = pipelineTimings.TranslationUnitCount,
@@ -813,6 +847,15 @@ public partial class App : Application
             if (_screenshotOverlayWindow is null)
                 RestoreScreenshotUi(restoreState);
         }
+    }
+
+    private static double? AverageConfidence(IReadOnlyList<OcrTextBlock> blocks)
+    {
+        var values = blocks
+            .Where(static block => block.Confidence is { } confidence && double.IsFinite(confidence))
+            .Select(static block => block.Confidence!.Value)
+            .ToArray();
+        return values.Length == 0 ? null : values.Average();
     }
 
     private void RestoreScreenshotUi(ScreenshotUiState restoreState)

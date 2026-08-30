@@ -78,6 +78,7 @@ ZH_QUICK = _mk(
     ("Core/ScreenshotTranslationCoordinator.cs", "截图翻译 OCR 到译文协调"),
     ("Core/ScreenshotTranslationTiming.cs", "截图翻译分段耗时与计数"),
     ("Core/ScreenshotSelection.cs", "截图框选物理矩形与资源门禁"),
+    ("Core/OverlayLayoutEngine.cs", "截图译文覆盖层确定性布局引擎"),
     # Database
     ("Database/", "持久化层"),
     ("Database/TranslationRecord.cs", "翻译历史模型"),
@@ -254,6 +255,7 @@ EN_QUICK = _mk(
     ("Core/ScreenshotTranslationCoordinator.cs", "Screenshot OCR-to-translation coordination"),
     ("Core/ScreenshotTranslationTiming.cs", "Screenshot pipeline stage timings and counts"),
     ("Core/ScreenshotSelection.cs", "Physical screenshot region and resource gate"),
+    ("Core/OverlayLayoutEngine.cs", "Deterministic screenshot overlay layout engine"),
     ("Database/", "Persistence layer"),
     ("Database/TranslationRecord.cs", "Translation history model"),
     ("Database/TranslationDbContext.cs", "EF Core SQLite context"),

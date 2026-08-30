@@ -288,7 +288,8 @@ QuickTranslate/
 │   ├── OcrTextNormalizer.cs                          # OCR 文本规范化
 │   ├── ScreenshotTranslationCoordinator.cs           # 截图翻译 OCR 到译文协调
 │   ├── ScreenshotTranslationTiming.cs                # 截图翻译分段耗时与计数
-│   └── ScreenshotSelection.cs                        # 截图框选物理矩形与资源门禁
+│   ├── ScreenshotSelection.cs                        # 截图框选物理矩形与资源门禁
+│   └── OverlayLayoutEngine.cs                        # 截图译文覆盖层确定性布局引擎
 ├── Database/              # 持久化层
 │   ├── TranslationRecord.cs                          # 翻译历史模型
 │   └── TranslationDbContext.cs                       # EF Core SQLite 上下文

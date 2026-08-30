@@ -20,6 +20,12 @@ public partial class ScreenshotTranslationOverlayWindow : Window
     private readonly ScreenshotRegion _region;
     private readonly Point _dpiScale;
 
+    public ScreenshotOverlayLayoutResult LayoutResult { get; private set; } =
+        new(Array.Empty<ScreenshotOverlayLayout>());
+
+    public bool HasRenderableItems => LayoutResult.Items.Any(static item =>
+        item.Status != ScreenshotOverlayLayoutStatus.Skipped);
+
     public ScreenshotTranslationOverlayWindow(
         ScreenshotRegion region,
         OcrImage image,
@@ -35,7 +41,7 @@ public partial class ScreenshotTranslationOverlayWindow : Window
         _dpiScale = DpiHelper.GetScaleForPhysicalPoint(new Point(region.Left, region.Top));
         InitializeComponent();
         ConfigureWindow(image);
-        BuildOverlay(items, image.PixelWidth, image.PixelHeight);
+        LayoutResult = BuildOverlay(items, image.PixelWidth, image.PixelHeight);
     }
 
     public void ShowOverlay()
@@ -75,39 +81,58 @@ public partial class ScreenshotTranslationOverlayWindow : Window
         ScreenshotImage.Source.Freeze();
     }
 
-    private void BuildOverlay(
+    private ScreenshotOverlayLayoutResult BuildOverlay(
         IReadOnlyList<ScreenshotOverlayItem> items,
         int pixelWidth,
         int pixelHeight)
     {
-        foreach (var item in items)
+        var layout = new OverlayLayoutEngine().Layout(pixelWidth, pixelHeight, items);
+        foreach (var item in layout.Items)
         {
-            if (string.IsNullOrWhiteSpace(item.Translation) ||
-                !item.Bounds.IsWithin(pixelWidth, pixelHeight))
+            if (item.Status == ScreenshotOverlayLayoutStatus.Skipped)
                 continue;
 
-            var x = item.Bounds.X / _dpiScale.X;
-            var y = item.Bounds.Y / _dpiScale.Y;
-            var width = item.Bounds.Width / _dpiScale.X;
-            var height = item.Bounds.Height / _dpiScale.Y;
-            var availableWidth = Math.Max(width, Width - x - 8);
+            var x = item.LayoutBounds.X / _dpiScale.X;
+            var y = item.LayoutBounds.Y / _dpiScale.Y;
+            var width = item.LayoutBounds.Width / _dpiScale.X;
+            var height = item.LayoutBounds.Height / _dpiScale.Y;
+            var isDegraded = item.Status == ScreenshotOverlayLayoutStatus.Degraded;
+            var borderDip = isDegraded ? 1.5 : 1;
+            // The logical engine includes 8 px horizontal and 6 px vertical
+            // card insets. Reserve the border inside that budget so WPF's
+            // content presenter receives the same physical text area.
+            var horizontalPadding = Math.Max(
+                0,
+                (4 - borderDip * _dpiScale.X / 2) / _dpiScale.X);
+            var verticalPadding = Math.Max(
+                0,
+                (3 - borderDip * _dpiScale.Y / 2) / _dpiScale.Y);
             var border = new Border
             {
-                Background = new SolidColorBrush(Color.FromArgb(218, 15, 23, 42)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(220, 255, 255, 255)),
-                BorderThickness = new Thickness(1),
-                Padding = new Thickness(4, 2, 4, 2),
+                Background = new SolidColorBrush(isDegraded
+                    ? Color.FromArgb(228, 69, 43, 15)
+                    : Color.FromArgb(218, 15, 23, 42)),
+                BorderBrush = new SolidColorBrush(isDegraded
+                    ? Color.FromArgb(235, 251, 191, 36)
+                    : Color.FromArgb(220, 255, 255, 255)),
+                BorderThickness = new Thickness(borderDip),
+                Padding = new Thickness(
+                    horizontalPadding,
+                    verticalPadding,
+                    horizontalPadding,
+                    verticalPadding),
                 CornerRadius = new CornerRadius(2),
-                Width = Math.Min(Math.Max(width, 24), availableWidth),
-                MinHeight = Math.Max(height, 20),
-                MaxWidth = availableWidth,
+                Width = Math.Max(1, width),
+                Height = Math.Max(1, height),
+                ToolTip = isDegraded ? "译文布局已降级，已保持全文显示" : null,
                 Child = new TextBlock
                 {
-                    Text = item.Translation.Trim(),
+                    Text = item.Translation,
                     Foreground = Brushes.White,
                     FontFamily = new FontFamily("Microsoft YaHei UI"),
-                    FontSize = Math.Clamp(height * 0.62, 10, 28),
+                    FontSize = Math.Max(1, item.FontSize / _dpiScale.Y),
                     TextWrapping = TextWrapping.Wrap,
+                    TextTrimming = TextTrimming.None,
                     VerticalAlignment = VerticalAlignment.Center,
                     HorizontalAlignment = HorizontalAlignment.Left
                 }
@@ -117,6 +142,8 @@ public partial class ScreenshotTranslationOverlayWindow : Window
             Canvas.SetTop(border, Math.Max(0, y));
             OverlayCanvas.Children.Add(border);
         }
+
+        return layout;
     }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)

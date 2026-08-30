@@ -289,7 +289,8 @@ QuickTranslate/
 │   ├── OcrTextNormalizer.cs                          # OCR text normalization
 │   ├── ScreenshotTranslationCoordinator.cs           # Screenshot OCR-to-translation coordination
 │   ├── ScreenshotTranslationTiming.cs                # Screenshot pipeline stage timings and counts
-│   └── ScreenshotSelection.cs                        # Physical screenshot region and resource gate
+│   ├── ScreenshotSelection.cs                        # Physical screenshot region and resource gate
+│   └── OverlayLayoutEngine.cs                        # Deterministic screenshot overlay layout engine
 ├── Database/              # Persistence layer
 │   ├── TranslationRecord.cs                          # Translation history model
 │   └── TranslationDbContext.cs                       # EF Core SQLite context
