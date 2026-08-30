@@ -360,9 +360,38 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model-size",
-        choices=("tiny", "small"),
+        choices=("tiny", "small", "medium"),
         default="small",
         help="PP-OCRv6 model size; missing files may be downloaded by RapidOCR (default: small)",
+    )
+    parser.add_argument(
+        "--det-model-path",
+        type=pathlib.Path,
+        help="Optional local detection model path; prevents RapidOCR from resolving a default model.",
+    )
+    parser.add_argument(
+        "--rec-model-path",
+        type=pathlib.Path,
+        help="Optional local recognition model path; prevents RapidOCR from resolving a default model.",
+    )
+    parser.add_argument(
+        "--cls-model-path",
+        type=pathlib.Path,
+        help="Optional local text-angle classifier model path.",
+    )
+    parser.add_argument(
+        "--rec-keys-path",
+        type=pathlib.Path,
+        help="Optional local recognition dictionary path for a custom recognition model.",
+    )
+    parser.add_argument(
+        "--disable-cls",
+        action="store_true",
+        help="Disable the optional text-angle classifier (useful for PP-OCRv6 det/rec-only bundles).",
+    )
+    parser.add_argument(
+        "--model-label",
+        help="Human-readable model label written to the report; defaults to PP-OCRv6 <model-size>.",
     )
     return parser.parse_args()
 
@@ -410,6 +439,32 @@ def write_preview(source: pathlib.Path, output_dir: pathlib.Path, output: Any) -
     text_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def create_engine(
+    rapid_ocr_type: Any,
+    model_params: dict[str, Any],
+    disable_cls: bool,
+) -> Any:
+    """Create RapidOCR without resolving an unlisted classifier in det/rec-only mode."""
+    if not disable_cls:
+        return rapid_ocr_type(params=model_params or None)
+
+    # RapidOCR 3.9.2 constructs TextClassifier even when Global.use_cls is false.
+    # Replace it only during construction so an official det/rec-only model test
+    # cannot implicitly download the legacy default classifier.
+    import rapidocr.main as rapidocr_main
+
+    class NoopTextClassifier:
+        def __init__(self, _config: Any) -> None:
+            pass
+
+    original_classifier = rapidocr_main.TextClassifier
+    rapidocr_main.TextClassifier = NoopTextClassifier
+    try:
+        return rapid_ocr_type(params={**model_params, "Global.use_cls": False})
+    finally:
+        rapidocr_main.TextClassifier = original_classifier
+
+
 def main() -> int:
     args = parse_args()
     if not args.fixture_directory.is_dir():
@@ -429,11 +484,23 @@ def main() -> int:
             "RapidOCR Spike dependencies are missing. Install rapidocr and onnxruntime in the isolated environment."
         ) from error
 
-    model_params = None
+    model_params: dict[str, Any] = {}
     if args.model_size != "small":
         model_type = ModelType(args.model_size)
-        model_params = {"Det.model_type": model_type, "Rec.model_type": model_type}
-    engine = RapidOCR(params=model_params)
+        model_params.update({"Det.model_type": model_type, "Rec.model_type": model_type})
+    custom_paths = {
+        "Det.model_path": args.det_model_path,
+        "Rec.model_path": args.rec_model_path,
+        "Cls.model_path": args.cls_model_path,
+        "Rec.rec_keys_path": args.rec_keys_path,
+    }
+    for parameter, path in custom_paths.items():
+        if path is None:
+            continue
+        if not path.is_file():
+            raise SystemExit(f"{parameter} 指向的文件不存在：{path}")
+        model_params[parameter] = str(path.resolve())
+    engine = create_engine(RapidOCR, model_params, args.disable_cls)
     files = sorted(
         path
         for path in args.fixture_directory.iterdir()
@@ -543,7 +610,7 @@ def main() -> int:
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "fixture_directory": str(args.fixture_directory.resolve()),
         "engine": "RapidOCR ONNX Runtime",
-        "model_family": f"PP-OCRv6 {args.model_size}",
+        "model_family": args.model_label or f"PP-OCRv6 {args.model_size}",
         "package_version": package_version,
         "onnxruntime_version": ort.__version__,
         "execution_providers": ort.get_available_providers(),
