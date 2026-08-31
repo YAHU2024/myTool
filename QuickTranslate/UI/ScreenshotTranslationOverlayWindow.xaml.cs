@@ -7,6 +7,7 @@ using System.Windows.Input;
 using QuickTranslate.Core;
 using QuickTranslate.Helpers;
 using QuickTranslate.Models;
+using QuickTranslate.Services;
 
 namespace QuickTranslate.UI;
 
@@ -19,12 +20,21 @@ public partial class ScreenshotTranslationOverlayWindow : Window
 {
     private readonly ScreenshotRegion _region;
     private readonly Point _dpiScale;
+    private readonly OverlayLayoutEngine _layoutEngine = new();
+    private readonly Dictionary<string, Border> _cards = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _completedUnitIds = new(StringComparer.Ordinal);
+    private readonly bool _incremental;
 
     public ScreenshotOverlayLayoutResult LayoutResult { get; private set; } =
         new(Array.Empty<ScreenshotOverlayLayout>());
 
     public bool HasRenderableItems => LayoutResult.Items.Any(static item =>
         item.Status != ScreenshotOverlayLayoutStatus.Skipped);
+
+    public int ExpectedCount => LayoutResult.Items.Count(item =>
+        item.Status != ScreenshotOverlayLayoutStatus.Skipped);
+
+    public int CompletedCount => _completedUnitIds.Count;
 
     public ScreenshotTranslationOverlayWindow(
         ScreenshotRegion region,
@@ -39,9 +49,39 @@ public partial class ScreenshotTranslationOverlayWindow : Window
 
         _region = region;
         _dpiScale = DpiHelper.GetScaleForPhysicalPoint(new Point(region.Left, region.Top));
+        _incremental = false;
         InitializeComponent();
         ConfigureWindow(image);
-        LayoutResult = BuildOverlay(items, image.PixelWidth, image.PixelHeight);
+        LayoutResult = BuildOverlay(items, image.PixelWidth, image.PixelHeight, pending: false);
+    }
+
+    /// <summary>
+    /// 创建一个尚未显示译文的稳定布局。布局只计算一次，后续单元完成时
+    /// 只替换对应卡片文本，避免每个 SSE 结果到达都触发全量碰撞重排。
+    /// </summary>
+    public ScreenshotTranslationOverlayWindow(
+        ScreenshotRegion region,
+        OcrImage image,
+        IReadOnlyList<ScreenshotTranslationUnit> units)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(units);
+        if (!region.IsValid)
+            throw new ArgumentException("截图区域无效。", nameof(region));
+        image.Validate();
+
+        _region = region;
+        _dpiScale = DpiHelper.GetScaleForPhysicalPoint(new Point(region.Left, region.Top));
+        _incremental = true;
+        InitializeComponent();
+        ConfigureWindow(image);
+        var seeds = units.Select(static unit => new ScreenshotOverlayItem(
+            unit.Bounds,
+            unit.SourceText,
+            unit.Blocks.Count == 1 ? unit.Blocks[0].Polygon : null,
+            unit.UnitId,
+            AverageConfidence(unit.Blocks))).ToArray();
+        LayoutResult = BuildOverlay(seeds, image.PixelWidth, image.PixelHeight, pending: true);
     }
 
     public void ShowOverlay()
@@ -84,9 +124,10 @@ public partial class ScreenshotTranslationOverlayWindow : Window
     private ScreenshotOverlayLayoutResult BuildOverlay(
         IReadOnlyList<ScreenshotOverlayItem> items,
         int pixelWidth,
-        int pixelHeight)
+        int pixelHeight,
+        bool pending)
     {
-        var layout = new OverlayLayoutEngine().Layout(pixelWidth, pixelHeight, items);
+        var layout = _layoutEngine.Layout(pixelWidth, pixelHeight, items);
         foreach (var item in layout.Items)
         {
             if (item.Status == ScreenshotOverlayLayoutStatus.Skipped)
@@ -107,6 +148,18 @@ public partial class ScreenshotTranslationOverlayWindow : Window
             var verticalPadding = Math.Max(
                 0,
                 (3 - borderDip * _dpiScale.Y / 2) / _dpiScale.Y);
+            var textBlock = new TextBlock
+            {
+                Text = pending ? string.Empty : item.Translation,
+                Foreground = Brushes.White,
+                FontFamily = new FontFamily("Microsoft YaHei UI"),
+                FontSize = Math.Max(1, item.FontSize / _dpiScale.Y),
+                TextWrapping = TextWrapping.Wrap,
+                TextTrimming = TextTrimming.None,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            textBlock.SetValue(TextOptions.TextFormattingModeProperty, TextFormattingMode.Display);
             var border = new Border
             {
                 Background = new SolidColorBrush(isDegraded
@@ -125,25 +178,63 @@ public partial class ScreenshotTranslationOverlayWindow : Window
                 Width = Math.Max(1, width),
                 Height = Math.Max(1, height),
                 ToolTip = isDegraded ? "译文布局已降级，已保持全文显示" : null,
-                Child = new TextBlock
-                {
-                    Text = item.Translation,
-                    Foreground = Brushes.White,
-                    FontFamily = new FontFamily("Microsoft YaHei UI"),
-                    FontSize = Math.Max(1, item.FontSize / _dpiScale.Y),
-                    TextWrapping = TextWrapping.Wrap,
-                    TextTrimming = TextTrimming.None,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Left
-                }
+                Child = textBlock,
+                Visibility = pending ? Visibility.Hidden : Visibility.Visible
             };
-            border.Child.SetValue(TextOptions.TextFormattingModeProperty, TextFormattingMode.Display);
             Canvas.SetLeft(border, Math.Max(0, x));
             Canvas.SetTop(border, Math.Max(0, y));
             OverlayCanvas.Children.Add(border);
+            _cards[item.UnitId] = border;
         }
 
         return layout;
+    }
+
+    /// <summary>替换单个已完成单元，不改变任何既有卡片的位置。</summary>
+    public bool TryUpdateTranslation(TranslatedTextUnit translated)
+    {
+        ArgumentNullException.ThrowIfNull(translated);
+        if (!_incremental || string.IsNullOrWhiteSpace(translated.UnitId) ||
+            string.IsNullOrWhiteSpace(translated.Translation) ||
+            !_cards.TryGetValue(translated.UnitId, out var border))
+        {
+            return false;
+        }
+
+        var layout = LayoutResult.Items.FirstOrDefault(item =>
+            string.Equals(item.UnitId, translated.UnitId, StringComparison.Ordinal));
+        if (layout is null)
+            return false;
+        if (!_completedUnitIds.Add(translated.UnitId))
+            return false;
+
+        var textBlock = (TextBlock)border.Child;
+        textBlock.Text = translated.Translation.Trim();
+        textBlock.FontSize = Math.Max(
+            1,
+            _layoutEngine.FitFontSize(
+                textBlock.Text,
+                layout.LayoutBounds,
+                layout.FontSize) / _dpiScale.Y);
+        border.Visibility = Visibility.Visible;
+        return true;
+    }
+
+    public void MarkPartial(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return;
+        StatusText.Text = message.Trim();
+        StatusText.Visibility = Visibility.Visible;
+    }
+
+    private static double? AverageConfidence(IReadOnlyList<OcrTextBlock> blocks)
+    {
+        var values = blocks
+            .Where(static block => block.Confidence is { } confidence && double.IsFinite(confidence))
+            .Select(static block => block.Confidence!.Value)
+            .ToArray();
+        return values.Length == 0 ? null : values.Average();
     }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)

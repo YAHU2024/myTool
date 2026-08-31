@@ -65,6 +65,7 @@ AGENTS.md
 **/.m3-*-build/
 **/.m3-*/
 **/.m4-*/
+**/.m42-stream-*/
 /.m3-scene-venv/
 /.m3-scene-v6-venv/
 /.m3-scene-output/

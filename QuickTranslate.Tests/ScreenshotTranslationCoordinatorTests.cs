@@ -103,6 +103,30 @@ public sealed class ScreenshotTranslationCoordinatorTests
         Assert.False(translatorCalled);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_NotifiesUnitsBeforeTranslationAndPublishesReturnedUnits()
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            new[] { new OcrTextBlock("b0001", "text", new OcrBounds(0, 0, 20, 10)) },
+            "zh-Hans-CN", false, 0, TimeSpan.Zero));
+        var coordinator = new ScreenshotTranslationCoordinator(ocr);
+        var callbacks = new List<string>();
+
+        await coordinator.ExecuteAsync(
+            ValidImage(),
+            (units, _) =>
+            {
+                Assert.Equal("u0001", units[0].UnitId);
+                callbacks.Add("translate");
+                return Task.FromResult<IReadOnlyList<TranslatedTextUnit>>(
+                    new[] { new TranslatedTextUnit("u0001", "译文") });
+            },
+            onUnitsReady: units => callbacks.Add($"ready:{units.Count}"),
+            onUnitTranslated: unit => callbacks.Add($"done:{unit.UnitId}"));
+
+        Assert.Equal(new[] { "ready:1", "translate", "done:u0001" }, callbacks);
+    }
+
     private static OcrImage ValidImage() => new(100, 100, 400, new byte[40_000]);
 
     private sealed class FakeOcrService : IOcrService

@@ -78,6 +78,28 @@ public sealed class OpenAIScreenshotBatchTranslationTests
         Assert.Equal(0, handler.CallCount);
     }
 
+    [Fact]
+    public async Task TranslateScreenshotBatchStreamingAsync_PublishesCompletedUnitsFromSplitSseContent()
+    {
+        var handler = new StreamingBatchHandler(
+            Sse(
+                "{\"id\":\"u0002\",\"trans",
+                "lation\":\"第二\"}\n",
+                "{\"id\":\"u0001\",\"translation\":\"第一\"}"));
+        using var service = CreateService(handler);
+        var received = new List<TranslatedTextUnit>();
+
+        var result = await service.TranslateScreenshotBatchStreamingAsync(
+            Units(),
+            "简体中文",
+            received.Add);
+
+        Assert.Equal(new[] { "u0002", "u0001" }, received.Select(unit => unit.UnitId));
+        Assert.Equal(new[] { "u0001", "u0002" }, result.Select(unit => unit.UnitId));
+        Assert.True(handler.Stream);
+        Assert.Contains("one complete compact JSON object per translated unit", handler.SystemPrompt);
+    }
+
     private static OpenAITranslationService CreateService(HttpMessageHandler handler) =>
         new(
             new AppSettings
@@ -141,5 +163,43 @@ public sealed class OpenAIScreenshotBatchTranslationTests
                 Content = new StringContent(_response, Encoding.UTF8, "application/json")
             };
         }
+    }
+
+    private sealed class StreamingBatchHandler : HttpMessageHandler
+    {
+        private readonly string _response;
+
+        public StreamingBatchHandler(string response) => _response = response;
+
+        public bool Stream { get; private set; }
+
+        public string SystemPrompt { get; private set; } = string.Empty;
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            using var document = JsonDocument.Parse(body);
+            Stream = document.RootElement.GetProperty("stream").GetBoolean();
+            SystemPrompt = document.RootElement
+                .GetProperty("messages")[0]
+                .GetProperty("content")
+                .GetString() ?? string.Empty;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(_response, Encoding.UTF8, "text/event-stream")
+            };
+        }
+    }
+
+    private static string Sse(params string[] fragments)
+    {
+        var lines = fragments.Select(fragment =>
+            "data: " + JsonSerializer.Serialize(new
+            {
+                choices = new[] { new { delta = new { content = fragment } } }
+            }));
+        return string.Join("\n", lines.Append("data: [DONE]")) + "\n\n";
     }
 }

@@ -45,6 +45,28 @@ public sealed class OverlayLayoutEngine
         return new ScreenshotOverlayLayoutResult(output);
     }
 
+    /// <summary>
+    /// 在既定卡片范围内为新译文选择不超过首选字号的最大可用字号。
+    /// 卡片位置和尺寸保持不变，供流式覆盖层替换文本时使用。
+    /// </summary>
+    public double FitFontSize(string text, OcrBounds bounds, double preferredFontSize)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (!bounds.IsValid)
+            return _options.MinFontSize;
+
+        var fontSize = Math.Clamp(preferredFontSize, _options.MinFontSize, _options.MaxFontSize);
+        for (; ; fontSize -= _options.FontSizeStep)
+        {
+            var normalized = Math.Max(_options.MinFontSize, Math.Round(fontSize, 2));
+            if (Fits(Measure(text.Trim(), normalized, bounds.Width), bounds) ||
+                normalized <= _options.MinFontSize + 0.01)
+            {
+                return normalized;
+            }
+        }
+    }
+
     private ScreenshotOverlayLayout LayoutOne(
         IndexedItem entry,
         int pixelWidth,

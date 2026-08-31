@@ -602,6 +602,9 @@ public partial class App : Application
         var overlayPlacedCount = 0;
         var overlayDegradedCount = 0;
         var overlaySkippedCount = 0;
+        var translationStreamingUsed = false;
+        var translationStreamingFallback = false;
+        double? firstTranslationPresentedMs = null;
         string? selectedOcrEngine = null;
         string? failureType = null;
 
@@ -659,19 +662,129 @@ public partial class App : Application
 
             stage = "ocr";
             pipelineStatus = "running";
+
+            // OCR 单元准备好后立即创建稳定布局，但暂不显示空卡片。每个完整
+            // UnitId 译文到达时只更新对应卡片，避免流式期间全量碰撞重排。
+            Action<IReadOnlyList<ScreenshotTranslationUnit>> prepareOverlay = units =>
+            {
+                void CreateOverlay()
+                {
+                    if (_isExiting || cancellationToken.IsCancellationRequested ||
+                        !ReferenceEquals(_screenshotTranslationCts, translationCts))
+                    {
+                        return;
+                    }
+
+                    var overlay = new ScreenshotTranslationOverlayWindow(region, image, units);
+                    overlayItemCount = overlay.LayoutResult.Items.Count;
+                    overlayPlacedCount = overlay.LayoutResult.PlacedCount;
+                    overlayDegradedCount = overlay.LayoutResult.DegradedCount;
+                    overlaySkippedCount = overlay.LayoutResult.SkippedCount;
+                    if (!overlay.HasRenderableItems)
+                        return;
+
+                    _screenshotOverlayWindow = overlay;
+                    overlay.Closed += (_, _) =>
+                    {
+                        if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+                        {
+                            var isActive = ReferenceEquals(_screenshotTranslationCts, translationCts);
+                            _screenshotOverlayWindow = null;
+                            // Closing during an active stream must stop the
+                            // provider request; late chunks are then ignored.
+                            if (isActive && !cancellationToken.IsCancellationRequested)
+                                translationCts.Cancel();
+                        }
+                        RestoreScreenshotUi(restoreState);
+                    };
+                }
+
+                if (Dispatcher.CheckAccess())
+                    CreateOverlay();
+                else
+                    Dispatcher.Invoke(CreateOverlay, DispatcherPriority.ApplicationIdle);
+            };
+
+            Action<TranslatedTextUnit> publishOverlayUnit = translated =>
+            {
+                void UpdateOverlay()
+                {
+                    if (_isExiting || cancellationToken.IsCancellationRequested ||
+                        !ReferenceEquals(_screenshotTranslationCts, translationCts) ||
+                        _screenshotOverlayWindow is not { } overlay)
+                    {
+                        return;
+                    }
+
+                    if (!overlay.TryUpdateTranslation(translated))
+                        return;
+
+                    if (!overlay.IsVisible)
+                    {
+                        overlay.ShowOverlay();
+                        firstTranslationPresentedMs ??= pipelineWatch.Elapsed.TotalMilliseconds;
+                        Logger.Info("Screenshot", "screenshot.overlay_presented", new
+                        {
+                            unit_id = translated.UnitId,
+                            completed_count = overlay.CompletedCount,
+                            unit_count = overlay.ExpectedCount,
+                            placed_count = overlay.LayoutResult.PlacedCount,
+                            degraded_count = overlay.LayoutResult.DegradedCount,
+                            skipped_count = overlay.LayoutResult.SkippedCount,
+                            engine = capability.EngineId
+                        });
+                    }
+                }
+
+                if (Dispatcher.CheckAccess())
+                    UpdateOverlay();
+                else
+                    Dispatcher.Invoke(UpdateOverlay, DispatcherPriority.Background);
+            };
+
             var pipeline = await coordinator.ExecuteAsync(
                 image,
                 async (units, token) =>
                 {
                     stage = "translation";
+                    if (translationService is IScreenshotBatchStreamingTranslationService streamingBatchTranslationService)
+                    {
+                        translationStreamingUsed = true;
+                        Interlocked.Increment(ref translationRequestCount);
+                        try
+                        {
+                            return await streamingBatchTranslationService
+                                .TranslateScreenshotBatchStreamingAsync(
+                                    units,
+                                    settings.TargetLanguage,
+                                    publishOverlayUnit,
+                                    token)
+                                .ConfigureAwait(false);
+                        }
+                        catch (ScreenshotTranslationBatchFormatException ex) when (!token.IsCancellationRequested)
+                        {
+                            translationStreamingFallback = true;
+                            Logger.Warn("Screenshot", "screenshot.batch_stream_mapping_rejected", new
+                            {
+                                reason = ex.Reason,
+                                unit_count = units.Count
+                            });
+                            // Structured stream incompatibility is the only
+                            // condition that may fall back to non-stream batch.
+                        }
+                    }
+
                     if (translationService is IScreenshotBatchTranslationService batchTranslationService)
                     {
                         Interlocked.Increment(ref translationRequestCount);
                         try
                         {
-                            return await batchTranslationService
+                            var translated = await batchTranslationService
                                 .TranslateScreenshotBatchAsync(units, settings.TargetLanguage, token)
                                 .ConfigureAwait(false);
+                            foreach (var unit in translated)
+                                publishOverlayUnit(unit);
+                            return translated;
                         }
                         catch (ScreenshotTranslationBatchFormatException ex) when (!token.IsCancellationRequested)
                         {
@@ -698,7 +811,9 @@ public partial class App : Application
                                 settings.TargetLanguage,
                                 ContentType.Translation,
                                 token).ConfigureAwait(false);
-                            return new TranslatedTextUnit(unit.UnitId, translation);
+                            var translated = new TranslatedTextUnit(unit.UnitId, translation);
+                            publishOverlayUnit(translated);
+                            return translated;
                         }
                         finally
                         {
@@ -708,7 +823,8 @@ public partial class App : Application
                     return await Task.WhenAll(tasks).ConfigureAwait(false);
                 },
                 new OcrRecognitionOptions(LanguageHint: null, AllowLanguageFallback: true),
-                cancellationToken).ConfigureAwait(true);
+                cancellationToken,
+                prepareOverlay).ConfigureAwait(true);
 
             pipelineTimings = pipeline.Timings;
             pipelineStatus = pipeline.Status.ToString();
@@ -729,78 +845,19 @@ public partial class App : Application
             var overlayWatch = Stopwatch.StartNew();
             try
             {
-                var overlayItems = pipeline.Units
-                    .Zip(pipeline.Mapping.MappedUnits)
-                    .Select(static pair => new ScreenshotOverlayItem(
-                        pair.First.Bounds,
-                        pair.Second.Translation,
-                        pair.First.Blocks.Count == 1 ? pair.First.Blocks[0].Polygon : null,
-                        pair.First.UnitId,
-                        AverageConfidence(pair.First.Blocks)))
-                    .ToArray();
-                overlayItemCount = overlayItems.Length;
-                if (overlayItems.Length == 0)
+                var overlayPresented = await Dispatcher.InvokeAsync(() =>
+                {
+                    if (_isExiting || _screenshotOverlayWindow is not { } overlay || !overlay.IsVisible)
+                        return false;
+                    return true;
+                }, DispatcherPriority.ApplicationIdle);
+                if (!overlayPresented)
                 {
                     _trayIcon?.ShowBalloonTip(
                         "截图翻译",
                         "未生成可显示的译文。",
                         System.Windows.Forms.ToolTipIcon.Warning);
-                    return;
                 }
-
-                var overlayPresented = await Dispatcher.InvokeAsync(() =>
-                {
-                    if (_isExiting || cancellationToken.IsCancellationRequested)
-                        return false;
-                    var overlay = new ScreenshotTranslationOverlayWindow(region, image, overlayItems);
-                    overlayItemCount = overlay.LayoutResult.Items.Count;
-                    overlayPlacedCount = overlay.LayoutResult.PlacedCount;
-                    overlayDegradedCount = overlay.LayoutResult.DegradedCount;
-                    overlaySkippedCount = overlay.LayoutResult.SkippedCount;
-                    if (!overlay.HasRenderableItems)
-                    {
-                        Logger.Info("Screenshot", "screenshot.overlay_skipped", new
-                        {
-                            item_count = overlay.LayoutResult.Items.Count,
-                            skipped_count = overlay.LayoutResult.SkippedCount
-                        });
-                        _trayIcon?.ShowBalloonTip(
-                            "截图翻译",
-                            "译文无法在截图范围内完整显示。",
-                            System.Windows.Forms.ToolTipIcon.Warning);
-                        return false;
-                    }
-
-                    _screenshotOverlayWindow = overlay;
-                    overlay.Closed += (_, _) =>
-                    {
-                        if (ReferenceEquals(_screenshotOverlayWindow, overlay))
-                            _screenshotOverlayWindow = null;
-                        RestoreScreenshotUi(restoreState);
-                    };
-                    try
-                    {
-                        overlay.ShowOverlay();
-                    }
-                    catch
-                    {
-                        if (ReferenceEquals(_screenshotOverlayWindow, overlay))
-                            _screenshotOverlayWindow = null;
-                        overlay.Close();
-                        throw;
-                    }
-                    Logger.Info("Screenshot", "screenshot.overlay_presented", new
-                    {
-                        block_count = pipeline.OcrResult.Blocks.Count,
-                        unit_count = pipeline.Units.Count,
-                        placed_count = overlay.LayoutResult.PlacedCount,
-                        degraded_count = overlay.LayoutResult.DegradedCount,
-                        skipped_count = overlay.LayoutResult.SkippedCount,
-                        engine = capability.EngineId,
-                        used_language = pipeline.OcrResult.UsedLanguageTag
-                    });
-                    return true;
-                }, DispatcherPriority.ApplicationIdle);
                 stage = overlayPresented ? "overlay_presented" : "overlay_skipped";
             }
             finally
@@ -812,6 +869,11 @@ public partial class App : Application
         {
             pipelineStatus = "cancelled";
             failureType = nameof(OperationCanceledException);
+            if (_screenshotOverlayWindow is { IsVisible: true } partial &&
+                partial.CompletedCount > 0 && partial.CompletedCount < partial.ExpectedCount)
+            {
+                partial.MarkPartial($"已显示 {partial.CompletedCount}/{partial.ExpectedCount} 个译文（已取消）");
+            }
             _trayIcon?.ShowBalloonTip(
                 "截图翻译",
                 "截图翻译已取消。",
@@ -821,6 +883,11 @@ public partial class App : Application
         {
             pipelineStatus = "failed";
             failureType = ex.GetType().Name;
+            if (_screenshotOverlayWindow is { IsVisible: true } partial &&
+                partial.CompletedCount > 0 && partial.CompletedCount < partial.ExpectedCount)
+            {
+                partial.MarkPartial($"已显示 {partial.CompletedCount}/{partial.ExpectedCount} 个译文（部分完成）");
+            }
             Logger.Warn("Screenshot", "screenshot.capture_failed", new
             {
                 exception_type = ex.GetType().Name,
@@ -856,6 +923,10 @@ public partial class App : Application
                 ocr_block_count = pipelineTimings.OcrBlockCount,
                 translation_unit_count = pipelineTimings.TranslationUnitCount,
                 translation_request_count = Volatile.Read(ref translationRequestCount),
+                translation_streaming_used = translationStreamingUsed,
+                translation_streaming_fallback = translationStreamingFallback,
+                first_translation_presented_ms = firstTranslationPresentedMs,
+                translation_completed_unit_count = _screenshotOverlayWindow?.CompletedCount ?? 0,
                 cancelled = cancellationToken.IsCancellationRequested
             });
             if (_screenshotProgressWindow is { } progress)

@@ -59,6 +59,8 @@ Select text to open a red-dot guide and route it into translation, code, or term
 
 Choose “Screenshot Translation” from the tray menu and select a region on one monitor. QuickTranslate recognizes text locally, calls the current translation model, and places translated text back over the captured region. Press `Esc` or click the overlay to close it and restore the original view; screenshots, OCR text, and translations stay in memory by default and are not written to history or logs.
 
+Models that support structured streaming show each region as soon as its complete `UnitId` translation arrives, while keeping already placed cards stable. If the stream is interrupted, completed results remain visible with an explicit partial-completion state; missing translations are never fabricated. An unsupported or unsafe stream format falls back to one structured batch request, then to bounded per-unit requests under the existing mapping contract.
+
 An installed RapidOCR/ONNX local scene-OCR Worker is preferred for complex backgrounds, Japanese, and rotated text; without a local model, the app falls back to Windows built-in OCR. The Full package will include a baseline model that passes the quality and license gates, while both Standard and Full packages can explicitly download, verify, and switch other supported models from Settings. The app never downloads models automatically at startup or when a screenshot is captured. From a source checkout, run `scripts\install-ocr-runtime.ps1` when needed to create the isolated runtime. Complex background erasure currently uses a translucent mask/card fallback, and low-confidence or unsafe mappings are not overlaid automatically.
 
 ---
@@ -252,143 +254,145 @@ Quick lookup and translation use the same Base URL, API Key, and Model configura
 ```text
 QuickTranslate/
 ├── Core/                  # Core engine
-│   ├── GlobalKeyboardHook.cs                         # Global keyboard hook (independent message loop)
-│   ├── SelectionDetector.cs                          # Mouse hook selection detection (drag/double/triple-click)
-│   ├── SelectionLocator.cs                           # UIA pixel-level selection locator
-│   ├── ClipboardHelper.cs                            # Zero-pollution clipboard (serial detection + restore)
-│   ├── ClipboardRestoreCoordinator.cs                # Background clipboard restore queue
-│   ├── ContentTypeDetector.cs                        # Smart content detection (Translation / Code / Term)
-│   ├── BrowserDetector.cs                            # Browser window awareness
-│   ├── TerminalDetector.cs                           # Terminal host awareness + copy-risk detection
-│   ├── SelectionCapturePolicy.cs                     # Selection-copy safety policy
-│   ├── RecentSelectionCopyEvaluator.cs               # Select-to-copy detection (OSC52 / copyOnSelection)
-│   ├── UiaCircuitBreaker.cs                          # UIA failure breaker and recovery
-│   ├── CopyShortcut.cs                               # Copy shortcut helper
-│   ├── AnalysisConversationFormatter.cs              # Analysis follow-up conversation formatting
-│   ├── AutoScrollController.cs                       # Streaming auto-scroll (pause/resume on user action)
-│   ├── LatestRequestCoordinator.cs                   # latest-request-wins request coordination
-│   ├── LatestPresentationCoordinator.cs              # Presentation identity coordination
-│   ├── FloatingResultSessionCoordinator.cs           # Multi-mode session coordination
-│   ├── TranslationDirectionResolver.cs               # Auto/manual translation direction decisions
-│   ├── TranslationRouteResolver.cs                   # Translation and explanation mode routing
-│   ├── ModelProfileCatalog.cs                        # Session-level available model profile catalog
-│   ├── ModelSelectionCoordinator.cs                  # Session-level model-switch coordination
-│   ├── TrayClickCoordinator.cs                       # Tray interaction coordination (left/right/scroll)
-│   ├── WordLookupSessionCoordinator.cs               # Lookup session race-condition guard
-│   ├── WordLookupTextFormatter.cs                    # Lookup result text formatter
-│   ├── RecentLookupBuffer.cs                         # Recent lookup buffer
-│   ├── ReasoningSummaryAccumulator.cs                # Reasoning summary accumulation (cap enforcement)
-│   ├── StreamingCompositionMetrics.cs                # Streaming composition metrics
-│   ├── StreamingDispatcherMetrics.cs                 # Streaming dispatch metrics
-│   ├── StreamingPresentationPump.cs                  # Streaming presentation frame pump (coalescing/publishing)
-│   ├── StreamingRuntimeMetrics.cs                    # Streaming runtime metrics
-│   ├── TtsPlaybackCoordinator.cs                     # TTS playback coordination (multi-owner, busy avoidance)
-│   ├── OcrBlockValidator.cs                          # OCR text-block and resource-boundary validation
-│   ├── OcrBlockAggregator.cs                         # Deterministic OCR line-block aggregation
-│   ├── OcrLanguageSelector.cs                        # OCR language selection and fallback
-│   ├── OcrTextNormalizer.cs                          # OCR text normalization
-│   ├── ScreenshotTranslationCoordinator.cs           # Screenshot OCR-to-translation coordination
-│   ├── ScreenshotTranslationTiming.cs                # Screenshot pipeline stage timings and counts
-│   ├── ScreenshotSelection.cs                        # Physical screenshot region and resource gate
-│   └── OverlayLayoutEngine.cs                        # Deterministic screenshot overlay layout engine
+│   ├── GlobalKeyboardHook.cs                           # Global keyboard hook (independent message loop)
+│   ├── SelectionDetector.cs                            # Mouse hook selection detection (drag/double/triple-click)
+│   ├── SelectionLocator.cs                             # UIA pixel-level selection locator
+│   ├── ClipboardHelper.cs                              # Zero-pollution clipboard (serial detection + restore)
+│   ├── ClipboardRestoreCoordinator.cs                  # Background clipboard restore queue
+│   ├── ContentTypeDetector.cs                          # Smart content detection (Translation / Code / Term)
+│   ├── BrowserDetector.cs                              # Browser window awareness
+│   ├── TerminalDetector.cs                             # Terminal host awareness + copy-risk detection
+│   ├── SelectionCapturePolicy.cs                       # Selection-copy safety policy
+│   ├── RecentSelectionCopyEvaluator.cs                 # Select-to-copy detection (OSC52 / copyOnSelection)
+│   ├── UiaCircuitBreaker.cs                            # UIA failure breaker and recovery
+│   ├── CopyShortcut.cs                                 # Copy shortcut helper
+│   ├── AnalysisConversationFormatter.cs                # Analysis follow-up conversation formatting
+│   ├── AutoScrollController.cs                         # Streaming auto-scroll (pause/resume on user action)
+│   ├── LatestRequestCoordinator.cs                     # latest-request-wins request coordination
+│   ├── LatestPresentationCoordinator.cs                # Presentation identity coordination
+│   ├── FloatingResultSessionCoordinator.cs             # Multi-mode session coordination
+│   ├── TranslationDirectionResolver.cs                 # Auto/manual translation direction decisions
+│   ├── TranslationRouteResolver.cs                     # Translation and explanation mode routing
+│   ├── ModelProfileCatalog.cs                          # Session-level available model profile catalog
+│   ├── ModelSelectionCoordinator.cs                    # Session-level model-switch coordination
+│   ├── TrayClickCoordinator.cs                         # Tray interaction coordination (left/right/scroll)
+│   ├── WordLookupSessionCoordinator.cs                 # Lookup session race-condition guard
+│   ├── WordLookupTextFormatter.cs                      # Lookup result text formatter
+│   ├── RecentLookupBuffer.cs                           # Recent lookup buffer
+│   ├── ReasoningSummaryAccumulator.cs                  # Reasoning summary accumulation (cap enforcement)
+│   ├── StreamingCompositionMetrics.cs                  # Streaming composition metrics
+│   ├── StreamingDispatcherMetrics.cs                   # Streaming dispatch metrics
+│   ├── StreamingPresentationPump.cs                    # Streaming presentation frame pump (coalescing/publishing)
+│   ├── StreamingRuntimeMetrics.cs                      # Streaming runtime metrics
+│   ├── TtsPlaybackCoordinator.cs                       # TTS playback coordination (multi-owner, busy avoidance)
+│   ├── OcrBlockValidator.cs                            # OCR text-block and resource-boundary validation
+│   ├── OcrBlockAggregator.cs                           # Deterministic OCR line-block aggregation
+│   ├── OcrLanguageSelector.cs                          # OCR language selection and fallback
+│   ├── OcrTextNormalizer.cs                            # OCR text normalization
+│   ├── ScreenshotTranslationCoordinator.cs             # Screenshot OCR-to-translation coordination
+│   ├── ScreenshotTranslationTiming.cs                  # Screenshot pipeline stage timings and counts
+│   ├── ScreenshotSelection.cs                          # Physical screenshot region and resource gate
+│   └── OverlayLayoutEngine.cs                          # Deterministic screenshot overlay layout engine
 ├── Database/              # Persistence layer
-│   ├── TranslationRecord.cs                          # Translation history model
-│   └── TranslationDbContext.cs                       # EF Core SQLite context
+│   ├── TranslationRecord.cs                            # Translation history model
+│   └── TranslationDbContext.cs                         # EF Core SQLite context
 ├── Services/              # Business services
-│   ├── ITranslationService.cs                        # Translation service interface
-│   ├── TranslationStreamEvent.cs                     # Streaming event kinds (started / content delta / reasoning delta / completed)
-│   ├── OpenAITranslationService.cs                   # OpenAI-compatible streaming translation
-│   ├── ProviderKind.cs                               # Official API host and provider parsing
-│   ├── ProviderModelCapabilities.cs                  # Shared model capability descriptor
-│   ├── ProviderRequestPolicy.cs                      # Provider request parameter policy
-│   ├── ProviderHttpError.cs                          # Safe provider HTTP error extraction
-│   ├── TranslationPromptBuilder.cs                   # Translation task and input-protection prompts
-│   ├── TranslationEchoDetector.cs                    # Original-text echo quality detection
-│   ├── BigModelModelCapabilities.cs                  # Zhipu model-thinking capabilities
-│   ├── DeepSeekModelCapabilities.cs                  # DeepSeek model-thinking capabilities
-│   ├── SiliconFlowModelCapabilities.cs               # SiliconFlow model-thinking capabilities
-│   ├── OpenAIModelCapabilities.cs                    # OpenAI reasoning capabilities
-│   ├── PromptInputContract.cs                        # Model input safety and length contract
-│   ├── TranslationCacheService.cs                    # Semantic cache (LRU + 30 min TTL)
-│   ├── TranslationMetrics.cs                         # Metrics (P50/P95/P99)
-│   ├── HistoryExporter.cs                            # History export (Anki/CSV)
-│   ├── AnalysisPromptCatalog.cs                      # Built-in / custom analysis profiles
-│   ├── UpdateService.cs                              # Auto-updater (GitHub Release + AutoUpdater.NET)
-│   ├── FeedbackContentBuilder.cs                     # Public feedback fields and sensitivity checks
-│   ├── FeedbackLinkService.cs                        # Fixed GitHub Issue Form links
-│   ├── CrashRecoveryTracker.cs                       # Unclean-exit state and recovery-prompt tracking
-│   ├── ITtsService.cs                                # TTS service interface
-│   ├── EdgeTtsService.cs                             # Edge TTS read-aloud service
-│   ├── EdgeTtsClient.cs                              # Edge TTS WebSocket client
-│   ├── TtsTextSelector.cs                            # TTS text selector
-│   ├── TtsSpeakException.cs                          # TTS exception class
-│   ├── IOcrService.cs                                # Engine-agnostic OCR interface
-│   ├── ScreenshotTranslationMapping.cs               # Screenshot translation UnitId mapping
-│   ├── IScreenshotBatchTranslationService.cs         # Screenshot structured batch translation interface
-│   ├── IScreenshotCaptureService.cs                  # Screenshot capture interface
-│   ├── GdiScreenshotCaptureService.cs                # GDI physical-pixel screenshot capture
-│   ├── WindowsMediaOcrService.cs                     # Windows built-in OCR adapter
-│   ├── RapidOcrWorkerService.cs                      # Isolated RapidOCR/ONNX worker service
-│   ├── ScreenshotOcrServiceFactory.cs                # Screenshot OCR engine selection and fallback
-│   ├── IWordLookupService.cs                         # Word lookup service interface
-│   ├── IWordLookupEnrichmentService.cs               # AI word lookup enrichment interface
-│   ├── OpenAIWordLookupService.cs                    # OpenAI-compatible word lookup service
-│   ├── LocalDictionaryWordLookupService.cs           # ECDICT + OEWN local lookup
-│   ├── CompositeWordLookupService.cs                 # Local dictionary first, AI fallback
-│   ├── WordLookupPromptBuilder.cs                    # Word lookup prompt builder
-│   └── WordPartOfSpeechNormalizer.cs                 # POS label normalization
+│   ├── ITranslationService.cs                          # Translation service interface
+│   ├── TranslationStreamEvent.cs                       # Streaming event kinds (started / content delta / reasoning delta / completed)
+│   ├── OpenAITranslationService.cs                     # OpenAI-compatible streaming translation
+│   ├── ProviderKind.cs                                 # Official API host and provider parsing
+│   ├── ProviderModelCapabilities.cs                    # Shared model capability descriptor
+│   ├── ProviderRequestPolicy.cs                        # Provider request parameter policy
+│   ├── ProviderHttpError.cs                            # Safe provider HTTP error extraction
+│   ├── TranslationPromptBuilder.cs                     # Translation task and input-protection prompts
+│   ├── TranslationEchoDetector.cs                      # Original-text echo quality detection
+│   ├── BigModelModelCapabilities.cs                    # Zhipu model-thinking capabilities
+│   ├── DeepSeekModelCapabilities.cs                    # DeepSeek model-thinking capabilities
+│   ├── SiliconFlowModelCapabilities.cs                 # SiliconFlow model-thinking capabilities
+│   ├── OpenAIModelCapabilities.cs                      # OpenAI reasoning capabilities
+│   ├── PromptInputContract.cs                          # Model input safety and length contract
+│   ├── TranslationCacheService.cs                      # Semantic cache (LRU + 30 min TTL)
+│   ├── TranslationMetrics.cs                           # Metrics (P50/P95/P99)
+│   ├── HistoryExporter.cs                              # History export (Anki/CSV)
+│   ├── AnalysisPromptCatalog.cs                        # Built-in / custom analysis profiles
+│   ├── UpdateService.cs                                # Auto-updater (GitHub Release + AutoUpdater.NET)
+│   ├── FeedbackContentBuilder.cs                       # Public feedback fields and sensitivity checks
+│   ├── FeedbackLinkService.cs                          # Fixed GitHub Issue Form links
+│   ├── CrashRecoveryTracker.cs                         # Unclean-exit state and recovery-prompt tracking
+│   ├── ITtsService.cs                                  # TTS service interface
+│   ├── EdgeTtsService.cs                               # Edge TTS read-aloud service
+│   ├── EdgeTtsClient.cs                                # Edge TTS WebSocket client
+│   ├── TtsTextSelector.cs                              # TTS text selector
+│   ├── TtsSpeakException.cs                            # TTS exception class
+│   ├── IOcrService.cs                                  # Engine-agnostic OCR interface
+│   ├── ScreenshotTranslationMapping.cs                 # Screenshot translation UnitId mapping
+│   ├── IScreenshotBatchTranslationService.cs           # Screenshot structured batch translation interface
+│   ├── IScreenshotBatchStreamingTranslationService.cs  # Screenshot unit-completion streaming interface
+│   ├── ScreenshotTranslationStreamParser.cs            # Screenshot structured stream parser and ID validation
+│   ├── IScreenshotCaptureService.cs                    # Screenshot capture interface
+│   ├── GdiScreenshotCaptureService.cs                  # GDI physical-pixel screenshot capture
+│   ├── WindowsMediaOcrService.cs                       # Windows built-in OCR adapter
+│   ├── RapidOcrWorkerService.cs                        # Isolated RapidOCR/ONNX worker service
+│   ├── ScreenshotOcrServiceFactory.cs                  # Screenshot OCR engine selection and fallback
+│   ├── IWordLookupService.cs                           # Word lookup service interface
+│   ├── IWordLookupEnrichmentService.cs                 # AI word lookup enrichment interface
+│   ├── OpenAIWordLookupService.cs                      # OpenAI-compatible word lookup service
+│   ├── LocalDictionaryWordLookupService.cs             # ECDICT + OEWN local lookup
+│   ├── CompositeWordLookupService.cs                   # Local dictionary first, AI fallback
+│   ├── WordLookupPromptBuilder.cs                      # Word lookup prompt builder
+│   └── WordPartOfSpeechNormalizer.cs                   # POS label normalization
 ├── Models/                # Data models
-│   ├── AppSettings.cs                                # Settings (multi-model / hotkeys / profiles / updates)
-│   ├── ProviderPreset.cs                             # Credential-free provider preset catalog
-│   ├── TranslationRequest.cs                         # Immutable request snapshot
-│   ├── TranslationRequestContext.cs                  # Session request semantic snapshot
-│   ├── TranslationDirectionDecision.cs               # Translation direction decision result
-│   ├── FloatingResultSession.cs                      # Multi-mode session state
-│   ├── AnalysisPromptProfile.cs                      # Custom analysis profile
-│   ├── AnalysisFollowUpRequest.cs                    # Analysis follow-up request and semantic snapshot
-│   ├── TranslationTriggerMode.cs                     # Translation trigger mode enum
-│   ├── ThinkingModePreference.cs                     # Thinking-mode preference
-│   ├── FeedbackModels.cs                             # Feedback draft, diagnostics, and field models
-│   ├── WordLookupModels.cs                           # Word lookup result models (definition / phonetic / example / collocation)
-│   ├── OcrModels.cs                                  # OCR image, text-block, and resource-limit models
-│   └── ScreenshotOverlayModels.cs                    # Screenshot translation overlay models
+│   ├── AppSettings.cs                                  # Settings (multi-model / hotkeys / profiles / updates)
+│   ├── ProviderPreset.cs                               # Credential-free provider preset catalog
+│   ├── TranslationRequest.cs                           # Immutable request snapshot
+│   ├── TranslationRequestContext.cs                    # Session request semantic snapshot
+│   ├── TranslationDirectionDecision.cs                 # Translation direction decision result
+│   ├── FloatingResultSession.cs                        # Multi-mode session state
+│   ├── AnalysisPromptProfile.cs                        # Custom analysis profile
+│   ├── AnalysisFollowUpRequest.cs                      # Analysis follow-up request and semantic snapshot
+│   ├── TranslationTriggerMode.cs                       # Translation trigger mode enum
+│   ├── ThinkingModePreference.cs                       # Thinking-mode preference
+│   ├── FeedbackModels.cs                               # Feedback draft, diagnostics, and field models
+│   ├── WordLookupModels.cs                             # Word lookup result models (definition / phonetic / example / collocation)
+│   ├── OcrModels.cs                                    # OCR image, text-block, and resource-limit models
+│   └── ScreenshotOverlayModels.cs                      # Screenshot translation overlay models
 ├── Helpers/               # Utilities
-│   ├── ConfigManager.cs                              # JSON configuration read/write + migration
-│   ├── Logger.cs                                     # Async logger (JSON Lines / rotation / cleanup)
-│   ├── LogEvent.cs                                   # Structured log event model
-│   ├── MarkdownRenderer.cs                           # Safe Markdown renderer
-│   ├── StreamingMarkdownRenderer.cs                  # Streaming Markdown renderer
-│   ├── CodeSyntaxHighlighter.cs                      # Local code-block syntax highlighting
-│   ├── Win32Api.cs                                   # Win32 P/Invoke declarations
-│   ├── DpiHelper.cs                                  # DPI coordinate conversion
-│   ├── ApiEndpointValidator.cs                       # API endpoint format validation
-│   └── AuthenticodeVerifier.cs                       # Installer digital-signature verification
+│   ├── ConfigManager.cs                                # JSON configuration read/write + migration
+│   ├── Logger.cs                                       # Async logger (JSON Lines / rotation / cleanup)
+│   ├── LogEvent.cs                                     # Structured log event model
+│   ├── MarkdownRenderer.cs                             # Safe Markdown renderer
+│   ├── StreamingMarkdownRenderer.cs                    # Streaming Markdown renderer
+│   ├── CodeSyntaxHighlighter.cs                        # Local code-block syntax highlighting
+│   ├── Win32Api.cs                                     # Win32 P/Invoke declarations
+│   ├── DpiHelper.cs                                    # DPI coordinate conversion
+│   ├── ApiEndpointValidator.cs                         # API endpoint format validation
+│   └── AuthenticodeVerifier.cs                         # Installer digital-signature verification
 ├── UI/                    # User interface
-│   ├── FloatingWindow.xaml/.cs                       # Floating window (multi-mode / Markdown / TTS / pin)
-│   ├── MarkdownInteraction.cs                        # Markdown interaction helper
-│   ├── RedDotWindow.xaml/.cs                         # Red-dot guidance window
-│   ├── ScreenshotSelectionWindow.xaml/.cs            # Single-monitor screenshot selection overlay
-│   ├── ScreenshotTranslationOverlayWindow.xaml/.cs   # Screenshot translation overlay window
-│   ├── ScreenshotTranslationProgressWindow.xaml/.cs  # Screenshot OCR progress and cancel window
-│   ├── QuickLookupWindow.xaml/.cs                    # Quick lookup window (structured definitions / speech)
-│   ├── TrayIconManager.cs                            # System tray (context menu / toast)
-│   ├── SettingsWindow.xaml/.cs                       # Settings (models / hotkeys / profiles / updates)
-│   ├── DownloadUpdateWindow.xaml/.cs                 # Update download window
-│   ├── UpdateAvailableWindow.xaml/.cs                # Update details and confirmation
-│   ├── ModelSelectorControl.xaml/.cs                 # Current-session model selector
-│   ├── HistoryWindow.xaml/.cs                        # Translation history viewer
-│   ├── LogViewerWindow.xaml/.cs                      # Log viewer
-│   ├── ThoughtBlockView.cs                           # Thought-block view
-│   ├── LogEntryReader.cs                             # Log reading and filtering
-│   ├── FeedbackWindow.xaml/.cs                       # Help and feedback window
-│   ├── CrashRecoveryPromptWindow.xaml/.cs            # Unclean-exit recovery prompt
-│   ├── SharedSettingsStyles.xaml                     # Settings control styles reused by feedback UI
-│   ├── SharedToolWindowStyles.xaml                   # Shared tool-window styles
-│   ├── FloatingWindowAnchor.cs                       # Window anchor positioning
-│   ├── FloatingWindowPlacement.cs                    # Window placement management
-│   ├── TrayPanelPlacement.cs                         # Tray-panel placement for multi-monitor DPI
-│   ├── FloatingStatusMessage.cs                      # Status messages
-│   └── TransientButtonFeedback.cs                    # Transient button feedback
+│   ├── FloatingWindow.xaml/.cs                         # Floating window (multi-mode / Markdown / TTS / pin)
+│   ├── MarkdownInteraction.cs                          # Markdown interaction helper
+│   ├── RedDotWindow.xaml/.cs                           # Red-dot guidance window
+│   ├── ScreenshotSelectionWindow.xaml/.cs              # Single-monitor screenshot selection overlay
+│   ├── ScreenshotTranslationOverlayWindow.xaml/.cs     # Screenshot translation overlay window
+│   ├── ScreenshotTranslationProgressWindow.xaml/.cs    # Screenshot OCR progress and cancel window
+│   ├── QuickLookupWindow.xaml/.cs                      # Quick lookup window (structured definitions / speech)
+│   ├── TrayIconManager.cs                              # System tray (context menu / toast)
+│   ├── SettingsWindow.xaml/.cs                         # Settings (models / hotkeys / profiles / updates)
+│   ├── DownloadUpdateWindow.xaml/.cs                   # Update download window
+│   ├── UpdateAvailableWindow.xaml/.cs                  # Update details and confirmation
+│   ├── ModelSelectorControl.xaml/.cs                   # Current-session model selector
+│   ├── HistoryWindow.xaml/.cs                          # Translation history viewer
+│   ├── LogViewerWindow.xaml/.cs                        # Log viewer
+│   ├── ThoughtBlockView.cs                             # Thought-block view
+│   ├── LogEntryReader.cs                               # Log reading and filtering
+│   ├── FeedbackWindow.xaml/.cs                         # Help and feedback window
+│   ├── CrashRecoveryPromptWindow.xaml/.cs              # Unclean-exit recovery prompt
+│   ├── SharedSettingsStyles.xaml                       # Settings control styles reused by feedback UI
+│   ├── SharedToolWindowStyles.xaml                     # Shared tool-window styles
+│   ├── FloatingWindowAnchor.cs                         # Window anchor positioning
+│   ├── FloatingWindowPlacement.cs                      # Window placement management
+│   ├── TrayPanelPlacement.cs                           # Tray-panel placement for multi-monitor DPI
+│   ├── FloatingStatusMessage.cs                        # Status messages
+│   └── TransientButtonFeedback.cs                      # Transient button feedback
 ├── Assets/                # App icon resources
 ├── app.manifest           # Windows application manifest
 ├── AssemblyInfo.cs        # Assembly metadata declarations

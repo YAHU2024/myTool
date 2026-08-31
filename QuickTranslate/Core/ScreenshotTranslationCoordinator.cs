@@ -41,7 +41,9 @@ public sealed class ScreenshotTranslationCoordinator
         OcrImage image,
         Func<IReadOnlyList<ScreenshotTranslationUnit>, CancellationToken, Task<IReadOnlyList<TranslatedTextUnit>>> translateAsync,
         OcrRecognitionOptions? options = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<IReadOnlyList<ScreenshotTranslationUnit>>? onUnitsReady = null,
+        Action<TranslatedTextUnit>? onUnitTranslated = null)
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(translateAsync);
@@ -87,10 +89,18 @@ public sealed class ScreenshotTranslationCoordinator
             };
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        onUnitsReady?.Invoke(units);
+
         var translationWatch = Stopwatch.StartNew();
         var translated = await translateAsync(units, cancellationToken).ConfigureAwait(false);
         translationWatch.Stop();
         cancellationToken.ThrowIfCancellationRequested();
+        if (onUnitTranslated is not null)
+        {
+            foreach (var unit in translated)
+                onUnitTranslated(unit);
+        }
         var mappingWatch = Stopwatch.StartNew();
         var mapping = ScreenshotTranslationMapper.Map(units, translated);
         mappingWatch.Stop();

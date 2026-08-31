@@ -445,6 +445,14 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 | translation.presented | Info | operation, content_type, model, provider, result_len, duration_ms, stream/UI/Dispatcher/Markdown/GC/composition timing fields listed above |
 | analysis.follow_up.completed | Info | turn, answer_len, duration_ms, request_id, stream_chunk_count, first_chunk_ms, average_chunk_gap_ms, max_chunk_gap_ms, stalled_chunk_count |
 | analysis.follow_up.presented | Info | turn, request_id, stream/UI/Dispatcher/Markdown/GC/composition timing fields listed above |
+| screenshot.pipeline_completed | Info | status, terminal_stage, failure_type, engine, capture/ocr/translation/mapping/overlay/total elapsed ms, OCR/translation counts, translation_request_count, translation_streaming_used, translation_streaming_fallback, first_translation_presented_ms, translation_completed_unit_count, cancelled |
+| screenshot.overlay_presented | Info | unit_id, completed_count, unit_count, placed_count, degraded_count, skipped_count, engine |
+| screenshot_batch_stream.started | Info | unit_count, text_len, requested_target_language |
+| screenshot_batch_stream.completed | Info | unit_count, mapped_count, duration_ms, stream_chunk_count, first_chunk_ms |
+
+截图翻译的结构化流式日志只记录单元计数、阶段耗时、稳定 `UnitId` 和回退状态，不记录 OCR
+文本、译文、图片、Prompt 或 SSE 正文。`translation_streaming_fallback` 仅表示结构化流格式
+不兼容而触发了受控回退；网络、鉴权、配额和取消错误不会因为流式失败而自动重试。
 
 这些字段只包含枚举、语言名称、计数和毫秒值。它们不记录 chunk 正文、累计结果、问题、回答、Prompt、API Key、Authorization 头或供应商响应体。方向判断完全在本地完成；自动判断关闭时实际目标始终等于用户选择的目标。拉丁文字语言之间无法仅凭文字系统可靠区分，因此保持 `Unknown` 并使用请求目标，不自动切换到备选语言。
 

@@ -12,7 +12,7 @@ namespace QuickTranslate.Services;
 /// <summary>
 /// OpenAI-compatible translation service with streaming SSE support.
 /// </summary>
-public sealed class OpenAITranslationService : ITranslationService, IScreenshotBatchTranslationService, IDisposable
+public sealed class OpenAITranslationService : ITranslationService, IScreenshotBatchTranslationService, IScreenshotBatchStreamingTranslationService, IDisposable
 {
     internal const int MaxInitialRequestRunes = 20000;
     internal const int MaxAnalysisRequestRunes = 30000;
@@ -527,6 +527,101 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
             requested_target_language = targetLanguage
         });
         return mapped.MappedUnits;
+    }
+
+    public async Task<IReadOnlyList<TranslatedTextUnit>> TranslateScreenshotBatchStreamingAsync(
+        IReadOnlyList<ScreenshotTranslationUnit> units,
+        string targetLanguage,
+        Action<TranslatedTextUnit> onUnitCompleted,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(units);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetLanguage);
+        ArgumentNullException.ThrowIfNull(onUnitCompleted);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (units.Count == 0)
+            return Array.Empty<TranslatedTextUnit>();
+
+        ValidateScreenshotBatchUnits(units);
+        var context = CaptureRequestContext(targetLanguage);
+        var batchInput = BuildScreenshotBatchInput(units);
+        EnsureInputLength(batchInput, MaxInitialRequestRunes, "截图批量流式请求");
+        var direction = TranslationDirectionResolver.Resolve(
+            batchInput,
+            targetLanguage,
+            context.FallbackLanguage,
+            context.AutoDetectLanguage,
+            ContentType.Translation,
+            TranslationDirectionPreference.FixedRequestedTarget);
+        var request = new TranslationRequest(
+            TranslationRequestKind.Translation,
+            batchInput,
+            direction,
+            ContentType.Translation,
+            context.ApiBaseUrl,
+            context.ApiKey,
+            context.ModelName,
+            TranslationPromptBuilder.BuildScreenshotBatchStreamingPrompt(
+                targetLanguage,
+                context.CustomTranslationPrompt),
+            context.EnableThinking);
+        ValidateRequest(request);
+
+        var startedAt = Stopwatch.GetTimestamp();
+        Logger.Info("TranslationService", "screenshot_batch_stream.started", new
+        {
+            unit_count = units.Count,
+            text_len = units.Sum(static unit => unit.SourceText.Length),
+            requested_target_language = targetLanguage
+        });
+        var parser = new ScreenshotTranslationStreamParser(units.Select(static unit => unit.UnitId));
+        ChatStreamingResult execution;
+        try
+        {
+            execution = await ExecuteChatStreamingAsync(
+                request.ApiBaseUrl,
+                request.ApiKey,
+                BuildRequestBody(
+                    request.ModelName,
+                    [
+                        new ChatCompletionMessage("system", request.SystemPrompt),
+                        new ChatCompletionMessage("user", PromptInputContract.Wrap(request.Text))
+                    ],
+                    request.ApiBaseUrl,
+                    request.EnableThinking,
+                    stream: true),
+                "screenshot batch streaming translation",
+                streamEvent =>
+                {
+                    if (streamEvent.Kind != TranslationStreamEventKind.ContentDelta)
+                        return;
+
+                    foreach (var translated in parser.Append(streamEvent.Text))
+                        onUnitCompleted(translated);
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            // A non-stream completion shape (message.content) is a provider
+            // capability mismatch, not a transport failure; App may safely use
+            // the non-stream structured batch fallback.
+            throw new ScreenshotTranslationBatchFormatException("invalid_stream_response", ex);
+        }
+
+        var mapping = parser.Complete(units);
+        if (!mapping.Accepted)
+            throw new ScreenshotTranslationBatchFormatException(mapping.Reason);
+
+        Logger.Info("TranslationService", "screenshot_batch_stream.completed", new
+        {
+            unit_count = units.Count,
+            mapped_count = mapping.MappedCount,
+            duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+            stream_chunk_count = execution.ChunkCount,
+            first_chunk_ms = execution.FirstChunkMs
+        });
+        return mapping.MappedUnits;
     }
 
     private async Task<string> TranslateAsyncCore(
