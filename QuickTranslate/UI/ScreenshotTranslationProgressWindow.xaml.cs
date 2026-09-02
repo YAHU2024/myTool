@@ -22,6 +22,13 @@ public partial class ScreenshotTranslationProgressWindow : Window
 
     public event Action? CancelRequested;
 
+    public void SetStatus(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return;
+        StatusText.Text = message.Trim();
+    }
+
     public void ShowProgress()
     {
         Show();

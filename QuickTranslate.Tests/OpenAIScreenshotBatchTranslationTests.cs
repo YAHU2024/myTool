@@ -100,6 +100,23 @@ public sealed class OpenAIScreenshotBatchTranslationTests
         Assert.Contains("one complete compact JSON object per translated unit", handler.SystemPrompt);
     }
 
+    [Fact]
+    public async Task TranslateScreenshotBatchStreamingAsync_AcceptsCompleteUnitsWithoutDoneMarker()
+    {
+        var handler = new StreamingBatchHandler(
+            SseWithoutDone(
+                "{\"id\":\"u0001\",\"translation\":\"第一\"}",
+                "{\"id\":\"u0002\",\"translation\":\"第二\"}"));
+        using var service = CreateService(handler);
+
+        var result = await service.TranslateScreenshotBatchStreamingAsync(
+            Units(),
+            "简体中文",
+            _ => { });
+
+        Assert.Equal(new[] { "u0001", "u0002" }, result.Select(unit => unit.UnitId));
+    }
+
     private static OpenAITranslationService CreateService(HttpMessageHandler handler) =>
         new(
             new AppSettings
@@ -201,5 +218,15 @@ public sealed class OpenAIScreenshotBatchTranslationTests
                 choices = new[] { new { delta = new { content = fragment } } }
             }));
         return string.Join("\n", lines.Append("data: [DONE]")) + "\n\n";
+    }
+
+    private static string SseWithoutDone(params string[] fragments)
+    {
+        var lines = fragments.Select(fragment =>
+            "data: " + JsonSerializer.Serialize(new
+            {
+                choices = new[] { new { delta = new { content = fragment } } }
+            }));
+        return string.Join("\n", lines) + "\n\n";
     }
 }

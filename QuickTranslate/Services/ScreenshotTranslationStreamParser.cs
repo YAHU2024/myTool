@@ -32,6 +32,10 @@ public sealed class ScreenshotTranslationStreamParser
 
     public string FailureReason => _reason;
 
+    public int CompletedCount => _translated.Count;
+
+    public bool IsComplete => !_invalid && _seenIds.Count == _expectedIds.Count;
+
     public IReadOnlyList<TranslatedTextUnit> Append(string? content)
     {
         if (_invalid || string.IsNullOrEmpty(content))

@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -607,6 +608,7 @@ public partial class App : Application
         double? firstTranslationPresentedMs = null;
         string? selectedOcrEngine = null;
         string? failureType = null;
+        ScreenshotTranslationFailureKind? failureKind = null;
 
         // Let the hidden overlay leave the compositor before copying screen pixels.
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
@@ -684,6 +686,12 @@ public partial class App : Application
                         return;
 
                     _screenshotOverlayWindow = overlay;
+                    overlay.RetryRequested += missing =>
+                        _ = RetryMissingScreenshotTranslationsAsync(
+                            overlay,
+                            missing,
+                            translationService,
+                            settings);
                     overlay.Closed += (_, _) =>
                     {
                         if (ReferenceEquals(_screenshotOverlayWindow, overlay))
@@ -747,6 +755,11 @@ public partial class App : Application
                 async (units, token) =>
                 {
                     stage = "translation";
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        if (_screenshotProgressWindow is { } progress)
+                            progress.SetStatus($"正在翻译 {units.Count} 个文本单元…");
+                    }, DispatcherPriority.Background);
                     if (translationService is IScreenshotBatchStreamingTranslationService streamingBatchTranslationService)
                     {
                         translationStreamingUsed = true;
@@ -869,6 +882,7 @@ public partial class App : Application
         {
             pipelineStatus = "cancelled";
             failureType = nameof(OperationCanceledException);
+            failureKind = ScreenshotTranslationFailureKind.Cancelled;
             if (_screenshotOverlayWindow is { IsVisible: true } partial &&
                 partial.CompletedCount > 0 && partial.CompletedCount < partial.ExpectedCount)
             {
@@ -883,22 +897,43 @@ public partial class App : Application
         {
             pipelineStatus = "failed";
             failureType = ex.GetType().Name;
+            failureKind = ScreenshotTranslationFailureClassifier.Classify(
+                ex,
+                stage,
+                cancellationToken.IsCancellationRequested);
+            var completedUnitCount = _screenshotOverlayWindow?.CompletedCount ?? 0;
             if (_screenshotOverlayWindow is { IsVisible: true } partial &&
                 partial.CompletedCount > 0 && partial.CompletedCount < partial.ExpectedCount)
             {
-                partial.MarkPartial($"已显示 {partial.CompletedCount}/{partial.ExpectedCount} 个译文（部分完成）");
+                partial.MarkPartial(
+                    $"已显示 {partial.CompletedCount}/{partial.ExpectedCount} 个译文（{DescribeScreenshotFailure(failureKind.Value)}）",
+                    canRetry: true);
+            }
+            else if (_screenshotOverlayWindow is { IsVisible: false } pendingOverlay &&
+                     completedUnitCount == 0)
+            {
+                if (ReferenceEquals(_screenshotOverlayWindow, pendingOverlay))
+                    _screenshotOverlayWindow = null;
+                pendingOverlay.Close();
             }
             Logger.Warn("Screenshot", "screenshot.capture_failed", new
             {
                 exception_type = ex.GetType().Name,
+                inner_exception_type = ex.InnerException?.GetType().Name,
+                hresult = ex.HResult,
+                http_status_code = ex is HttpRequestException { StatusCode: { } statusCode }
+                    ? (int?)statusCode
+                    : null,
+                failure_stage = stage,
+                failure_kind = failureKind.ToString(),
+                completed_unit_count = completedUnitCount,
+                expected_unit_count = _screenshotOverlayWindow?.ExpectedCount ?? overlayItemCount,
                 width = region.Width,
                 height = region.Height
             });
             _trayIcon?.ShowBalloonTip(
                 "截图翻译",
-                ex is OcrEngineUnavailableException
-                    ? "本机 OCR 引擎不可用，请安装对应语言包或配置本地 OCR 模型。"
-                    : "截图翻译失败，请缩小区域后重试。",
+                DescribeScreenshotFailure(failureKind.Value),
                 System.Windows.Forms.ToolTipIcon.Warning);
         }
         finally
@@ -909,6 +944,7 @@ public partial class App : Application
                 status = pipelineStatus,
                 terminal_stage = stage,
                 failure_type = failureType,
+                failure_kind = failureKind?.ToString(),
                 engine = selectedOcrEngine ?? "unknown",
                 capture_elapsed_ms = Math.Round(captureElapsed.TotalMilliseconds, 2),
                 ocr_elapsed_ms = Math.Round(pipelineTimings.OcrElapsed.TotalMilliseconds, 2),
@@ -949,6 +985,126 @@ public partial class App : Application
             .Select(static block => block.Confidence!.Value)
             .ToArray();
         return values.Length == 0 ? null : values.Average();
+    }
+
+    private static string DescribeScreenshotFailure(ScreenshotTranslationFailureKind kind) => kind switch
+    {
+        ScreenshotTranslationFailureKind.ResourceLimit => "截图区域过大，请缩小后重试。",
+        ScreenshotTranslationFailureKind.CaptureFailed => "截图捕获失败，请重试。",
+        ScreenshotTranslationFailureKind.OcrUnavailable => "本机 OCR 不可用，请安装对应语言包或配置本地 OCR 模型。",
+        ScreenshotTranslationFailureKind.OcrFailed => "本地文字识别失败，请重试。",
+        ScreenshotTranslationFailureKind.ProviderUnauthorized => "翻译服务拒绝请求，请检查 API Key 和权限。",
+        ScreenshotTranslationFailureKind.ProviderQuota => "翻译服务额度或频率受限，请稍后重试。",
+        ScreenshotTranslationFailureKind.ProviderServer => "翻译服务暂时不可用，请稍后重试。",
+        ScreenshotTranslationFailureKind.ProviderTimeout => "翻译服务响应超时，请稍后重试。",
+        ScreenshotTranslationFailureKind.ProviderTransport => "翻译服务连接失败，请检查网络或 API 配置。",
+        ScreenshotTranslationFailureKind.ProviderFormat => "翻译服务返回格式异常，请稍后重试。",
+        ScreenshotTranslationFailureKind.Cancelled => "截图翻译已取消。",
+        _ => "截图翻译失败，请重试。"
+    };
+
+    private async Task RetryMissingScreenshotTranslationsAsync(
+        ScreenshotTranslationOverlayWindow overlay,
+        IReadOnlyList<ScreenshotTranslationUnit> missing,
+        OpenAITranslationService translationService,
+        AppSettings settings)
+    {
+        if (missing.Count == 0 || _isExiting || !ReferenceEquals(_screenshotOverlayWindow, overlay))
+            return;
+
+        using var retryCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        _screenshotTranslationCts = retryCts;
+        var token = retryCts.Token;
+        overlay.Closed += CancelRetry;
+        overlay.MarkPartial($"正在重试未完成项（{missing.Count} 个）…", canRetry: false);
+        try
+        {
+            Action<TranslatedTextUnit> publish = translated =>
+            {
+                void Apply()
+                {
+                    if (_isExiting || token.IsCancellationRequested ||
+                        !ReferenceEquals(_screenshotTranslationCts, retryCts) ||
+                        !ReferenceEquals(_screenshotOverlayWindow, overlay) ||
+                        !overlay.IsVisible)
+                        return;
+                    overlay.TryUpdateTranslation(translated);
+                }
+
+                if (Dispatcher.CheckAccess())
+                    Apply();
+                else
+                    Dispatcher.Invoke(Apply, DispatcherPriority.Background);
+            };
+
+            if (translationService is IScreenshotBatchStreamingTranslationService streaming)
+            {
+                await streaming.TranslateScreenshotBatchStreamingAsync(
+                    missing,
+                    settings.TargetLanguage,
+                    publish,
+                    token).ConfigureAwait(false);
+            }
+            else if (translationService is IScreenshotBatchTranslationService batch)
+            {
+                var translated = await batch
+                    .TranslateScreenshotBatchAsync(missing, settings.TargetLanguage, token)
+                    .ConfigureAwait(false);
+                foreach (var unit in translated)
+                    publish(unit);
+            }
+            else
+            {
+                foreach (var unit in missing)
+                {
+                    var text = await translationService.TranslateToRequestedTargetAsync(
+                        unit.SourceText,
+                        settings.TargetLanguage,
+                        ContentType.Translation,
+                        token).ConfigureAwait(false);
+                    publish(new TranslatedTextUnit(unit.UnitId, text));
+                }
+            }
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+                {
+                    if (overlay.CompletedCount >= overlay.ExpectedCount)
+                        overlay.ClearPartial();
+                    else
+                        overlay.MarkPartial(
+                            $"已显示 {overlay.CompletedCount}/{overlay.ExpectedCount} 个译文（仍有缺失）",
+                            canRetry: true);
+                }
+            }, DispatcherPriority.ApplicationIdle);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!token.IsCancellationRequested)
+                return;
+            if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+                overlay.MarkPartial("重试已取消。", canRetry: true);
+        }
+        catch (Exception ex)
+        {
+            var kind = ScreenshotTranslationFailureClassifier.Classify(
+                ex,
+                "translation",
+                token.IsCancellationRequested);
+            if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+                overlay.MarkPartial(
+                    $"已显示 {overlay.CompletedCount}/{overlay.ExpectedCount} 个译文（{DescribeScreenshotFailure(kind)}）",
+                    canRetry: true);
+        }
+        finally
+        {
+            overlay.Closed -= CancelRetry;
+            if (ReferenceEquals(_screenshotTranslationCts, retryCts))
+                _screenshotTranslationCts = null;
+        }
+
+        void CancelRetry(object? sender, EventArgs args) => retryCts.Cancel();
     }
 
     private void RestoreScreenshotUi(ScreenshotUiState restoreState)

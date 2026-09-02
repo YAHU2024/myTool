@@ -328,6 +328,7 @@ QuickTranslate/
 │   ├── IScreenshotBatchTranslationService.cs           # 截图结构化批量翻译接口
 │   ├── IScreenshotBatchStreamingTranslationService.cs  # 截图单元完成级流式翻译接口
 │   ├── ScreenshotTranslationStreamParser.cs            # 截图结构化流式响应解析与 ID 校验
+│   ├── ScreenshotTranslationFailure.cs                 # 截图翻译失败分类与超时契约
 │   ├── IScreenshotCaptureService.cs                    # 截图捕获接口
 │   ├── GdiScreenshotCaptureService.cs                  # GDI 物理像素截图捕获
 │   ├── WindowsMediaOcrService.cs                       # Windows 内置 OCR 适配器

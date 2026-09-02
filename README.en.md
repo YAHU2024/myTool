@@ -329,6 +329,7 @@ QuickTranslate/
 │   ├── IScreenshotBatchTranslationService.cs           # Screenshot structured batch translation interface
 │   ├── IScreenshotBatchStreamingTranslationService.cs  # Screenshot unit-completion streaming interface
 │   ├── ScreenshotTranslationStreamParser.cs            # Screenshot structured stream parser and ID validation
+│   ├── ScreenshotTranslationFailure.cs                 # Screenshot failure classification and timeout contract
 │   ├── IScreenshotCaptureService.cs                    # Screenshot capture interface
 │   ├── GdiScreenshotCaptureService.cs                  # GDI physical-pixel screenshot capture
 │   ├── WindowsMediaOcrService.cs                       # Windows built-in OCR adapter

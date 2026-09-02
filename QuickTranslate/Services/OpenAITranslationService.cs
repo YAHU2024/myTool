@@ -19,6 +19,9 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
     internal const int MaxFollowUpQuestionRunes = AnalysisConversationFormatter.MaxQuestionRunes;
     internal const int MaxFollowUpContextCharacters = 60000;
     internal const double StalledChunkGapThresholdMs = 250;
+    internal static readonly TimeSpan ScreenshotFirstChunkTimeout = TimeSpan.FromSeconds(15);
+    internal static readonly TimeSpan ScreenshotIdleChunkTimeout = TimeSpan.FromSeconds(25);
+    internal static readonly TimeSpan ScreenshotOverallTimeout = TimeSpan.FromSeconds(55);
 
     private readonly HttpClient _httpClient;
     private AppSettings _settings;
@@ -576,6 +579,8 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
         });
         var parser = new ScreenshotTranslationStreamParser(units.Select(static unit => unit.UnitId));
         ChatStreamingResult execution;
+        using var overallTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        overallTimeout.CancelAfter(ScreenshotOverallTimeout);
         try
         {
             execution = await ExecuteChatStreamingAsync(
@@ -599,7 +604,28 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
                     foreach (var translated in parser.Append(streamEvent.Text))
                         onUnitCompleted(translated);
                 },
-                cancellationToken).ConfigureAwait(false);
+                overallTimeout.Token,
+                ScreenshotFirstChunkTimeout,
+                ScreenshotIdleChunkTimeout).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (
+            !cancellationToken.IsCancellationRequested && overallTimeout.IsCancellationRequested)
+        {
+            if (parser.IsComplete)
+                return parser.Complete(units).MappedUnits;
+            throw new ScreenshotTranslationTimeoutException(ScreenshotTranslationTimeoutKind.Overall);
+        }
+        catch (ScreenshotTranslationTimeoutException) when (parser.IsComplete)
+        {
+            // All expected units are already complete; a missing terminal
+            // marker or post-content idle timeout does not invalidate them.
+            return parser.Complete(units).MappedUnits;
+        }
+        catch (HttpRequestException) when (parser.IsComplete)
+        {
+            // Some compatible providers close the connection immediately after
+            // the final unit without sending [DONE]. Content completeness wins.
+            return parser.Complete(units).MappedUnits;
         }
         catch (KeyNotFoundException ex)
         {
@@ -781,7 +807,9 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
         Dictionary<string, object> requestBody,
         string operation,
         Action<TranslationStreamEvent> onEvent,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? firstChunkTimeout = null,
+        TimeSpan? idleChunkTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(onEvent);
         var streamStartedAt = Stopwatch.GetTimestamp();
@@ -813,7 +841,28 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            string? line;
+            if (firstChunkTimeout is null && idleChunkTimeout is null)
+            {
+                line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                var timeout = chunkCount == 0 ? firstChunkTimeout!.Value : idleChunkTimeout!.Value;
+                using var readTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                readTimeout.CancelAfter(timeout);
+                try
+                {
+                    line = await reader.ReadLineAsync(readTimeout.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    throw new ScreenshotTranslationTimeoutException(
+                        chunkCount == 0
+                            ? ScreenshotTranslationTimeoutKind.FirstChunk
+                            : ScreenshotTranslationTimeoutKind.Idle);
+                }
+            }
             if (line == null)
                 break;
             if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data: ", StringComparison.Ordinal))

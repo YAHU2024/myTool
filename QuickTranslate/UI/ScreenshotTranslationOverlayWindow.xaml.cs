@@ -22,6 +22,7 @@ public partial class ScreenshotTranslationOverlayWindow : Window
     private readonly Point _dpiScale;
     private readonly OverlayLayoutEngine _layoutEngine = new();
     private readonly Dictionary<string, Border> _cards = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ScreenshotTranslationUnit> _unitsById = new(StringComparer.Ordinal);
     private readonly HashSet<string> _completedUnitIds = new(StringComparer.Ordinal);
     private readonly bool _incremental;
 
@@ -35,6 +36,8 @@ public partial class ScreenshotTranslationOverlayWindow : Window
         item.Status != ScreenshotOverlayLayoutStatus.Skipped);
 
     public int CompletedCount => _completedUnitIds.Count;
+
+    public event Action<IReadOnlyList<ScreenshotTranslationUnit>>? RetryRequested;
 
     public ScreenshotTranslationOverlayWindow(
         ScreenshotRegion region,
@@ -81,6 +84,8 @@ public partial class ScreenshotTranslationOverlayWindow : Window
             unit.Blocks.Count == 1 ? unit.Blocks[0].Polygon : null,
             unit.UnitId,
             AverageConfidence(unit.Blocks))).ToArray();
+        foreach (var unit in units)
+            _unitsById[unit.UnitId] = unit;
         LayoutResult = BuildOverlay(seeds, image.PixelWidth, image.PixelHeight, pending: true);
     }
 
@@ -220,12 +225,38 @@ public partial class ScreenshotTranslationOverlayWindow : Window
         return true;
     }
 
-    public void MarkPartial(string message)
+    public void MarkPartial(string message, bool canRetry = false)
     {
         if (string.IsNullOrWhiteSpace(message))
             return;
         StatusText.Text = message.Trim();
         StatusText.Visibility = Visibility.Visible;
+        RetryButton.Visibility = canRetry && GetMissingUnits().Count > 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    public IReadOnlyList<ScreenshotTranslationUnit> GetMissingUnits() =>
+        _unitsById.Values
+            .Where(unit => !_completedUnitIds.Contains(unit.UnitId))
+            .ToArray();
+
+    public void ClearPartial()
+    {
+        StatusText.ClearValue(TextBlock.TextProperty);
+        StatusText.Visibility = Visibility.Collapsed;
+        RetryButton.Visibility = Visibility.Collapsed;
+    }
+
+    private void RetryButton_Click(object sender, RoutedEventArgs e)
+    {
+        RetryRequested?.Invoke(GetMissingUnits());
+        e.Handled = true;
+    }
+
+    private void RetryButton_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
     }
 
     private static double? AverageConfidence(IReadOnlyList<OcrTextBlock> blocks)

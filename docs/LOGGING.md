@@ -449,6 +449,7 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 | screenshot.overlay_presented | Info | unit_id, completed_count, unit_count, placed_count, degraded_count, skipped_count, engine |
 | screenshot_batch_stream.started | Info | unit_count, text_len, requested_target_language |
 | screenshot_batch_stream.completed | Info | unit_count, mapped_count, duration_ms, stream_chunk_count, first_chunk_ms |
+| screenshot.capture_failed | Warn | exception_type, inner_exception_type, hresult, http_status_code, failure_stage, failure_kind, completed_unit_count, expected_unit_count, width, height |
 
 截图翻译的结构化流式日志只记录单元计数、阶段耗时、稳定 `UnitId` 和回退状态，不记录 OCR
 文本、译文、图片、Prompt 或 SSE 正文。`translation_streaming_fallback` 仅表示结构化流格式

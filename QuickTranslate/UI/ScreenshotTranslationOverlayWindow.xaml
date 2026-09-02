@@ -20,12 +20,21 @@
                 Padding="8,4"
                 Background="#D9B45309"
                 CornerRadius="3"
-                IsHitTestVisible="False"
+                IsHitTestVisible="True"
                 Visibility="Collapsed">
-            <TextBlock x:Name="StatusText"
-                       Foreground="White"
-                       FontSize="12"
-                       FontFamily="Microsoft YaHei UI" />
+            <StackPanel Orientation="Horizontal">
+                <TextBlock x:Name="StatusText"
+                           Foreground="White"
+                           FontSize="12"
+                           FontFamily="Microsoft YaHei UI" />
+                <Button x:Name="RetryButton"
+                        Content="重试未完成项"
+                        Margin="8,0,0,0"
+                Padding="6,2"
+                Visibility="Collapsed"
+                PreviewMouseLeftButtonDown="RetryButton_PreviewMouseLeftButtonDown"
+                Click="RetryButton_Click" />
+            </StackPanel>
         </Border>
         <Border HorizontalAlignment="Right"
                 VerticalAlignment="Top"
