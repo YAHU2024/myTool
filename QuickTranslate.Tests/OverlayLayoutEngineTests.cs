@@ -196,6 +196,72 @@ public sealed class OverlayLayoutEngineTests
         Assert.True(result.Items[0].MeasuredTextHeight <= result.Items[0].LayoutBounds.Height + 0.01);
     }
 
+    [Fact]
+    public void TryFitFontSize_ReturnsFalseWhenMinimumStillDoesNotFit()
+    {
+        var engine = new OverlayLayoutEngine(new ScreenshotOverlayLayoutOptions(
+            MinFontSize: 10,
+            MaxFontSize: 10,
+            PreferredFontSizeRatio: 1),
+            (_, _, _) => new OverlayTextMeasurement(200, 200, 20));
+
+        var fitted = engine.TryFitFontSize(
+            "long translation",
+            new OcrBounds(0, 0, 40, 20),
+            10,
+            out _);
+
+        Assert.False(fitted);
+    }
+
+    [Fact]
+    public void Layout_CustomMeasurementFailureSkipsInsteadOfShowingTruncatedText()
+    {
+        var engine = new OverlayLayoutEngine(
+            measure: (_, _, _) => new OverlayTextMeasurement(500, 500, 50));
+
+        var item = Assert.Single(engine.Layout(
+            100,
+            80,
+            new[] { Item("u1", new OcrBounds(10, 10, 20, 20), "translation") }).Items);
+
+        Assert.Equal(ScreenshotOverlayLayoutStatus.Skipped, item.Status);
+        Assert.Equal("text_does_not_fit_within_image", item.DegradationReason);
+    }
+
+    [Fact]
+    public void LayoutIncremental_UsesCompletedCardsAsCollisionBoundaries()
+    {
+        var engine = new OverlayLayoutEngine();
+
+        var item = engine.LayoutIncremental(
+            200,
+            100,
+            Item("u2", new OcrBounds(20, 10, 60, 24), "second"),
+            new[] { new OcrBounds(20, 10, 60, 24) });
+
+        Assert.NotEqual(ScreenshotOverlayLayoutStatus.Skipped, item.Status);
+        Assert.False(item.LayoutBounds == new OcrBounds(20, 10, 60, 24));
+        Assert.True(item.IsTextFullyContained);
+    }
+
+    [Fact]
+    public void LayoutIncremental_UsesFinalTranslationForSizing()
+    {
+        var engine = new OverlayLayoutEngine();
+        var sourceBounds = new OcrBounds(10, 10, 24, 20);
+        var item = engine.LayoutIncremental(
+            240,
+            120,
+            Item("u1", sourceBounds,
+                "这是远长于 OCR 原文的最终译文，必须按译文重新计算可用区域和字号"),
+            Array.Empty<OcrBounds>());
+
+        Assert.NotEqual(ScreenshotOverlayLayoutStatus.Skipped, item.Status);
+        Assert.True(item.IsTextFullyContained);
+        Assert.True(item.LayoutBounds.Width > sourceBounds.Width || item.LayoutBounds.Height > sourceBounds.Height);
+    }
+
     private static ScreenshotOverlayLayoutResult Layout(int width, int height, params ScreenshotOverlayItem[] items) =>
         new OverlayLayoutEngine().Layout(width, height, items);
 

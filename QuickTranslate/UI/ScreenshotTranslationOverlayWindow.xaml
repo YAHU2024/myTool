@@ -9,9 +9,11 @@
         AllowsTransparency="True"
         Background="Transparent"
         Focusable="True"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         PreviewKeyDown="Window_PreviewKeyDown"
         MouseLeftButtonDown="Window_MouseLeftButtonDown">
-    <Grid x:Name="RootGrid" ClipToBounds="True">
+    <Grid x:Name="RootGrid" ClipToBounds="True" UseLayoutRounding="True" SnapsToDevicePixels="True">
         <Image x:Name="ScreenshotImage" Stretch="Fill" SnapsToDevicePixels="True" />
         <Canvas x:Name="OverlayCanvas" IsHitTestVisible="False" />
         <Border HorizontalAlignment="Left"

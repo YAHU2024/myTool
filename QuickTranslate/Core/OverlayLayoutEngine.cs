@@ -9,11 +9,15 @@ namespace QuickTranslate.Core;
 public sealed class OverlayLayoutEngine
 {
     private readonly ScreenshotOverlayLayoutOptions _options;
+    private readonly Func<string, double, int, OverlayTextMeasurement> _measure;
 
-    public OverlayLayoutEngine(ScreenshotOverlayLayoutOptions? options = null)
+    public OverlayLayoutEngine(
+        ScreenshotOverlayLayoutOptions? options = null,
+        Func<string, double, int, OverlayTextMeasurement>? measure = null)
     {
         _options = options ?? new ScreenshotOverlayLayoutOptions();
         _options.Validate();
+        _measure = measure ?? MeasureApproximate;
     }
 
     public ScreenshotOverlayLayoutResult Layout(
@@ -46,25 +50,64 @@ public sealed class OverlayLayoutEngine
     }
 
     /// <summary>
+    /// 使用已有卡片作为占用区域，为一个新译文计算局部布局。
+    /// </summary>
+    public ScreenshotOverlayLayout LayoutIncremental(
+        int pixelWidth,
+        int pixelHeight,
+        ScreenshotOverlayItem item,
+        IReadOnlyList<OcrBounds> occupiedBounds)
+    {
+        ArgumentNullException.ThrowIfNull(occupiedBounds);
+        if (pixelWidth <= 0)
+            throw new ArgumentOutOfRangeException(nameof(pixelWidth));
+        if (pixelHeight <= 0)
+            throw new ArgumentOutOfRangeException(nameof(pixelHeight));
+
+        var placed = occupiedBounds
+            .Where(static bounds => bounds.IsValid)
+            .Select(static (bounds, index) => new PlacedRect(bounds, index))
+            .ToList();
+        return LayoutOne(new IndexedItem(item, 0), pixelWidth, pixelHeight, placed);
+    }
+
+    /// <summary>
     /// 在既定卡片范围内为新译文选择不超过首选字号的最大可用字号。
     /// 卡片位置和尺寸保持不变，供流式覆盖层替换文本时使用。
     /// </summary>
-    public double FitFontSize(string text, OcrBounds bounds, double preferredFontSize)
+    public bool TryFitFontSize(
+        string text,
+        OcrBounds bounds,
+        double preferredFontSize,
+        out double fontSize)
     {
         ArgumentNullException.ThrowIfNull(text);
+        fontSize = 0;
         if (!bounds.IsValid)
-            return _options.MinFontSize;
+            return false;
 
-        var fontSize = Math.Clamp(preferredFontSize, _options.MinFontSize, _options.MaxFontSize);
-        for (; ; fontSize -= _options.FontSizeStep)
+        var candidateFontSize = Math.Clamp(preferredFontSize, _options.MinFontSize, _options.MaxFontSize);
+        for (; ; candidateFontSize -= _options.FontSizeStep)
         {
-            var normalized = Math.Max(_options.MinFontSize, Math.Round(fontSize, 2));
-            if (Fits(Measure(text.Trim(), normalized, bounds.Width), bounds) ||
-                normalized <= _options.MinFontSize + 0.01)
+            var normalized = Math.Max(_options.MinFontSize, Math.Round(candidateFontSize, 2));
+            if (Fits(Measure(text.Trim(), normalized, bounds.Width), bounds))
             {
-                return normalized;
+                fontSize = normalized;
+                return true;
             }
+
+            if (normalized <= _options.MinFontSize + 0.01)
+                return false;
         }
+    }
+
+    /// <summary>
+    /// 使用当前布局测量器确认文本在指定范围内确实可容纳。
+    /// </summary>
+    public bool IsTextContained(string text, double fontSize, OcrBounds bounds)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        return bounds.IsValid && Fits(Measure(text.Trim(), fontSize, bounds.Width), bounds);
     }
 
     private ScreenshotOverlayLayout LayoutOne(
@@ -290,10 +333,16 @@ public sealed class OverlayLayoutEngine
                firstTop < secondBottom && firstBottom > secondTop;
     }
 
-    private bool Fits(TextMeasurement measured, OcrBounds bounds) =>
+    private bool Fits(OverlayTextMeasurement measured, OcrBounds bounds) =>
         measured.Width <= bounds.Width + 0.01 && measured.Height <= bounds.Height + 0.01;
 
-    private TextMeasurement Measure(string text, double fontSize, int candidateWidth)
+    private OverlayTextMeasurement Measure(string text, double fontSize, int candidateWidth) =>
+        _measure(text, fontSize, candidateWidth);
+
+    private OverlayTextMeasurement MeasureApproximate(
+        string text,
+        double fontSize,
+        int candidateWidth)
     {
         var contentWidth = Math.Max(1, candidateWidth - _options.HorizontalPadding);
         var lineHeight = fontSize * _options.LineHeightRatio;
@@ -321,7 +370,7 @@ public sealed class OverlayLayoutEngine
         }
 
         lines = Math.Max(lines, 1);
-        return new TextMeasurement(
+        return new OverlayTextMeasurement(
             widest + _options.HorizontalPadding,
             lines * lineHeight + _options.VerticalPadding,
             lines);
@@ -366,5 +415,10 @@ public sealed class OverlayLayoutEngine
 
     private readonly record struct PlacedRect(OcrBounds Bounds, int Index);
 
-    private readonly record struct TextMeasurement(double Width, double Height, int LineCount);
 }
+
+/// <summary>覆盖层文本测量结果，宽高均以物理像素表达。</summary>
+public readonly record struct OverlayTextMeasurement(
+    double Width,
+    double Height,
+    int LineCount);

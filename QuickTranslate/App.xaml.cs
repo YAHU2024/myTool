@@ -727,6 +727,11 @@ public partial class App : Application
                     if (!overlay.TryUpdateTranslation(translated))
                         return;
 
+                    overlayItemCount = overlay.LayoutResult.Items.Count;
+                    overlayPlacedCount = overlay.LayoutResult.PlacedCount;
+                    overlayDegradedCount = overlay.LayoutResult.DegradedCount;
+                    overlaySkippedCount = overlay.LayoutResult.SkippedCount;
+
                     if (!overlay.IsVisible)
                     {
                         overlay.ShowOverlay();
