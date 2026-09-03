@@ -1,4 +1,6 @@
 using System.Windows.Threading;
+using System.Windows;
+using System.Windows.Controls;
 using QuickTranslate.Core;
 using QuickTranslate.Models;
 using QuickTranslate.Services;
@@ -42,6 +44,54 @@ public sealed class ScreenshotTranslationOverlayWindowTests
                 var layout = Assert.Single(window.LayoutResult.Items);
                 Assert.NotEqual(ScreenshotOverlayLayoutStatus.Skipped, layout.Status);
                 Assert.True(layout.IsTextFullyContained);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+            finally
+            {
+                window?.Close();
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(5)));
+        Assert.Null(failure);
+    }
+
+    [SkippableFact]
+    public void MarkPartial_ShowsStatusBorderAndRetryButtonOnlyWhenUnitsAreMissing()
+    {
+        Skip.If(IsRunningOnCI, "WPF window tests require a real message pump, unavailable on headless CI.");
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            ScreenshotTranslationOverlayWindow? window = null;
+            try
+            {
+                var unit = new ScreenshotTranslationUnit(
+                    "u0001",
+                    "text",
+                    Array.Empty<OcrTextBlock>(),
+                    new OcrBounds(20, 20, 80, 20));
+                window = new ScreenshotTranslationOverlayWindow(
+                    new ScreenshotRegion(0, 0, 400, 300),
+                    new OcrImage(400, 300, 1_600, new byte[480_000]),
+                    new[] { unit });
+
+                var statusBorder = Assert.IsType<Border>(window.FindName("StatusBorder"));
+                var retryButton = Assert.IsType<Button>(window.FindName("RetryButton"));
+                Assert.Equal(Visibility.Collapsed, statusBorder.Visibility);
+
+                window.MarkPartial("连接中断", canRetry: true);
+
+                Assert.Equal(Visibility.Visible, statusBorder.Visibility);
+                Assert.Equal(Visibility.Visible, retryButton.Visibility);
+                window.ClearPartial();
+                Assert.Equal(Visibility.Collapsed, statusBorder.Visibility);
+                Assert.Equal(Visibility.Collapsed, retryButton.Visibility);
             }
             catch (Exception ex)
             {

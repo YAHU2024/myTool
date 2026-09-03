@@ -20,6 +20,7 @@ public sealed class ScreenshotTranslationFailureTests
     [Theory]
     [InlineData(HttpStatusCode.Unauthorized, ScreenshotTranslationFailureKind.ProviderUnauthorized)]
     [InlineData(HttpStatusCode.TooManyRequests, ScreenshotTranslationFailureKind.ProviderQuota)]
+    [InlineData(HttpStatusCode.RequestTimeout, ScreenshotTranslationFailureKind.ProviderTimeout)]
     [InlineData(HttpStatusCode.BadGateway, ScreenshotTranslationFailureKind.ProviderServer)]
     public void Classify_HttpStatus_UsesActionableProviderKind(
         HttpStatusCode statusCode,
@@ -48,6 +49,18 @@ public sealed class ScreenshotTranslationFailureTests
                 new OperationCanceledException(),
                 "translation",
                 cancellationRequested: true));
+        Assert.Equal(
+            ScreenshotTranslationFailureKind.ProviderTransport,
+            ScreenshotTranslationFailureClassifier.Classify(
+                new OperationCanceledException(),
+                "translation",
+                cancellationRequested: false));
+        Assert.Equal(
+            ScreenshotTranslationFailureKind.ProviderTimeout,
+            ScreenshotTranslationFailureClassifier.Classify(
+                new ScreenshotTranslationTimeoutException(ScreenshotTranslationTimeoutKind.Connect),
+                "translation",
+                cancellationRequested: false));
     }
 
     [Fact]
@@ -67,6 +80,17 @@ public sealed class ScreenshotTranslationFailureTests
         var kind = ScreenshotTranslationFailureClassifier.Classify(
             new ArgumentException("截图区域超过允许的像素总数。"),
             "capture",
+            cancellationRequested: false);
+
+        Assert.Equal(ScreenshotTranslationFailureKind.ResourceLimit, kind);
+    }
+
+    [Fact]
+    public void Classify_TranslationRequestLengthFailure_IsResourceLimit()
+    {
+        var kind = ScreenshotTranslationFailureClassifier.Classify(
+            new InvalidOperationException("截图批量请求内容过长，最多支持 20000 个字符"),
+            "translation",
             cancellationRequested: false);
 
         Assert.Equal(ScreenshotTranslationFailureKind.ResourceLimit, kind);

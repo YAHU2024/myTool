@@ -1,5 +1,8 @@
+using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
+using System.Security.Authentication;
 
 namespace QuickTranslate.Services;
 
@@ -21,6 +24,7 @@ public enum ScreenshotTranslationFailureKind
 
 public enum ScreenshotTranslationTimeoutKind
 {
+    Connect,
     FirstChunk,
     Idle,
     Overall
@@ -46,10 +50,21 @@ public static class ScreenshotTranslationFailureClassifier
         bool cancellationRequested)
     {
         ArgumentNullException.ThrowIfNull(exception);
-        if (cancellationRequested || exception is OperationCanceledException)
-            return ScreenshotTranslationFailureKind.Cancelled;
         if (exception is ScreenshotTranslationTimeoutException)
             return ScreenshotTranslationFailureKind.ProviderTimeout;
+        if (cancellationRequested)
+            return ScreenshotTranslationFailureKind.Cancelled;
+        if (exception is OperationCanceledException)
+        {
+            // An OperationCanceledException without the request token being
+            // cancelled is a provider/transport abort, not a user action.
+            return stage.ToLowerInvariant() switch
+            {
+                "capture" => ScreenshotTranslationFailureKind.CaptureFailed,
+                "ocr" => ScreenshotTranslationFailureKind.OcrFailed,
+                _ => ScreenshotTranslationFailureKind.ProviderTransport
+            };
+        }
         if (exception is OcrEngineUnavailableException)
             return ScreenshotTranslationFailureKind.OcrUnavailable;
         if (exception is OcrRecognitionException)
@@ -63,11 +78,25 @@ public static class ScreenshotTranslationFailureClassifier
             {
                 401 or 403 => ScreenshotTranslationFailureKind.ProviderUnauthorized,
                 429 => ScreenshotTranslationFailureKind.ProviderQuota,
+                408 => ScreenshotTranslationFailureKind.ProviderTimeout,
                 >= 500 and <= 599 => ScreenshotTranslationFailureKind.ProviderServer,
                 _ => ScreenshotTranslationFailureKind.ProviderTransport
             };
         }
-        if (exception is ArgumentException argument && IsResourceLimit(argument))
+        if (exception is IOException or SocketException or AuthenticationException)
+        {
+            return stage.ToLowerInvariant() switch
+            {
+                "capture" => ScreenshotTranslationFailureKind.CaptureFailed,
+                "ocr" => ScreenshotTranslationFailureKind.OcrFailed,
+                _ => ScreenshotTranslationFailureKind.ProviderTransport
+            };
+        }
+        if (exception is ArgumentException argument && IsResourceLimitMessage(argument.Message))
+            return ScreenshotTranslationFailureKind.ResourceLimit;
+        if (exception is InvalidOperationException invalidOperation &&
+            string.Equals(stage, "translation", StringComparison.OrdinalIgnoreCase) &&
+            IsRequestLimitMessage(invalidOperation.Message))
             return ScreenshotTranslationFailureKind.ResourceLimit;
         if (exception is ArgumentException &&
             string.Equals(stage, "ocr", StringComparison.OrdinalIgnoreCase))
@@ -77,15 +106,20 @@ public static class ScreenshotTranslationFailureClassifier
         return ScreenshotTranslationFailureKind.Unknown;
     }
 
-    private static bool IsResourceLimit(ArgumentException exception)
+    private static bool IsResourceLimitMessage(string message)
     {
-        var message = exception.Message;
         return message.Contains("超过", StringComparison.Ordinal) ||
                message.Contains("像素", StringComparison.Ordinal) ||
                message.Contains("载荷", StringComparison.Ordinal) ||
                message.Contains("边长", StringComparison.Ordinal) ||
+               message.Contains("块数", StringComparison.Ordinal) ||
+               message.Contains("单元数", StringComparison.Ordinal) ||
                message.Contains("maximum", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("payload", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("pixel", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool IsRequestLimitMessage(string message) =>
+        message.Contains("内容过长", StringComparison.Ordinal) ||
+        message.Contains("最多支持", StringComparison.Ordinal);
 }

@@ -349,6 +349,7 @@ public partial class ScreenshotTranslationOverlayWindow : Window
     {
         if (string.IsNullOrWhiteSpace(message))
             return;
+        StatusBorder.Visibility = Visibility.Visible;
         StatusText.Text = message.Trim();
         StatusText.Visibility = Visibility.Visible;
         RetryButton.Visibility = canRetry && GetMissingUnits().Count > 0
@@ -366,16 +367,12 @@ public partial class ScreenshotTranslationOverlayWindow : Window
         StatusText.ClearValue(TextBlock.TextProperty);
         StatusText.Visibility = Visibility.Collapsed;
         RetryButton.Visibility = Visibility.Collapsed;
+        StatusBorder.Visibility = Visibility.Collapsed;
     }
 
     private void RetryButton_Click(object sender, RoutedEventArgs e)
     {
         RetryRequested?.Invoke(GetMissingUnits());
-        e.Handled = true;
-    }
-
-    private void RetryButton_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
         e.Handled = true;
     }
 
@@ -398,7 +395,25 @@ public partial class ScreenshotTranslationOverlayWindow : Window
 
     private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (e.OriginalSource is DependencyObject source &&
+            FindAncestor<Button>(source) is not null)
+        {
+            return;
+        }
         Close();
         e.Handled = true;
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? source)
+        where T : DependencyObject
+    {
+        while (source is not null)
+        {
+            if (source is T match)
+                return match;
+            source = VisualTreeHelper.GetParent(source);
+        }
+
+        return null;
     }
 }

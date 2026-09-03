@@ -615,7 +615,11 @@ public partial class App : Application
         if (_isExiting || _screenshotTranslationCts is not null)
             return;
 
-        using var translationCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        using var userCancellation = new CancellationTokenSource();
+        using var pipelineDeadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        using var translationCts = CancellationTokenSource.CreateLinkedTokenSource(
+            userCancellation.Token,
+            pipelineDeadline.Token);
         _screenshotTranslationCts = translationCts;
         var cancellationToken = translationCts.Token;
         try
@@ -643,7 +647,7 @@ public partial class App : Application
                     return;
                 var progress = new ScreenshotTranslationProgressWindow(region);
                 _screenshotProgressWindow = progress;
-                progress.CancelRequested += () => _screenshotTranslationCts?.Cancel();
+                progress.CancelRequested += () => userCancellation.Cancel();
                 progress.ShowProgress();
             }, DispatcherPriority.ApplicationIdle);
             var ocrService = _screenshotOcrService;
@@ -824,11 +828,21 @@ public partial class App : Application
                         try
                         {
                             Interlocked.Increment(ref translationRequestCount);
-                            var translation = await translationService.TranslateToRequestedTargetAsync(
-                                unit.SourceText,
-                                settings.TargetLanguage,
-                                ContentType.Translation,
-                                token).ConfigureAwait(false);
+                            string translation;
+                            try
+                            {
+                                translation = await translationService.TranslateToRequestedTargetAsync(
+                                    unit.SourceText,
+                                    settings.TargetLanguage,
+                                    ContentType.Translation,
+                                    token).ConfigureAwait(false);
+                            }
+                            catch (FormatException ex) when (!token.IsCancellationRequested)
+                            {
+                                throw new ScreenshotTranslationBatchFormatException(
+                                    "invalid_provider_response",
+                                    ex);
+                            }
                             var translated = new TranslatedTextUnit(unit.UnitId, translation);
                             publishOverlayUnit(translated);
                             return translated;
@@ -883,7 +897,32 @@ public partial class App : Application
                 overlayLayoutElapsed = overlayWatch.Elapsed;
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (
+            pipelineDeadline.IsCancellationRequested && !userCancellation.IsCancellationRequested)
+        {
+            pipelineStatus = "failed";
+            failureType = nameof(ScreenshotTranslationTimeoutException);
+            failureKind = ScreenshotTranslationFailureKind.ProviderTimeout;
+            if (_screenshotOverlayWindow is { IsVisible: true } partial &&
+                partial.CompletedCount > 0 && partial.CompletedCount < partial.ExpectedCount)
+            {
+                partial.MarkPartial(
+                    $"已显示 {partial.CompletedCount}/{partial.ExpectedCount} 个译文（{DescribeScreenshotFailure(failureKind.Value)}）",
+                    canRetry: true);
+            }
+            else if (_screenshotOverlayWindow is { IsVisible: false } pendingOverlay &&
+                     pendingOverlay.CompletedCount == 0)
+            {
+                if (ReferenceEquals(_screenshotOverlayWindow, pendingOverlay))
+                    _screenshotOverlayWindow = null;
+                pendingOverlay.Close();
+            }
+            _trayIcon?.ShowBalloonTip(
+                "截图翻译",
+                DescribeScreenshotFailure(failureKind.Value),
+                System.Windows.Forms.ToolTipIcon.Warning);
+        }
+        catch (OperationCanceledException) when (userCancellation.IsCancellationRequested)
         {
             pipelineStatus = "cancelled";
             failureType = nameof(OperationCanceledException);
@@ -892,6 +931,13 @@ public partial class App : Application
                 partial.CompletedCount > 0 && partial.CompletedCount < partial.ExpectedCount)
             {
                 partial.MarkPartial($"已显示 {partial.CompletedCount}/{partial.ExpectedCount} 个译文（已取消）");
+            }
+            else if (_screenshotOverlayWindow is { IsVisible: false } pendingOverlay &&
+                     pendingOverlay.CompletedCount == 0)
+            {
+                if (ReferenceEquals(_screenshotOverlayWindow, pendingOverlay))
+                    _screenshotOverlayWindow = null;
+                pendingOverlay.Close();
             }
             _trayIcon?.ShowBalloonTip(
                 "截图翻译",
@@ -968,7 +1014,7 @@ public partial class App : Application
                 translation_streaming_fallback = translationStreamingFallback,
                 first_translation_presented_ms = firstTranslationPresentedMs,
                 translation_completed_unit_count = _screenshotOverlayWindow?.CompletedCount ?? 0,
-                cancelled = cancellationToken.IsCancellationRequested
+                cancelled = userCancellation.IsCancellationRequested
             });
             if (_screenshotProgressWindow is { } progress)
             {
@@ -977,7 +1023,8 @@ public partial class App : Application
             }
             if (ReferenceEquals(_screenshotWindow, window))
                 _screenshotWindow = null;
-            _screenshotTranslationCts = null;
+            if (ReferenceEquals(_screenshotTranslationCts, translationCts))
+                _screenshotTranslationCts = null;
             if (_screenshotOverlayWindow is null)
                 RestoreScreenshotUi(restoreState);
         }
@@ -1014,14 +1061,28 @@ public partial class App : Application
         OpenAITranslationService translationService,
         AppSettings settings)
     {
-        if (missing.Count == 0 || _isExiting || !ReferenceEquals(_screenshotOverlayWindow, overlay))
+        if (missing.Count == 0 || _isExiting || _screenshotTranslationCts is not null ||
+            !ReferenceEquals(_screenshotOverlayWindow, overlay))
             return;
 
-        using var retryCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        using var retryUserCancellation = new CancellationTokenSource();
+        using var retryDeadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        using var retryCts = CancellationTokenSource.CreateLinkedTokenSource(
+            retryUserCancellation.Token,
+            retryDeadline.Token);
         _screenshotTranslationCts = retryCts;
         var token = retryCts.Token;
+        var retryRequestCount = 0;
+        var pendingUnitIds = new HashSet<string>(
+            missing.Select(static unit => unit.UnitId),
+            StringComparer.Ordinal);
+        var pendingGate = new object();
         overlay.Closed += CancelRetry;
         overlay.MarkPartial($"正在重试未完成项（{missing.Count} 个）…", canRetry: false);
+        Logger.Info("Screenshot", "screenshot.retry_started", new
+        {
+            missing_unit_count = missing.Count
+        });
         try
         {
             Action<TranslatedTextUnit> publish = translated =>
@@ -1033,7 +1094,11 @@ public partial class App : Application
                         !ReferenceEquals(_screenshotOverlayWindow, overlay) ||
                         !overlay.IsVisible)
                         return;
-                    overlay.TryUpdateTranslation(translated);
+                    if (overlay.TryUpdateTranslation(translated))
+                    {
+                        lock (pendingGate)
+                            pendingUnitIds.Remove(translated.UnitId);
+                    }
                 }
 
                 if (Dispatcher.CheckAccess())
@@ -1044,30 +1109,97 @@ public partial class App : Application
 
             if (translationService is IScreenshotBatchStreamingTranslationService streaming)
             {
-                await streaming.TranslateScreenshotBatchStreamingAsync(
-                    missing,
-                    settings.TargetLanguage,
-                    publish,
-                    token).ConfigureAwait(false);
+                Interlocked.Increment(ref retryRequestCount);
+                try
+                {
+                    await streaming.TranslateScreenshotBatchStreamingAsync(
+                        GetPendingUnits(),
+                        settings.TargetLanguage,
+                        publish,
+                        token).ConfigureAwait(false);
+                }
+                catch (ScreenshotTranslationBatchFormatException) when (!token.IsCancellationRequested)
+                {
+                    if (translationService is not IScreenshotBatchTranslationService batchFallback)
+                        throw;
+                    var pendingForBatch = GetPendingUnits();
+                    if (pendingForBatch.Length > 0)
+                    {
+                        Interlocked.Increment(ref retryRequestCount);
+                        try
+                        {
+                            var translated = await batchFallback
+                                .TranslateScreenshotBatchAsync(pendingForBatch, settings.TargetLanguage, token)
+                                .ConfigureAwait(false);
+                            foreach (var unit in translated)
+                                publish(unit);
+                        }
+                        catch (ScreenshotTranslationBatchFormatException) when (!token.IsCancellationRequested)
+                        {
+                            await TranslateMissingIndividuallyAsync().ConfigureAwait(false);
+                        }
+                    }
+                }
             }
             else if (translationService is IScreenshotBatchTranslationService batch)
             {
-                var translated = await batch
-                    .TranslateScreenshotBatchAsync(missing, settings.TargetLanguage, token)
-                    .ConfigureAwait(false);
-                foreach (var unit in translated)
-                    publish(unit);
+                Interlocked.Increment(ref retryRequestCount);
+                try
+                {
+                    var translated = await batch
+                        .TranslateScreenshotBatchAsync(GetPendingUnits(), settings.TargetLanguage, token)
+                        .ConfigureAwait(false);
+                    foreach (var unit in translated)
+                        publish(unit);
+                }
+                catch (ScreenshotTranslationBatchFormatException) when (!token.IsCancellationRequested)
+                {
+                    await TranslateMissingIndividuallyAsync().ConfigureAwait(false);
+                }
             }
             else
             {
-                foreach (var unit in missing)
+                await TranslateMissingIndividuallyAsync().ConfigureAwait(false);
+            }
+
+            async Task TranslateMissingIndividuallyAsync()
+            {
+                ScreenshotTranslationUnit[] pending;
+                lock (pendingGate)
                 {
-                    var text = await translationService.TranslateToRequestedTargetAsync(
-                        unit.SourceText,
-                        settings.TargetLanguage,
-                        ContentType.Translation,
-                        token).ConfigureAwait(false);
+                    pending = missing
+                        .Where(unit => pendingUnitIds.Contains(unit.UnitId))
+                        .ToArray();
+                }
+                foreach (var unit in pending)
+                {
+                    Interlocked.Increment(ref retryRequestCount);
+                    string text;
+                    try
+                    {
+                        text = await translationService.TranslateToRequestedTargetAsync(
+                            unit.SourceText,
+                            settings.TargetLanguage,
+                            ContentType.Translation,
+                            token).ConfigureAwait(false);
+                    }
+                    catch (FormatException ex) when (!token.IsCancellationRequested)
+                    {
+                        throw new ScreenshotTranslationBatchFormatException(
+                            "invalid_provider_response",
+                            ex);
+                    }
                     publish(new TranslatedTextUnit(unit.UnitId, text));
+                }
+            }
+
+            ScreenshotTranslationUnit[] GetPendingUnits()
+            {
+                lock (pendingGate)
+                {
+                    return missing
+                        .Where(unit => pendingUnitIds.Contains(unit.UnitId))
+                        .ToArray();
                 }
             }
 
@@ -1083,13 +1215,46 @@ public partial class App : Application
                             canRetry: true);
                 }
             }, DispatcherPriority.ApplicationIdle);
+            Logger.Info("Screenshot", "screenshot.retry_completed", new
+            {
+                missing_unit_count = missing.Count,
+                request_count = Volatile.Read(ref retryRequestCount),
+                completed_unit_count = overlay.CompletedCount,
+                expected_unit_count = overlay.ExpectedCount
+            });
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (
+            retryDeadline.IsCancellationRequested && !retryUserCancellation.IsCancellationRequested)
         {
-            if (!token.IsCancellationRequested)
-                return;
             if (ReferenceEquals(_screenshotOverlayWindow, overlay))
-                overlay.MarkPartial("重试已取消。", canRetry: true);
+                overlay.MarkPartial(
+                    $"已显示 {overlay.CompletedCount}/{overlay.ExpectedCount} 个译文（{DescribeScreenshotFailure(ScreenshotTranslationFailureKind.ProviderTimeout)}）",
+                    canRetry: true);
+            Logger.Warn("Screenshot", "screenshot.retry_failed", new
+            {
+                request_count = Volatile.Read(ref retryRequestCount),
+                exception_type = nameof(ScreenshotTranslationTimeoutException),
+                failure_kind = ScreenshotTranslationFailureKind.ProviderTimeout.ToString()
+            });
+        }
+        catch (OperationCanceledException ex)
+        {
+            var kind = ScreenshotTranslationFailureClassifier.Classify(
+                ex,
+                "translation",
+                token.IsCancellationRequested);
+            if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+            {
+                overlay.MarkPartial(
+                    $"已显示 {overlay.CompletedCount}/{overlay.ExpectedCount} 个译文（{DescribeScreenshotFailure(kind)}）",
+                    canRetry: true);
+            }
+            Logger.Info("Screenshot", "screenshot.retry_cancelled", new
+            {
+                request_count = Volatile.Read(ref retryRequestCount),
+                exception_type = ex.GetType().Name,
+                failure_kind = kind.ToString()
+            });
         }
         catch (Exception ex)
         {
@@ -1101,6 +1266,12 @@ public partial class App : Application
                 overlay.MarkPartial(
                     $"已显示 {overlay.CompletedCount}/{overlay.ExpectedCount} 个译文（{DescribeScreenshotFailure(kind)}）",
                     canRetry: true);
+            Logger.Warn("Screenshot", "screenshot.retry_failed", new
+            {
+                request_count = Volatile.Read(ref retryRequestCount),
+                exception_type = ex.GetType().Name,
+                failure_kind = kind.ToString()
+            });
         }
         finally
         {
@@ -1109,7 +1280,7 @@ public partial class App : Application
                 _screenshotTranslationCts = null;
         }
 
-        void CancelRetry(object? sender, EventArgs args) => retryCts.Cancel();
+        void CancelRetry(object? sender, EventArgs args) => retryUserCancellation.Cancel();
     }
 
     private void RestoreScreenshotUi(ScreenshotUiState restoreState)

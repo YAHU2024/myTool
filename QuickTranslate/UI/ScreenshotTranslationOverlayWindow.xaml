@@ -16,7 +16,8 @@
     <Grid x:Name="RootGrid" ClipToBounds="True" UseLayoutRounding="True" SnapsToDevicePixels="True">
         <Image x:Name="ScreenshotImage" Stretch="Fill" SnapsToDevicePixels="True" />
         <Canvas x:Name="OverlayCanvas" IsHitTestVisible="False" />
-        <Border HorizontalAlignment="Left"
+        <Border x:Name="StatusBorder"
+                HorizontalAlignment="Left"
                 VerticalAlignment="Top"
                 Margin="12"
                 Padding="8,4"
@@ -32,10 +33,9 @@
                 <Button x:Name="RetryButton"
                         Content="重试未完成项"
                         Margin="8,0,0,0"
-                Padding="6,2"
-                Visibility="Collapsed"
-                PreviewMouseLeftButtonDown="RetryButton_PreviewMouseLeftButtonDown"
-                Click="RetryButton_Click" />
+                        Padding="6,2"
+                        Visibility="Collapsed"
+                        Click="RetryButton_Click" />
             </StackPanel>
         </Border>
         <Border HorizontalAlignment="Right"

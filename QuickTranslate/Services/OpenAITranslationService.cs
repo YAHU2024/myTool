@@ -538,9 +538,34 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
         Action<TranslatedTextUnit> onUnitCompleted,
         CancellationToken cancellationToken = default)
     {
+        return await TranslateScreenshotBatchStreamingAsync(
+            units,
+            targetLanguage,
+            onUnitCompleted,
+            cancellationToken,
+            ScreenshotFirstChunkTimeout,
+            ScreenshotIdleChunkTimeout,
+            ScreenshotOverallTimeout).ConfigureAwait(false);
+    }
+
+    internal async Task<IReadOnlyList<TranslatedTextUnit>> TranslateScreenshotBatchStreamingAsync(
+        IReadOnlyList<ScreenshotTranslationUnit> units,
+        string targetLanguage,
+        Action<TranslatedTextUnit> onUnitCompleted,
+        CancellationToken cancellationToken,
+        TimeSpan firstChunkTimeout,
+        TimeSpan idleChunkTimeout,
+        TimeSpan overallTimeoutDuration)
+    {
         ArgumentNullException.ThrowIfNull(units);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetLanguage);
         ArgumentNullException.ThrowIfNull(onUnitCompleted);
+        if (firstChunkTimeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(firstChunkTimeout));
+        if (idleChunkTimeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(idleChunkTimeout));
+        if (overallTimeoutDuration <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(overallTimeoutDuration));
         cancellationToken.ThrowIfCancellationRequested();
         if (units.Count == 0)
             return Array.Empty<TranslatedTextUnit>();
@@ -580,7 +605,7 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
         var parser = new ScreenshotTranslationStreamParser(units.Select(static unit => unit.UnitId));
         ChatStreamingResult execution;
         using var overallTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        overallTimeout.CancelAfter(ScreenshotOverallTimeout);
+        overallTimeout.CancelAfter(overallTimeoutDuration);
         try
         {
             execution = await ExecuteChatStreamingAsync(
@@ -605,8 +630,8 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
                         onUnitCompleted(translated);
                 },
                 overallTimeout.Token,
-                ScreenshotFirstChunkTimeout,
-                ScreenshotIdleChunkTimeout).ConfigureAwait(false);
+                firstChunkTimeout,
+                idleChunkTimeout).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (
             !cancellationToken.IsCancellationRequested && overallTimeout.IsCancellationRequested)
@@ -625,6 +650,12 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
         {
             // Some compatible providers close the connection immediately after
             // the final unit without sending [DONE]. Content completeness wins.
+            return parser.Complete(units).MappedUnits;
+        }
+        catch (IOException) when (parser.IsComplete)
+        {
+            // A raw stream can surface the same post-content close as an
+            // IOException instead of HttpRequestException.
             return parser.Complete(units).MappedUnits;
         }
         catch (KeyNotFoundException ex)
@@ -814,12 +845,72 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
         ArgumentNullException.ThrowIfNull(onEvent);
         var streamStartedAt = Stopwatch.GetTimestamp();
         onEvent(new TranslationStreamEvent(TranslationStreamEventKind.Started));
-        using var response = await SendAsync(
-            apiBaseUrl,
-            apiKey,
-            requestBody,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken).ConfigureAwait(false);
+        HttpResponseMessage response;
+        if (firstChunkTimeout is { } connectTimeout)
+        {
+            // ResponseHeadersRead returns as soon as headers arrive. Apply the
+            // first-chunk budget to this phase too, otherwise a stalled
+            // connection can bypass the screenshot timeout until HttpClient's
+            // unrelated global timeout fires.
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            connectCts.CancelAfter(connectTimeout);
+            try
+            {
+                response = await SendAsync(
+                    apiBaseUrl,
+                    apiKey,
+                    requestBody,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    connectCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested &&
+                                                       connectCts.IsCancellationRequested)
+            {
+                throw new ScreenshotTranslationTimeoutException(ScreenshotTranslationTimeoutKind.Connect);
+            }
+        }
+        else
+        {
+            response = await SendAsync(
+                apiBaseUrl,
+                apiKey,
+                requestBody,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        using (response)
+        {
+            if (firstChunkTimeout is { } firstTimeout)
+            {
+                var elapsed = Stopwatch.GetElapsedTime(streamStartedAt);
+                if (elapsed >= firstTimeout)
+                    throw new ScreenshotTranslationTimeoutException(ScreenshotTranslationTimeoutKind.FirstChunk);
+            }
+            return await ExecuteChatStreamingResponseAsync(
+                response,
+                operation,
+                onEvent,
+                cancellationToken,
+                firstChunkTimeout,
+                idleChunkTimeout,
+                streamStartedAt,
+                operation.StartsWith("screenshot", StringComparison.OrdinalIgnoreCase)).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<ChatStreamingResult> ExecuteChatStreamingResponseAsync(
+        HttpResponseMessage response,
+        string operation,
+        Action<TranslationStreamEvent> onEvent,
+        CancellationToken cancellationToken,
+        TimeSpan? firstChunkTimeout,
+        TimeSpan? idleChunkTimeout,
+        long streamStartedAt,
+        bool strictStreamFormat)
+    {
+        // This method is split only to keep response disposal adjacent to the
+        // request above; all stream validation remains in one place.
 
         if (!response.IsSuccessStatusCode)
         {
@@ -836,6 +927,7 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
         var totalChunkGapMs = 0.0;
         var stalledChunkCount = 0;
         long? previousChunkAt = null;
+        long? idleStartedAt = null;
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var reader = new StreamReader(stream);
         while (true)
@@ -848,9 +940,28 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
             }
             else
             {
-                var timeout = chunkCount == 0 ? firstChunkTimeout!.Value : idleChunkTimeout!.Value;
+                TimeSpan? remaining;
+                if (chunkCount == 0)
+                {
+                    remaining = firstChunkTimeout is { } firstTimeout
+                        ? firstTimeout - Stopwatch.GetElapsedTime(streamStartedAt)
+                        : null;
+                }
+                else
+                {
+                    remaining = idleChunkTimeout is { } idleTimeout && idleStartedAt is { } idleStart
+                        ? idleTimeout - Stopwatch.GetElapsedTime(idleStart)
+                        : null;
+                }
+                if (remaining is null || remaining <= TimeSpan.Zero)
+                {
+                    throw new ScreenshotTranslationTimeoutException(
+                        chunkCount == 0
+                            ? ScreenshotTranslationTimeoutKind.FirstChunk
+                            : ScreenshotTranslationTimeoutKind.Idle);
+                }
                 using var readTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                readTimeout.CancelAfter(timeout);
+                readTimeout.CancelAfter(remaining.Value);
                 try
                 {
                     line = await reader.ReadLineAsync(readTimeout.Token).ConfigureAwait(false);
@@ -875,11 +986,27 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
             try
             {
                 using var document = JsonDocument.Parse(data);
-                var choices = document.RootElement.GetProperty("choices");
+                var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object ||
+                    !root.TryGetProperty("choices", out var choices) ||
+                    choices.ValueKind != JsonValueKind.Array)
+                {
+                    if (strictStreamFormat)
+                        throw new ScreenshotTranslationBatchFormatException("invalid_stream_response");
+                    continue;
+                }
                 if (choices.GetArrayLength() == 0)
                     continue;
 
-                var delta = choices[0].GetProperty("delta");
+                var choice = choices[0];
+                if (choice.ValueKind != JsonValueKind.Object ||
+                    !choice.TryGetProperty("delta", out var delta) ||
+                    delta.ValueKind != JsonValueKind.Object)
+                {
+                    if (strictStreamFormat)
+                        throw new ScreenshotTranslationBatchFormatException("invalid_stream_response");
+                    continue;
+                }
                 if (TryGetText(delta, "reasoning_content", out var reasoning))
                     onEvent(new TranslationStreamEvent(TranslationStreamEventKind.ReasoningDelta, reasoning));
                 else if (TryGetText(delta, "reasoning", out reasoning))
@@ -899,12 +1026,18 @@ public sealed class OpenAITranslationService : ITranslationService, IScreenshotB
                 }
                 previousChunkAt = chunkAt;
                 chunkCount++;
+                idleStartedAt = chunkAt;
                 fullResult.Append(chunk);
                 onEvent(new TranslationStreamEvent(TranslationStreamEventKind.ContentDelta, chunk));
             }
+            catch (JsonException ex) when (strictStreamFormat)
+            {
+                throw new ScreenshotTranslationBatchFormatException("invalid_stream_response", ex);
+            }
             catch (JsonException)
             {
-                // Ignore malformed provider chunks and continue reading the stream.
+                // Ordinary translation streams retain their historical
+                // tolerance for a malformed provider chunk.
             }
         }
 
