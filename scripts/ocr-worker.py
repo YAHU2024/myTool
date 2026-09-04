@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import json
+import os
 import sys
 from typing import Any
 
@@ -25,10 +26,44 @@ def response(request_id: str | None, **values: Any) -> None:
 def create_engine() -> Any:
     from rapidocr import RapidOCR
 
+    det_model = os.environ.get("QUICKTRANSLATE_OCR_DET_MODEL")
+    rec_model = os.environ.get("QUICKTRANSLATE_OCR_REC_MODEL")
+    rec_keys = os.environ.get("QUICKTRANSLATE_OCR_REC_KEYS")
+    configured = [det_model, rec_model, rec_keys]
+    if any(configured) and not all(configured):
+        raise ValueError("IncompleteModelConfiguration")
+
+    params: dict[str, Any] | None = None
+    original_classifier = None
+    rapidocr_main = None
+    if all(configured):
+        params = {
+            "Det.model_path": det_model,
+            "Rec.model_path": rec_model,
+            "Rec.rec_keys_path": rec_keys,
+            "Global.use_cls": False,
+        }
+
+        # RapidOCR 3.9.2 constructs TextClassifier even when use_cls is false.
+        # Replace it only during construction so this managed det/rec bundle
+        # cannot trigger an implicit download of an unregistered classifier.
+        import rapidocr.main as rapidocr_main
+
+        class NoopTextClassifier:
+            def __init__(self, _config: Any) -> None:
+                pass
+
+        original_classifier = rapidocr_main.TextClassifier
+        rapidocr_main.TextClassifier = NoopTextClassifier
+
     # RapidOCR logs model resolution during construction. Keep the protocol
     # stream clean without persisting those messages anywhere.
-    with contextlib.redirect_stdout(sys.stderr):
-        return RapidOCR()
+    try:
+        with contextlib.redirect_stdout(sys.stderr):
+            return RapidOCR(params=params)
+    finally:
+        if rapidocr_main is not None and original_classifier is not None:
+            rapidocr_main.TextClassifier = original_classifier
 
 
 def handle(engine: Any, request: dict[str, Any]) -> None:
@@ -120,7 +155,13 @@ def main() -> int:
         response(None, kind="ready", status="error", error_type=type(error).__name__)
         return 1
 
-    response(None, kind="ready", status="ok", engine="rapidocr-onnx", model_family="PP-OCRv6 small")
+    response(
+        None,
+        kind="ready",
+        status="ok",
+        engine="rapidocr-onnx",
+        model_family=os.environ.get("QUICKTRANSLATE_OCR_MODEL_ID", "PP-OCRv6 default"),
+    )
     for line in sys.stdin:
         if not line.strip():
             continue

@@ -164,6 +164,7 @@ namespace QuickTranslate.Helpers
             shouldSave |= MigrateTranslationTriggerMode(settings, document.RootElement);
             shouldSave |= MigrateThinkingMode(settings, document.RootElement);
             shouldSave |= MigrateSavedConfigs(settings, document.RootElement);
+            shouldSave |= NormalizeScreenshotOcrSettings(settings);
 
             if (shouldSave)
             {
@@ -487,6 +488,34 @@ namespace QuickTranslate.Helpers
                     config.Alias = normalizedAlias;
                     changed = true;
                 }
+            }
+
+            return changed;
+        }
+
+        internal static bool NormalizeScreenshotOcrSettings(AppSettings settings)
+        {
+            var changed = false;
+            if (!string.Equals(settings.ScreenshotOcrEngine, "windows", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(settings.ScreenshotOcrEngine, "rapidocr", StringComparison.OrdinalIgnoreCase))
+            {
+                settings.ScreenshotOcrEngine = "windows";
+                changed = true;
+            }
+            else
+            {
+                var normalizedEngine = settings.ScreenshotOcrEngine.ToLowerInvariant();
+                if (!string.Equals(settings.ScreenshotOcrEngine, normalizedEngine, StringComparison.Ordinal))
+                {
+                    settings.ScreenshotOcrEngine = normalizedEngine;
+                    changed = true;
+                }
+            }
+
+            if (OcrModelCatalog.Find(settings.ScreenshotOcrModelId) is null)
+            {
+                settings.ScreenshotOcrModelId = OcrModelCatalog.DefaultModelId;
+                changed = true;
             }
 
             return changed;

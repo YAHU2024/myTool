@@ -61,7 +61,7 @@ Choose “Screenshot Translation” from the tray menu and select a region on on
 
 Models that support structured streaming show each region as soon as its complete `UnitId` translation arrives, while keeping already placed cards stable. If the stream is interrupted, completed results remain visible with an explicit partial-completion state; missing translations are never fabricated. An unsupported or unsafe stream format falls back to one structured batch request, then to bounded per-unit requests under the existing mapping contract.
 
-An installed RapidOCR/ONNX local scene-OCR Worker is preferred for complex backgrounds, Japanese, and rotated text; without a local model, the app falls back to Windows built-in OCR. The Full package will include a baseline model that passes the quality and license gates, while both Standard and Full packages can explicitly download, verify, and switch other supported models from Settings. The app never downloads models automatically at startup or when a screenshot is captured. From a source checkout, run `scripts\install-ocr-runtime.ps1` when needed to create the isolated runtime. Complex background erasure currently uses a translucent mask/card fallback, and low-confidence or unsafe mappings are not overlaid automatically.
+An installed RapidOCR/ONNX local scene-OCR Worker is preferred for complex backgrounds, Japanese, and rotated text; without a local model or runtime, the app falls back to Windows built-in OCR. Both Standard and Full packages can explicitly download, verify, and switch supported models from Settings; neither package bundles scene model weights, and the app never downloads models automatically at startup or when a screenshot is captured. From a source checkout, run `scripts\install-ocr-runtime.ps1` when needed to create the isolated runtime. Complex background erasure currently uses a translucent mask/card fallback, and low-confidence or unsafe mappings are not overlaid automatically.
 
 ---
 
@@ -335,6 +335,8 @@ QuickTranslate/
 │   ├── WindowsMediaOcrService.cs                       # Windows built-in OCR adapter
 │   ├── RapidOcrWorkerService.cs                        # Isolated RapidOCR/ONNX worker service
 │   ├── ScreenshotOcrServiceFactory.cs                  # Screenshot OCR engine selection and fallback
+│   ├── OcrModelCatalog.cs                              # Pinned official OCR model catalog
+│   ├── OcrModelManager.cs                              # OCR model download, verification, and atomic install
 │   ├── IWordLookupService.cs                           # Word lookup service interface
 │   ├── IWordLookupEnrichmentService.cs                 # AI word lookup enrichment interface
 │   ├── OpenAIWordLookupService.cs                      # OpenAI-compatible word lookup service

@@ -88,6 +88,15 @@ public sealed class RapidOcrWorkerServiceTests
     }
 
     [Fact]
+    public async Task WarmUpAsync_RejectsWorkerThatReportsDifferentModelIdentity()
+    {
+        using var worker = FakeWorker.Create("wrong_model");
+        using var service = worker.CreateService(modelId: "expected-model");
+
+        await Assert.ThrowsAsync<OcrEngineUnavailableException>(() => service.WarmUpAsync());
+    }
+
+    [Fact]
     public async Task RecognizeAsync_MismatchedRequestIdInvalidatesWorker()
     {
         using var worker = FakeWorker.Create("mismatch_once");
@@ -187,7 +196,11 @@ public sealed class RapidOcrWorkerServiceTests
                     [Console]::Out.Flush()
                     exit 8
                 }
-                [Console]::Out.WriteLine('{"request_id":null,"kind":"ready","status":"ok"}')
+                if ('{{mode}}' -eq 'wrong_model') {
+                    [Console]::Out.WriteLine('{"request_id":null,"kind":"ready","status":"ok","model_family":"other-model"}')
+                } else {
+                    [Console]::Out.WriteLine('{"request_id":null,"kind":"ready","status":"ok"}')
+                }
                 [Console]::Out.Flush()
                 while ($null -ne ($line = [Console]::In.ReadLine())) {
                     Set-Content -LiteralPath $requestMarker -Value 'seen' -NoNewline
@@ -204,13 +217,17 @@ public sealed class RapidOcrWorkerServiceTests
             return new FakeWorker(directory, scriptPath);
         }
 
-        public RapidOcrWorkerService CreateService(TimeSpan? startupTimeout = null)
+        public RapidOcrWorkerService CreateService(TimeSpan? startupTimeout = null, string? modelId = null)
         {
             var powershell = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.System),
                 "WindowsPowerShell", "v1.0", "powershell.exe");
             return new RapidOcrWorkerService(new RapidOcrWorkerOptions(
-                powershell, ScriptPath, startupTimeout ?? TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3)));
+                powershell,
+                ScriptPath,
+                startupTimeout ?? TimeSpan.FromSeconds(3),
+                TimeSpan.FromSeconds(3),
+                ModelId: modelId));
         }
 
         public int ReadStartCount() => int.Parse(File.ReadAllText(_counterPath));

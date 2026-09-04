@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="QuickTranslate 设置" Height="700" Width="520"
+        Title="QuickTranslate 设置" Height="780" Width="520"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanMinimize"
         Background="#16191F"
@@ -354,6 +354,34 @@
                             <TextBlock Grid.Row="3" Text="备注名称" Style="{StaticResource LabelStyle}"/>
                             <TextBox x:Name="ModelAliasTextBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" MaxLength="32" Style="{StaticResource InputTextBox}" LostFocus="Input_LostFocus" ToolTip="仅用于模型菜单显示，留空时显示模型名和供应商"/>
                             <TextBlock x:Name="ModelFeedbackText" Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Foreground="#6DD6A5" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource SectionBorder}" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="截图 OCR" Style="{StaticResource SectionTitle}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Windows OCR 始终可用；本地场景 OCR 需要主动下载模型，切换前会完整校验并等待 Worker 就绪。" Style="{StaticResource HintStyle}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="识别引擎" Style="{StaticResource LabelStyle}"/>
+                            <ComboBox x:Name="ScreenshotOcrEngineComboBox" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource DarkComboBox}" SelectionChanged="ScreenshotOcrEngineComboBox_SelectionChanged"/>
+                            <TextBlock Grid.Row="1" Text="本地模型" Style="{StaticResource LabelStyle}"/>
+                            <ComboBox x:Name="ScreenshotOcrModelComboBox" Grid.Row="1" Grid.Column="1" Style="{StaticResource DarkComboBox}" DisplayMemberPath="DisplayName" SelectionChanged="ScreenshotOcrModelComboBox_SelectionChanged"/>
+                            <Button x:Name="DownloadScreenshotOcrButton" Grid.Row="1" Grid.Column="2" Content="下载" Style="{StaticResource SecondaryButton}" Padding="10,6" Margin="8,2,0,2" Click="DownloadScreenshotOcrButton_Click" ToolTip="下载并校验所选本地 OCR 模型"/>
+                            <TextBlock x:Name="ScreenshotOcrModelDescriptionText" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource HintStyle}" TextWrapping="Wrap" Margin="0,2,0,4"/>
+                            <TextBlock Grid.Row="3" Text="模型状态" Style="{StaticResource LabelStyle}"/>
+                            <StackPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2">
+                                <TextBlock x:Name="ScreenshotOcrStatusText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap"/>
+                                <ProgressBar x:Name="ScreenshotOcrProgressBar" Height="5" Margin="0,7,0,0" Minimum="0" Maximum="100" Visibility="Collapsed" Foreground="{StaticResource PrimaryBrush}" Background="#343D49"/>
+                                <TextBlock x:Name="ScreenshotOcrProgressText" Style="{StaticResource HintStyle}" Margin="0,4,0,0" Visibility="Collapsed"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,4,0,0">
+                                <Button x:Name="EnableScreenshotOcrButton" Content="启用并保存" Style="{StaticResource PrimaryButton}" Padding="10,6" Click="EnableScreenshotOcrButton_Click" ToolTip="验证模型并切换本地 OCR"/>
+                                <Button x:Name="CancelScreenshotOcrButton" Content="取消下载" Style="{StaticResource SecondaryButton}" Padding="10,6" Margin="8,0,0,0" Visibility="Collapsed" Click="CancelScreenshotOcrButton_Click"/>
+                                <Button x:Name="DeleteScreenshotOcrButton" Content="删除模型" Style="{StaticResource DangerButton}" Padding="10,6" Margin="8,0,0,0" Click="DeleteScreenshotOcrButton_Click" ToolTip="删除本地模型文件"/>
+                            </StackPanel>
                         </Grid>
                     </StackPanel>
                 </Border>

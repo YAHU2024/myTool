@@ -15,6 +15,9 @@ copied into build and publish output by `QuickTranslate.csproj`.
 | SQLite | bundled by SQLitePCLRaw | Public domain |
 | ECDICT | pinned release source | MIT |
 | Open English WordNet | 2025 | CC BY 4.0 |
+| RapidOCR | 3.9.2 | Apache-2.0 |
+| ONNX Runtime | 1.27.0 | MIT |
+| PaddlePaddle PP-OCRv6 ONNX model weights | pinned per model | Apache-2.0 (official model card declaration) |
 
 Framework-dependent releases rely on a separately installed .NET runtime.
 Self-contained releases also redistribute .NET runtime components; the release
@@ -42,6 +45,14 @@ the publishing SDK alongside this application-level notice.
 
 - Source: <https://github.com/skywind3000/ECDICT>
 - Copyright: Copyright (c) 2025 Linwei
+
+### ONNX Runtime
+
+- Source: <https://github.com/microsoft/onnxruntime>
+- Copyright: Copyright (c) Microsoft Corporation
+
+The optional local scene OCR runtime uses ONNX Runtime on CPU. Model weights
+are managed separately and are not part of the runtime package.
 
 ### MIT License Text
 
@@ -303,6 +314,21 @@ POSSIBILITY OF SUCH DAMAGE.
 
 SQLite source bundled by SQLitePCLRaw is dedicated to the public domain. See
 <https://www.sqlite.org/copyright.html>.
+
+## RapidOCR and PaddlePaddle PP-OCRv6 Models
+
+- RapidOCR source: <https://github.com/RapidAI/RapidOCR>
+- RapidOCR license: Apache License 2.0
+- Official model collection: <https://huggingface.co/collections/PaddlePaddle/pp-ocrv6>
+- Model publisher: PaddlePaddle
+- Model license: Apache-2.0 as declared by each official model card
+
+QuickTranslate does not bundle PP-OCRv6 weights. The settings downloader offers
+only catalogued official PaddlePaddle repositories at immutable revisions, and
+verifies each downloaded file by declared size and SHA-256 before installation.
+The current experimental catalogue contains PP-OCRv6 tiny and small CPU
+detection and recognition models. See the in-application model description for
+the selected model and this notice for source attribution.
 
 ## Microsoft Edge WebView2 SDK
 

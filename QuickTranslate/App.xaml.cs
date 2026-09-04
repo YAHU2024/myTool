@@ -52,6 +52,10 @@ public partial class App : Application
     private ScreenshotTranslationOverlayWindow? _screenshotOverlayWindow;
     private ScreenshotTranslationProgressWindow? _screenshotProgressWindow;
     private IOcrService? _screenshotOcrService;
+    private OcrModelManager? _ocrModelManager;
+    private IDisposable? _ocrModelUsage;
+    private CancellationTokenSource? _ocrEngineSwitchCts;
+    private long _ocrEngineSwitchGeneration;
     private ScreenshotTranslationCoordinator? _screenshotTranslationCoordinator;
     private CancellationTokenSource? _screenshotTranslationCts;
     private TrayIconManager? _trayIcon;
@@ -185,7 +189,8 @@ public partial class App : Application
 
         // 初始化翻译服务
         _translationService = new OpenAITranslationService(_settings);
-        _screenshotOcrService = ScreenshotOcrServiceFactory.Create();
+        _ocrModelManager = new OcrModelManager();
+        _screenshotOcrService = new WindowsMediaOcrService();
         _screenshotTranslationCoordinator = new ScreenshotTranslationCoordinator(_screenshotOcrService);
         var screenshotOcrCapability = _screenshotOcrService.Probe();
         Logger.Info("Screenshot", "screenshot.ocr_engine_selected", new
@@ -197,6 +202,8 @@ public partial class App : Application
             language_count = screenshotOcrCapability.SupportedLanguageTags.Count
         });
         _ = WarmUpScreenshotOcrAsync(_screenshotOcrService);
+        if (string.Equals(_settings.ScreenshotOcrEngine, "rapidocr", StringComparison.OrdinalIgnoreCase))
+            _ = ApplyScreenshotOcrSettingsAsync(_settings, persistFallback: true);
 
         // 初始化悬浮窗（单例复用）
         _floatingWindow = new FloatingWindow();
@@ -2597,7 +2604,8 @@ public partial class App : Application
                 _settings!,
                 OnSettingsSaved,
                 OnFeedbackRequested,
-                OnLogsRequested);
+                OnLogsRequested,
+                _ocrModelManager);
             _settingsWindow.Closed += OnSettingsWindowClosed;
             _settingsWindow.Show();
         });
@@ -2670,6 +2678,7 @@ public partial class App : Application
         CancelActiveTranslationRequest();
         _translationCache.Clear();
         _settings = settings;
+        _ = ApplyScreenshotOcrSettingsAsync(settings, persistFallback: true);
         var refreshedCurrentProfile = settings.SavedConfigs
             .Select(ModelProfileCatalog.Create)
             .FirstOrDefault(profile =>
@@ -3098,6 +3107,133 @@ public partial class App : Application
         }
     }
 
+    private async Task ApplyScreenshotOcrSettingsAsync(AppSettings settings, bool persistFallback)
+    {
+        var requestedEngine = settings.ScreenshotOcrEngine;
+        var requestedModelId = settings.ScreenshotOcrModelId;
+        var switchCts = new CancellationTokenSource();
+        var previousSwitch = Interlocked.Exchange(ref _ocrEngineSwitchCts, switchCts);
+        previousSwitch?.Cancel();
+        var generation = Interlocked.Increment(ref _ocrEngineSwitchGeneration);
+        var token = switchCts.Token;
+        var manager = _ocrModelManager;
+        var model = OcrModelCatalog.Find(requestedModelId);
+        RapidOcrWorkerService? candidate = null;
+        IDisposable? candidateUsage = null;
+        try
+        {
+            if (!string.Equals(requestedEngine, "rapidocr", StringComparison.OrdinalIgnoreCase))
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (IsCurrent())
+                    {
+                        ReplaceScreenshotOcrService(new WindowsMediaOcrService());
+                        Logger.Info("Screenshot", "screenshot.ocr_engine_switched", new
+                        {
+                            engine = "windows",
+                            model_id = (string?)null,
+                            switch_generation = generation
+                        });
+                    }
+                });
+                return;
+            }
+
+            if (manager is null || model is null)
+                throw new OcrEngineUnavailableException("未找到所选 OCR 模型。");
+            candidateUsage = manager.AcquireUsage(model);
+            var directory = await manager.VerifyInstalledAsync(model, token).ConfigureAwait(false);
+            candidate = ScreenshotOcrServiceFactory.CreateRapidOcr(model, directory)
+                ?? throw new OcrEngineUnavailableException("本地 OCR 运行时尚未安装。");
+            await candidate.WarmUpAsync(token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            var readyCandidate = candidate;
+            var applied = false;
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (!IsCurrent())
+                    return;
+                ReplaceScreenshotOcrService(readyCandidate, candidateUsage, model.Id);
+                applied = true;
+                candidate = null;
+                candidateUsage = null;
+                Logger.Info("Screenshot", "screenshot.ocr_engine_switched", new
+                {
+                    engine = "rapidocr",
+                    model_id = model.Id,
+                    switch_generation = generation
+                });
+            });
+            if (!applied)
+                throw new OperationCanceledException(token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested || !IsCurrent())
+        {
+            candidate?.Dispose();
+            candidateUsage?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            candidate?.Dispose();
+            candidateUsage?.Dispose();
+            Logger.Warn("Screenshot", "screenshot.ocr_engine_switch_failed", new
+            {
+                model_id = model?.Id,
+                exception_type = ex.GetType().Name
+            });
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (!IsCurrent())
+                    return;
+                ReplaceScreenshotOcrService(new WindowsMediaOcrService());
+                if (ReferenceEquals(_settings, settings))
+                {
+                    settings.ScreenshotOcrEngine = "windows";
+                    if (persistFallback)
+                        ConfigManager.Save(settings);
+                }
+                _trayIcon?.ShowBalloonTip(
+                    "截图 OCR 已回退",
+                    "本地模型未能启动，已继续使用 Windows OCR。",
+                System.Windows.Forms.ToolTipIcon.Warning);
+            });
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _ocrEngineSwitchCts, null, switchCts);
+            switchCts.Dispose();
+        }
+
+        bool IsCurrent() =>
+            !switchCts.IsCancellationRequested &&
+            Volatile.Read(ref _ocrEngineSwitchGeneration) == generation &&
+            ReferenceEquals(Volatile.Read(ref _ocrEngineSwitchCts), switchCts) &&
+            !_isExiting;
+    }
+
+    private void ReplaceScreenshotOcrService(
+        IOcrService service,
+        IDisposable? modelUsage = null,
+        string? activeModelId = null)
+    {
+        if (ReferenceEquals(_screenshotOcrService, service))
+        {
+            modelUsage?.Dispose();
+            return;
+        }
+        _screenshotTranslationCts?.Cancel();
+        var previous = _screenshotOcrService;
+        var previousUsage = _ocrModelUsage;
+        _screenshotOcrService = service;
+        _ocrModelUsage = modelUsage;
+        _ocrModelManager?.SetActiveModel(activeModelId);
+        _screenshotTranslationCoordinator = new ScreenshotTranslationCoordinator(service);
+        if (previous is IDisposable disposable)
+            disposable.Dispose();
+        previousUsage?.Dispose();
+    }
+
     private void OnExitRequested()
     {
         var dispatcherAccess = Dispatcher.CheckAccess();
@@ -3231,6 +3367,9 @@ public partial class App : Application
         _screenshotTranslationCts?.Cancel();
         _screenshotTranslationCts?.Dispose();
         _screenshotTranslationCts = null;
+        _ocrEngineSwitchCts?.Cancel();
+        _ocrEngineSwitchCts?.Dispose();
+        _ocrEngineSwitchCts = null;
         _screenshotOverlayWindow?.Close();
         _screenshotOverlayWindow = null;
         _screenshotProgressWindow?.Close();
@@ -3310,6 +3449,11 @@ public partial class App : Application
         _selectionDetector?.Dispose();
         if (_screenshotOcrService is IDisposable screenshotOcrDisposable)
             screenshotOcrDisposable.Dispose();
+        _ocrModelUsage?.Dispose();
+        _ocrModelUsage = null;
+        _ocrModelManager?.SetActiveModel(null);
+        _ocrModelManager?.Dispose();
+        _ocrModelManager = null;
         _screenshotOcrService = null;
         _screenshotTranslationCoordinator = null;
         _translationService?.Dispose();

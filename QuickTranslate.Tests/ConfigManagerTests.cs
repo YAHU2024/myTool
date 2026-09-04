@@ -76,6 +76,36 @@ public class ConfigManagerTests : IDisposable
     }
 
     [Fact]
+    public void Load_NormalizesUnknownScreenshotOcrSettingsToSafeDefaults()
+    {
+        Directory.CreateDirectory(_testDir);
+        File.WriteAllText(
+            ConfigPath,
+            """{"ScreenshotOcrEngine":"unknown","ScreenshotOcrModelId":"missing-model"}""");
+
+        var settings = CreateManager().LoadInternal();
+
+        Assert.Equal("windows", settings.ScreenshotOcrEngine);
+        Assert.Equal(QuickTranslate.Services.OcrModelCatalog.DefaultModelId, settings.ScreenshotOcrModelId);
+    }
+
+    [Fact]
+    public void SaveAndLoad_PersistsSupportedScreenshotOcrSelection()
+    {
+        var manager = CreateManager();
+        manager.SaveInternal(new AppSettings
+        {
+            ScreenshotOcrEngine = "rapidocr",
+            ScreenshotOcrModelId = "ppocrv6-tiny-cpu"
+        });
+
+        var loaded = manager.LoadInternal();
+
+        Assert.Equal("rapidocr", loaded.ScreenshotOcrEngine);
+        Assert.Equal("ppocrv6-tiny-cpu", loaded.ScreenshotOcrModelId);
+    }
+
+    [Fact]
     public void Save_CreatesFile_OnFirstLaunch()
     {
         var mgr = CreateManager();

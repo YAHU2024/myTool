@@ -43,7 +43,7 @@ if ($LASTEXITCODE -ne 0) {
 Copy-Item -LiteralPath $workerPath -Destination (Join-Path $destinationPath "ocr-worker.py") -Force
 $manifest = [pscustomobject]@{
     engine = "RapidOCR ONNX Runtime"
-    model_family = "PP-OCRv6 small"
+    model_family = "externally-managed"
     rapidocr_version = "3.9.2"
     onnxruntime_version = "1.27.0"
     installed_at = [DateTimeOffset]::Now.ToString("o")
@@ -51,4 +51,4 @@ $manifest = [pscustomobject]@{
 }
 $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $destinationPath "runtime-manifest.json") -Encoding UTF8
 Write-Output "OCR 本地运行时已安装：$destinationPath"
-Write-Output "模型首次启动不需要联网；应用将通过 ocr-runtime\python.exe 自动发现。"
+Write-Output "应用将通过 ocr-runtime\python.exe 自动发现运行时；模型由用户在设置页主动下载并校验。"

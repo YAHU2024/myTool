@@ -190,6 +190,15 @@ namespace QuickTranslate.Models
         public bool SmartContentType { get; set; } = false;
 
         /// <summary>
+        /// Screenshot OCR engine preference: windows or rapidocr.
+        /// Windows OCR remains the safe built-in default.
+        /// </summary>
+        public string ScreenshotOcrEngine { get; set; } = "windows";
+
+        /// <summary>Selected catalog model for the optional local scene OCR engine.</summary>
+        public string ScreenshotOcrModelId { get; set; } = "ppocrv6-small-cpu";
+
+        /// <summary>
         /// 模型思考控制偏好。默认不发送供应商私有参数。
         /// </summary>
         public ThinkingModePreference ThinkingMode { get; set; } = ThinkingModePreference.FollowProviderDefault;

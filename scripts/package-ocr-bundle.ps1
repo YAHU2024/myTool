@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$OutputDirectory,
 
-    [string]$BundleId = "rapidocr-ppocrv6-small-cpu",
+    [string]$BundleId = "rapidocr-runtime-cpu",
     [string]$BundleVersion = "0.1.0",
     [switch]$CreateArchive,
     [long]$MaxBundleBytes = 2GB

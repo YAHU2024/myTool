@@ -17,6 +17,7 @@ namespace QuickTranslate.UI
         private readonly Action<AppSettings>? _onSettingsSaved;
         private readonly Action<FeedbackMode>? _onFeedbackRequested;
         private readonly Action? _onLogsRequested;
+        private readonly OcrModelManager? _ocrModelManager;
         private bool _isInitializing = true;
         private bool _isDirty = false;
         private bool _isApiKeyVisible = false;
@@ -26,6 +27,7 @@ namespace QuickTranslate.UI
         private readonly List<AnalysisPromptProfile> _analysisPromptProfiles = new();
         private string _selectedAnalysisPromptId = AnalysisPromptCatalog.GeneralId;
         private string? _editingAnalysisPromptId;
+        private CancellationTokenSource? _ocrDownloadCts;
 
         // 快捷键录入状态
         private bool _isCapturingHotKey = false;
@@ -35,12 +37,14 @@ namespace QuickTranslate.UI
             AppSettings settings,
             Action<AppSettings>? onSettingsSaved = null,
             Action<FeedbackMode>? onFeedbackRequested = null,
-            Action? onLogsRequested = null)
+            Action? onLogsRequested = null,
+            OcrModelManager? ocrModelManager = null)
         {
             _settings = settings;
             _onSettingsSaved = onSettingsSaved;
             _onFeedbackRequested = onFeedbackRequested;
             _onLogsRequested = onLogsRequested;
+            _ocrModelManager = ocrModelManager;
             _origAutoStart = settings.AutoStart;
             _thinkingModePreference = ThinkingModePreferences.Normalize(settings.ThinkingMode);
             InitializeComponent();
@@ -57,6 +61,8 @@ namespace QuickTranslate.UI
 
             // 模型下拉框（按域名分组）
             RefreshModelComboBox();
+
+            LoadScreenshotOcrSettings();
 
             // 目标语言
             LanguageComboBox.ItemsSource = _settings.SupportedLanguages;
@@ -479,6 +485,225 @@ namespace QuickTranslate.UI
             _isDirty = true;
         }
 
+        private void LoadScreenshotOcrSettings()
+        {
+            ScreenshotOcrEngineComboBox.ItemsSource = new[]
+            {
+                new OcrEngineChoice("windows", "Windows OCR（内置兜底）"),
+                new OcrEngineChoice("rapidocr", "本地场景 OCR（实验性）")
+            };
+            ScreenshotOcrEngineComboBox.DisplayMemberPath = nameof(OcrEngineChoice.Name);
+            ScreenshotOcrEngineComboBox.SelectedValuePath = nameof(OcrEngineChoice.Id);
+            ScreenshotOcrEngineComboBox.SelectedValue =
+                string.Equals(_settings.ScreenshotOcrEngine, "rapidocr", StringComparison.OrdinalIgnoreCase)
+                    ? "rapidocr"
+                    : "windows";
+
+            ScreenshotOcrModelComboBox.ItemsSource = OcrModelCatalog.All;
+            ScreenshotOcrModelComboBox.SelectedValuePath = nameof(OcrModelDescriptor.Id);
+            ScreenshotOcrModelComboBox.SelectedValue =
+                OcrModelCatalog.Find(_settings.ScreenshotOcrModelId)?.Id ?? OcrModelCatalog.DefaultModelId;
+            RefreshScreenshotOcrModelState();
+        }
+
+        private OcrModelDescriptor? SelectedScreenshotOcrModel =>
+            ScreenshotOcrModelComboBox.SelectedItem as OcrModelDescriptor ??
+            OcrModelCatalog.Find(ScreenshotOcrModelComboBox.SelectedValue?.ToString());
+
+        private bool IsRapidOcrSelected =>
+            string.Equals(ScreenshotOcrEngineComboBox.SelectedValue?.ToString(), "rapidocr", StringComparison.OrdinalIgnoreCase);
+
+        private void RefreshScreenshotOcrModelState(string? transientStatus = null)
+        {
+            var model = SelectedScreenshotOcrModel;
+            ScreenshotOcrModelDescriptionText.Text = model is null
+                ? "未选择本地模型。"
+                : $"{model.Description} 下载大小 {FormatBytes(model.TotalSizeBytes)}，许可证：{model.License}。";
+
+            var status = model is null || _ocrModelManager is null
+                ? null
+                : _ocrModelManager.GetStatus(model);
+            var hasPartialDownload = model is not null && _ocrModelManager?.HasPartialDownload(model) == true;
+            var isActive = model is not null &&
+                           string.Equals(_ocrModelManager?.ActiveModelId, model.Id, StringComparison.Ordinal);
+            var isInUse = model is not null && _ocrModelManager?.IsModelInUse(model.Id) == true;
+            var runtimeAvailable = ScreenshotOcrServiceFactory.IsRapidOcrRuntimeAvailable();
+            var statusText = transientStatus ?? (status switch
+            {
+                null when _ocrModelManager is null => "模型管理器不可用；当前仅可使用 Windows OCR。",
+                { State: OcrModelInstallState.NotInstalled } when hasPartialDownload => "下载未完成，可继续下载或删除暂存文件。",
+                { State: OcrModelInstallState.NotInstalled } => "未安装，可下载后启用。",
+                { State: OcrModelInstallState.Corrupted } => "安装文件不完整或损坏，请重新下载。",
+                { State: OcrModelInstallState.Installed } when isActive => "当前生效；下次切换前仍会再次完整校验。",
+                { State: OcrModelInstallState.Installed } when isInUse => "正在校验模型并启动 Worker...",
+                { State: OcrModelInstallState.Installed } when IsRapidOcrSelected && !runtimeAvailable => "模型已安装，但本地 OCR 运行时缺失；请安装完整 OCR 运行时后再启用。",
+                { State: OcrModelInstallState.Installed } => "已安装，切换前会完整校验。",
+                _ => "状态未知。"
+            });
+            ScreenshotOcrStatusText.Text = statusText;
+            ScreenshotOcrStatusText.Foreground = new System.Windows.Media.SolidColorBrush(
+                transientStatus is not null || status?.State == OcrModelInstallState.Corrupted
+                    ? System.Windows.Media.Color.FromRgb(0xF2, 0xC6, 0x6D)
+                    : System.Windows.Media.Color.FromRgb(0xA4, 0xAF, 0xBC));
+
+            var busy = _ocrDownloadCts is not null;
+            var canManage = _ocrModelManager is not null && model is not null;
+            ScreenshotOcrModelComboBox.IsEnabled = !busy && IsRapidOcrSelected;
+            CancelScreenshotOcrButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+            DownloadScreenshotOcrButton.Content = status?.State == OcrModelInstallState.Corrupted
+                ? "重新下载"
+                : "下载 / 继续";
+            DownloadScreenshotOcrButton.IsEnabled = !busy && canManage && status?.State != OcrModelInstallState.Installed;
+            EnableScreenshotOcrButton.IsEnabled = !busy && canManage && runtimeAvailable && status?.State == OcrModelInstallState.Installed && !isActive;
+            DeleteScreenshotOcrButton.IsEnabled = !busy && canManage &&
+                (status?.State != OcrModelInstallState.NotInstalled || hasPartialDownload) && !isInUse;
+        }
+
+        private void ScreenshotOcrEngineComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            RefreshScreenshotOcrModelState();
+            if (!_isInitializing)
+                _isDirty = true;
+        }
+
+        private void ScreenshotOcrModelComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            RefreshScreenshotOcrModelState();
+            if (!_isInitializing)
+                _isDirty = true;
+        }
+
+        private async void DownloadScreenshotOcrButton_Click(object sender, RoutedEventArgs e)
+        {
+            var manager = _ocrModelManager;
+            var model = SelectedScreenshotOcrModel;
+            if (manager is null || model is null || _ocrDownloadCts is not null)
+                return;
+
+            using var cts = new CancellationTokenSource();
+            _ocrDownloadCts = cts;
+            ScreenshotOcrProgressBar.Visibility = Visibility.Visible;
+            ScreenshotOcrProgressText.Visibility = Visibility.Visible;
+            RefreshScreenshotOcrModelState("正在准备下载...");
+            try
+            {
+                var progress = new Progress<OcrModelDownloadProgress>(UpdateScreenshotOcrDownloadProgress);
+                await manager.InstallAsync(model, progress, cts.Token);
+                ScreenshotOcrProgressText.Text = "下载并校验完成，可点击“启用并保存”。";
+                RefreshScreenshotOcrModelState("已安装，等待启用。");
+            }
+            catch (OperationCanceledException)
+            {
+                RefreshScreenshotOcrModelState("下载已取消，已保留可续传文件。");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Screenshot", "screenshot.ocr_model_download_failed", new
+                {
+                    model_id = model.Id,
+                    exception_type = ex.GetType().Name
+                });
+                RefreshScreenshotOcrModelState($"下载失败（{ex.GetType().Name}），可重试。 ");
+            }
+            finally
+            {
+                _ocrDownloadCts = null;
+                ScreenshotOcrProgressBar.Visibility = Visibility.Collapsed;
+                ScreenshotOcrProgressText.Visibility = Visibility.Collapsed;
+                RefreshScreenshotOcrModelState(ScreenshotOcrStatusText.Text);
+            }
+        }
+
+        private void UpdateScreenshotOcrDownloadProgress(OcrModelDownloadProgress progress)
+        {
+            if (progress.Percentage is { } percentage)
+                ScreenshotOcrProgressBar.Value = percentage;
+            ScreenshotOcrProgressText.Text = $"{progress.Stage} · {progress.CompletedFiles}/{progress.TotalFiles} · {FormatBytes(progress.DownloadedBytes)}/{FormatBytes(progress.TotalBytes)}";
+        }
+
+        private void CancelScreenshotOcrButton_Click(object sender, RoutedEventArgs e) => _ocrDownloadCts?.Cancel();
+
+        private async void EnableScreenshotOcrButton_Click(object sender, RoutedEventArgs e)
+        {
+            var manager = _ocrModelManager;
+            var model = SelectedScreenshotOcrModel;
+            if (manager is null || model is null || _ocrDownloadCts is not null)
+                return;
+
+            using var cts = new CancellationTokenSource();
+            _ocrDownloadCts = cts;
+            RefreshScreenshotOcrModelState("正在验证模型...");
+            try
+            {
+                await manager.VerifyInstalledAsync(model, cts.Token);
+                ScreenshotOcrEngineComboBox.SelectedValue = "rapidocr";
+                ApplySettingsToModel();
+                ConfigManager.Save(_settings);
+                _onSettingsSaved?.Invoke(_settings);
+                _isDirty = false;
+                Close();
+            }
+            catch (OperationCanceledException)
+            {
+                RefreshScreenshotOcrModelState("验证已取消。");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Screenshot", "screenshot.ocr_model_verify_failed", new
+                {
+                    model_id = model.Id,
+                    exception_type = ex.GetType().Name
+                });
+                RefreshScreenshotOcrModelState($"验证失败（{ex.GetType().Name}），未切换引擎。 ");
+            }
+            finally
+            {
+                _ocrDownloadCts = null;
+                RefreshScreenshotOcrModelState();
+            }
+        }
+
+        private void DeleteScreenshotOcrButton_Click(object sender, RoutedEventArgs e)
+        {
+            var manager = _ocrModelManager;
+            var model = SelectedScreenshotOcrModel;
+            if (manager is null || model is null)
+                return;
+            if (string.Equals(manager.ActiveModelId, model.Id, StringComparison.Ordinal))
+            {
+                RefreshScreenshotOcrModelState("当前模型正在使用，请先切换到 Windows OCR 并保存，确认生效后再删除。 ");
+                return;
+            }
+            var result = MessageBox.Show(
+                $"确定删除 {model.DisplayName} 的本地文件吗？下次使用需要重新下载。",
+                "删除 OCR 模型",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (result != MessageBoxResult.Yes)
+                return;
+            try
+            {
+                manager.Delete(model);
+                RefreshScreenshotOcrModelState("模型已删除。 ");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Screenshot", "screenshot.ocr_model_delete_failed", new
+                {
+                    model_id = model.Id,
+                    exception_type = ex.GetType().Name
+                });
+                RefreshScreenshotOcrModelState($"删除失败（{ex.GetType().Name}）。 ");
+            }
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            if (bytes >= 1024 * 1024)
+                return $"{bytes / 1024d / 1024d:0.0} MB";
+            return $"{bytes / 1024d:0.0} KB";
+        }
+
         private void TerminalCopyMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_isInitializing) return;
@@ -773,6 +998,10 @@ namespace QuickTranslate.UI
                 // No = 不保存，直接关闭
             }
 
+            // Cancellation leaves verified-by-size partial files in place so a
+            // later settings visit can resume; it never promotes an incomplete
+            // model to the active engine.
+            _ocrDownloadCts?.Cancel();
             base.OnClosing(e);
         }
 
@@ -781,6 +1010,20 @@ namespace QuickTranslate.UI
         /// </summary>
         private void ApplySettingsToModel()
         {
+            if (ScreenshotOcrEngineComboBox.SelectedValue is string screenshotEngine)
+            {
+                var selectedModelStatus = SelectedScreenshotOcrModel is { } selectedOcrModel
+                    ? _ocrModelManager?.GetStatus(selectedOcrModel).State
+                    : null;
+                _settings.ScreenshotOcrEngine =
+                    screenshotEngine.Equals("rapidocr", StringComparison.OrdinalIgnoreCase) &&
+                    selectedModelStatus == OcrModelInstallState.Installed
+                        ? "rapidocr"
+                        : "windows";
+            }
+            if (SelectedScreenshotOcrModel is { } screenshotModel)
+                _settings.ScreenshotOcrModelId = screenshotModel.Id;
+
             _settings.ApiBaseUrl = ApiEndpointValidator.ValidateAndNormalize(
                 ApiBaseUrlTextBox.Text?.Trim() ?? _settings.ApiBaseUrl);
 
@@ -921,6 +1164,8 @@ namespace QuickTranslate.UI
         }
 
         private sealed record ThinkingModeChoice(ThinkingModePreference Value, string Label);
+
+        private sealed record OcrEngineChoice(string Id, string Name);
 
         private void LoadTranslationTriggerModeComboBox()
         {

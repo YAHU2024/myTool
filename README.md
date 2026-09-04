@@ -62,7 +62,7 @@ QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中�
 
 支持结构化流式输出的模型会在每个 `UnitId` 译文完整到达后立即显示对应区域，已显示卡片的位置保持稳定；流中断时保留已完成结果并明确标记部分完成，不伪造未返回的译文。模型不支持该格式或响应无法安全映射时，自动回退到一次批量请求，再按既有边界回退逐单元请求。
 
-程序优先使用已安装的 RapidOCR/ONNX 本地场景 OCR Worker，适合复杂背景、日文和倾斜文字；未安装本地模型时自动回退 Windows 内置 OCR。完整版会内置通过质量与许可证门禁的基线模型，标准版和完整版都可在设置页主动下载、校验和切换其他已适配模型；应用不会在启动或截图时自动联网下载。源码环境可按需运行 `scripts\install-ocr-runtime.ps1` 安装隔离运行时。复杂背景擦除暂采用半透明遮罩卡片降级，低置信度或无法安全映射的结果不会自动覆盖。
+程序优先使用已安装的 RapidOCR/ONNX 本地场景 OCR Worker，适合复杂背景、日文和倾斜文字；未安装本地模型或运行时缺失时自动回退 Windows 内置 OCR。标准版和完整版都可在设置页主动下载、校验和切换已适配模型；两版均不内置场景模型，应用不会在启动或截图时自动联网下载。源码环境可按需运行 `scripts\install-ocr-runtime.ps1` 安装隔离运行时。复杂背景擦除暂采用半透明遮罩卡片降级，低置信度或无法安全映射的结果不会自动覆盖。
 
 ---
 
@@ -334,6 +334,8 @@ QuickTranslate/
 │   ├── WindowsMediaOcrService.cs                       # Windows 内置 OCR 适配器
 │   ├── RapidOcrWorkerService.cs                        # 隔离 RapidOCR/ONNX Worker 服务
 │   ├── ScreenshotOcrServiceFactory.cs                  # 截图 OCR 引擎选择与回退
+│   ├── OcrModelCatalog.cs                              # 官方 OCR 模型固定 revision 清单
+│   ├── OcrModelManager.cs                              # OCR 模型下载、校验与原子安装
 │   ├── IWordLookupService.cs                           # 查词服务接口
 │   ├── IWordLookupEnrichmentService.cs                 # AI 查词增强接口
 │   ├── OpenAIWordLookupService.cs                      # OpenAI 兼容查词服务

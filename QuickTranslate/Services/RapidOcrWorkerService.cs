@@ -16,7 +16,11 @@ public sealed record RapidOcrWorkerOptions(
     string PythonExecutable,
     string WorkerScriptPath,
     TimeSpan StartupTimeout = default,
-    TimeSpan RecognitionTimeout = default)
+    TimeSpan RecognitionTimeout = default,
+    string? ModelId = null,
+    string? DetectionModelPath = null,
+    string? RecognitionModelPath = null,
+    string? RecognitionKeysPath = null)
 {
     public TimeSpan EffectiveStartupTimeout =>
         StartupTimeout > TimeSpan.Zero ? StartupTimeout : TimeSpan.FromSeconds(15);
@@ -63,7 +67,9 @@ public sealed class RapidOcrWorkerService : IOcrService, IOcrWarmupService, IDis
 
     public OcrCapability Probe()
     {
-        if (!File.Exists(_options.PythonExecutable) || !File.Exists(_options.WorkerScriptPath))
+        if (!File.Exists(_options.PythonExecutable) ||
+            !File.Exists(_options.WorkerScriptPath) ||
+            !OptionalModelFilesExist())
         {
             return OcrCapability.Unavailable("本地场景 OCR Worker 未安装。");
         }
@@ -273,6 +279,10 @@ public sealed class RapidOcrWorkerService : IOcrService, IOcrWarmupService, IDis
         };
         startInfo.ArgumentList.Add(_options.WorkerScriptPath);
         startInfo.Environment["PYTHONUNBUFFERED"] = "1";
+        SetOptionalEnvironment(startInfo, "QUICKTRANSLATE_OCR_MODEL_ID", _options.ModelId);
+        SetOptionalEnvironment(startInfo, "QUICKTRANSLATE_OCR_DET_MODEL", _options.DetectionModelPath);
+        SetOptionalEnvironment(startInfo, "QUICKTRANSLATE_OCR_REC_MODEL", _options.RecognitionModelPath);
+        SetOptionalEnvironment(startInfo, "QUICKTRANSLATE_OCR_REC_KEYS", _options.RecognitionKeysPath);
 
         var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
         var startupWatch = Stopwatch.StartNew();
@@ -340,6 +350,12 @@ public sealed class RapidOcrWorkerService : IOcrService, IOcrWarmupService, IDis
             throw new OcrEngineUnavailableException(
                 $"本地场景 OCR Worker 不可用（{ready?.ErrorType ?? "ReadyFailed"}）。");
         }
+        if (!string.IsNullOrWhiteSpace(_options.ModelId) &&
+            !string.Equals(ready.ModelFamily, _options.ModelId, StringComparison.Ordinal))
+        {
+            StopWorker("model_identity_mismatch");
+            throw new OcrEngineUnavailableException("本地场景 OCR Worker 未加载所选模型。");
+        }
 
         _workerGeneration = nextGeneration;
         startupWatch.Stop();
@@ -350,6 +366,28 @@ public sealed class RapidOcrWorkerService : IOcrService, IOcrWarmupService, IDis
             restart = _workerGeneration > 1
         });
         return true;
+    }
+
+    private bool OptionalModelFilesExist()
+    {
+        var paths = new[]
+        {
+            _options.DetectionModelPath,
+            _options.RecognitionModelPath,
+            _options.RecognitionKeysPath
+        };
+        var configuredCount = paths.Count(static path => !string.IsNullOrWhiteSpace(path));
+        return configuredCount == 0 ||
+               configuredCount == paths.Length && paths.All(static path => File.Exists(path));
+    }
+
+    private static void SetOptionalEnvironment(
+        ProcessStartInfo startInfo,
+        string name,
+        string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+            startInfo.Environment[name] = value;
     }
 
     private async Task SendAsync(WorkerRequest request, CancellationToken cancellationToken)
@@ -481,6 +519,7 @@ public sealed class RapidOcrWorkerService : IOcrService, IOcrWarmupService, IDis
         [JsonPropertyName("kind")] public string? Kind { get; init; }
         [JsonPropertyName("status")] public string? Status { get; init; }
         [JsonPropertyName("error_type")] public string? ErrorType { get; init; }
+        [JsonPropertyName("model_family")] public string? ModelFamily { get; init; }
         [JsonPropertyName("used_language_tag")] public string? UsedLanguageTag { get; init; }
         [JsonPropertyName("language_fallback_used")] public bool LanguageFallbackUsed { get; init; }
         [JsonPropertyName("text_angle_degrees")] public double TextAngleDegrees { get; init; }
