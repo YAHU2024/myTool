@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using QuickTranslate.Core;
+using QuickTranslate.Helpers;
 using QuickTranslate.Models;
 
 namespace QuickTranslate.Services;
@@ -28,7 +29,7 @@ public sealed record RapidOcrWorkerOptions(
 /// 通过长驻隔离进程调用 RapidOCR。主进程只接收引擎无关的 OCR 契约，
 /// Worker 异常或超时后会被终止，下一次识别重新拉起，以免污染 WPF UI 进程。
 /// </summary>
-public sealed class RapidOcrWorkerService : IOcrService, IDisposable
+public sealed class RapidOcrWorkerService : IOcrService, IOcrWarmupService, IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -38,11 +39,13 @@ public sealed class RapidOcrWorkerService : IOcrService, IDisposable
     private readonly RapidOcrWorkerOptions _options;
     private readonly OcrResourceLimits _limits;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly CancellationTokenSource _lifetimeCts = new();
     private Process? _process;
     private StreamWriter? _input;
     private StreamReader? _output;
     private Task? _errorDrain;
-    private bool _disposed;
+    private int _workerGeneration;
+    private int _disposed;
 
     public RapidOcrWorkerService(
         RapidOcrWorkerOptions options,
@@ -78,24 +81,31 @@ public sealed class RapidOcrWorkerService : IOcrService, IDisposable
         OcrRecognitionOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
         ArgumentNullException.ThrowIfNull(image);
         image.Validate(_limits);
 
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _lifetimeCts.Token);
         timeoutCts.CancelAfter(_options.EffectiveRecognitionTimeout);
         var token = timeoutCts.Token;
+        var acquired = false;
+        var watch = Stopwatch.StartNew();
+        var startupIncluded = false;
 
-        await _gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            var watch = Stopwatch.StartNew();
+            await _gate.WaitAsync(token).ConfigureAwait(false);
+            acquired = true;
+            ObjectDisposedException.ThrowIf(IsDisposed, this);
             try
             {
-                await EnsureStartedAsync(token).ConfigureAwait(false);
+                startupIncluded = await EnsureStartedAsync(token).ConfigureAwait(false);
+                var requestId = Guid.NewGuid().ToString("N");
                 var request = new WorkerRequest(
                     "recognize",
-                    Guid.NewGuid().ToString("N"),
+                    requestId,
                     image.PixelWidth,
                     image.PixelHeight,
                     image.PixelWidth * 4,
@@ -103,9 +113,15 @@ public sealed class RapidOcrWorkerService : IOcrService, IDisposable
                     options?.LanguageHint);
                 await SendAsync(request, token).ConfigureAwait(false);
                 var response = await ReadResponseAsync(token).ConfigureAwait(false);
+                if (!string.Equals(response.RequestId, requestId, StringComparison.Ordinal))
+                {
+                    StopWorker("request_id_mismatch");
+                    throw new OcrRecognitionException(
+                        "本地场景 OCR Worker 协议请求身份不匹配。");
+                }
                 if (!string.Equals(response.Status, "ok", StringComparison.OrdinalIgnoreCase))
                 {
-                    StopWorker();
+                    StopWorker("worker_error_response");
                     throw new OcrRecognitionException(
                         $"本地场景 OCR Worker 识别失败（{response.ErrorType ?? "WorkerError"}）。");
                 }
@@ -113,6 +129,13 @@ public sealed class RapidOcrWorkerService : IOcrService, IDisposable
                 var blocks = ConvertBlocks(response.Blocks, image.PixelWidth, image.PixelHeight);
                 OcrBlockValidator.ValidateAll(blocks, image.PixelWidth, image.PixelHeight);
                 watch.Stop();
+                Logger.Info("Screenshot", "screenshot.ocr_worker_recognition_completed", new
+                {
+                    duration_ms = watch.Elapsed.TotalMilliseconds,
+                    startup_included = startupIncluded,
+                    block_count = blocks.Count,
+                    worker_generation = _workerGeneration
+                });
                 return new(
                     blocks,
                     string.IsNullOrWhiteSpace(response.UsedLanguageTag)
@@ -124,46 +147,114 @@ public sealed class RapidOcrWorkerService : IOcrService, IDisposable
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                StopWorker();
+                if (_lifetimeCts.IsCancellationRequested)
+                {
+                    StopWorker("service_disposed");
+                    throw;
+                }
+
+                StopWorker("recognition_timeout");
                 throw new OcrRecognitionException("本地场景 OCR Worker 超时。");
             }
             catch (OperationCanceledException)
             {
-                StopWorker();
+                StopWorker("recognition_cancelled");
                 throw;
             }
             catch (OcrRecognitionException)
             {
                 throw;
             }
-            catch (Exception ex) when (ex is IOException or InvalidOperationException or JsonException)
+            catch (Exception ex) when (
+                ex is IOException or InvalidOperationException or JsonException or ArgumentException)
             {
-                StopWorker();
+                StopWorker("protocol_error");
                 throw new OcrRecognitionException(
                     $"本地场景 OCR Worker 通信失败（{ex.GetType().Name}）。", ex);
             }
         }
+        catch (OperationCanceledException) when (
+            !acquired &&
+            !cancellationToken.IsCancellationRequested &&
+            !_lifetimeCts.IsCancellationRequested)
+        {
+            throw new OcrRecognitionException("本地场景 OCR Worker 排队超时。");
+        }
         finally
         {
-            _gate.Release();
+            if (acquired)
+                _gate.Release();
+        }
+    }
+
+    /// <summary>幂等地启动 Worker 并等待模型初始化完成；失败后允许下一次调用重试。</summary>
+    public async Task WarmUpAsync(CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _lifetimeCts.Token);
+        var acquired = false;
+        var watch = Stopwatch.StartNew();
+        try
+        {
+            await _gate.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+            acquired = true;
+            ObjectDisposedException.ThrowIf(IsDisposed, this);
+            var started = await EnsureStartedAsync(linkedCts.Token).ConfigureAwait(false);
+            watch.Stop();
+            Logger.Info("Screenshot", "screenshot.ocr_worker_warmup_completed", new
+            {
+                duration_ms = watch.Elapsed.TotalMilliseconds,
+                worker_started = started,
+                worker_generation = _workerGeneration
+            });
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            watch.Stop();
+            Logger.Warn("Screenshot", "screenshot.ocr_worker_warmup_failed", new
+            {
+                duration_ms = watch.Elapsed.TotalMilliseconds,
+                exception_type = ex.GetType().Name
+            });
+            throw;
+        }
+        finally
+        {
+            if (acquired)
+                _gate.Release();
         }
     }
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        _disposed = true;
-        StopWorker();
-        _gate.Dispose();
+
+        _lifetimeCts.Cancel();
+        _gate.Wait();
+        try
+        {
+            StopWorker("service_disposed");
+        }
+        finally
+        {
+            _gate.Release();
+        }
+        // Do not dispose synchronization primitives here. Calls that were already
+        // queued before Dispose can still be completing their cancelled awaits.
+        // The process and streams are the material resources and are closed above.
     }
 
-    private async Task EnsureStartedAsync(CancellationToken cancellationToken)
+    private bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+
+    private async Task<bool> EnsureStartedAsync(CancellationToken cancellationToken)
     {
         if (_process is { HasExited: false } && _input is not null && _output is not null)
-            return;
+            return false;
 
-        StopWorker();
+        StopWorker("restart_before_start");
         if (!File.Exists(_options.PythonExecutable) || !File.Exists(_options.WorkerScriptPath))
             throw new OcrEngineUnavailableException("本地场景 OCR Worker 未安装。");
 
@@ -184,6 +275,13 @@ public sealed class RapidOcrWorkerService : IOcrService, IDisposable
         startInfo.Environment["PYTHONUNBUFFERED"] = "1";
 
         var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+        var startupWatch = Stopwatch.StartNew();
+        var nextGeneration = _workerGeneration + 1;
+        Logger.Info("Screenshot", "screenshot.ocr_worker_starting", new
+        {
+            worker_generation = nextGeneration,
+            restart = _workerGeneration > 0
+        });
         try
         {
             if (!process.Start())
@@ -203,10 +301,24 @@ public sealed class RapidOcrWorkerService : IOcrService, IDisposable
 
         using var startupCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         startupCts.CancelAfter(_options.EffectiveStartupTimeout);
-        var readyLine = await _output.ReadLineAsync(startupCts.Token).ConfigureAwait(false);
+        string? readyLine;
+        try
+        {
+            readyLine = await _output.ReadLineAsync(startupCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            StopWorker("startup_timeout");
+            throw new OcrEngineUnavailableException("本地场景 OCR Worker 启动超时。");
+        }
+        catch (OperationCanceledException)
+        {
+            StopWorker("startup_cancelled");
+            throw;
+        }
         if (string.IsNullOrWhiteSpace(readyLine))
         {
-            StopWorker();
+            StopWorker("startup_eof");
             throw new OcrEngineUnavailableException("本地场景 OCR Worker 未返回就绪信号。");
         }
 
@@ -217,17 +329,27 @@ public sealed class RapidOcrWorkerService : IOcrService, IDisposable
         }
         catch (JsonException ex)
         {
-            StopWorker();
+            StopWorker("startup_invalid_json");
             throw new OcrEngineUnavailableException("本地场景 OCR Worker 协议无效。", ex);
         }
 
         if (ready is null || !string.Equals(ready.Kind, "ready", StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(ready.Status, "ok", StringComparison.OrdinalIgnoreCase))
         {
-            StopWorker();
+            StopWorker("startup_rejected");
             throw new OcrEngineUnavailableException(
                 $"本地场景 OCR Worker 不可用（{ready?.ErrorType ?? "ReadyFailed"}）。");
         }
+
+        _workerGeneration = nextGeneration;
+        startupWatch.Stop();
+        Logger.Info("Screenshot", "screenshot.ocr_worker_started", new
+        {
+            duration_ms = startupWatch.Elapsed.TotalMilliseconds,
+            worker_generation = _workerGeneration,
+            restart = _workerGeneration > 1
+        });
+        return true;
     }
 
     private async Task SendAsync(WorkerRequest request, CancellationToken cancellationToken)
@@ -294,9 +416,10 @@ public sealed class RapidOcrWorkerService : IOcrService, IDisposable
         return blocks;
     }
 
-    private void StopWorker()
+    private void StopWorker(string reason)
     {
         var process = _process;
+        var errorDrain = _errorDrain;
         _process = null;
         _input = null;
         _output = null;
@@ -321,6 +444,26 @@ public sealed class RapidOcrWorkerService : IOcrService, IDisposable
         {
             process.Dispose();
         }
+
+        if (errorDrain is not null)
+            _ = ObserveErrorDrainAsync(errorDrain);
+        Logger.Info("Screenshot", "screenshot.ocr_worker_stopped", new
+        {
+            reason,
+            worker_generation = _workerGeneration
+        });
+    }
+
+    private static async Task ObserveErrorDrainAsync(Task errorDrain)
+    {
+        try
+        {
+            await errorDrain.ConfigureAwait(false);
+        }
+        catch
+        {
+            // stderr content and stream cleanup failures are intentionally discarded.
+        }
     }
 
     private sealed record WorkerRequest(
@@ -334,6 +477,7 @@ public sealed class RapidOcrWorkerService : IOcrService, IDisposable
 
     private sealed class WorkerResponse
     {
+        [JsonPropertyName("request_id")] public string? RequestId { get; init; }
         [JsonPropertyName("kind")] public string? Kind { get; init; }
         [JsonPropertyName("status")] public string? Status { get; init; }
         [JsonPropertyName("error_type")] public string? ErrorType { get; init; }

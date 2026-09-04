@@ -196,6 +196,7 @@ public partial class App : Application
             supports_confidence = screenshotOcrCapability.SupportsConfidence,
             language_count = screenshotOcrCapability.SupportedLanguageTags.Count
         });
+        _ = WarmUpScreenshotOcrAsync(_screenshotOcrService);
 
         // 初始化悬浮窗（单例复用）
         _floatingWindow = new FloatingWindow();
@@ -3074,6 +3075,29 @@ public partial class App : Application
     /// <summary>
     /// 退出应用
     /// </summary>
+    private static async Task WarmUpScreenshotOcrAsync(IOcrService ocrService)
+    {
+        if (ocrService is not IOcrWarmupService warmup)
+            return;
+
+        try
+        {
+            await warmup.WarmUpAsync().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown cancellation is expected.
+        }
+        catch (Exception ex)
+        {
+            // Warmup is best effort and must never block WPF startup.
+            Logger.Warn("Screenshot", "screenshot.ocr_worker_warmup_unavailable", new
+            {
+                exception_type = ex.GetType().Name
+            });
+        }
+    }
+
     private void OnExitRequested()
     {
         var dispatcherAccess = Dispatcher.CheckAccess();

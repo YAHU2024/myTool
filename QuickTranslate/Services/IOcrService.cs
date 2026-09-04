@@ -14,6 +14,12 @@ public interface IOcrService
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>可在后台完成昂贵初始化的 OCR 服务。预热不得占用图片识别结果或改变识别语义。</summary>
+public interface IOcrWarmupService
+{
+    Task WarmUpAsync(CancellationToken cancellationToken = default);
+}
+
 public sealed class OcrEngineUnavailableException : Exception
 {
     public OcrEngineUnavailableException(string message, Exception? inner = null)
