@@ -433,6 +433,7 @@ public sealed class RapidOcrWorkerService : IOcrService, IOcrWarmupService, IDis
             return Array.Empty<OcrTextBlock>();
 
         var blocks = new List<OcrTextBlock>(workerBlocks.Count);
+        var readingOrder = 0;
         foreach (var workerBlock in workerBlocks)
         {
             if (workerBlock.Bounds is null)
@@ -448,7 +449,8 @@ public sealed class RapidOcrWorkerService : IOcrService, IOcrWarmupService, IDis
                     workerBlock.Bounds.Height),
                 workerBlock.Confidence,
                 polygon,
-                workerBlock.OrientationDegrees));
+                workerBlock.OrientationDegrees,
+                ++readingOrder));
         }
 
         return blocks;
@@ -550,3 +552,4 @@ public sealed class RapidOcrWorkerService : IOcrService, IOcrWarmupService, IDis
         [JsonPropertyName("height")] public int Height { get; init; }
     }
 }
+

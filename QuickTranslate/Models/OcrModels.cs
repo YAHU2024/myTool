@@ -72,13 +72,22 @@ public readonly record struct OcrPoint(double X, double Y)
 }
 
 /// <summary>OCR 识别出的一个文本块。坐标相对于输入图像左上角。</summary>
+public enum OcrRegionType
+{
+    Text,
+    Bubble,
+    Decorative
+}
+
 public sealed record OcrTextBlock(
     string BlockId,
     string Text,
     OcrBounds Bounds,
     double? Confidence = null,
     IReadOnlyList<OcrPoint>? Polygon = null,
-    double? OrientationDegrees = null);
+    double? OrientationDegrees = null,
+    int ReadingOrder = 0,
+    OcrRegionType RegionType = OcrRegionType.Text);
 
 /// <summary>一次识别的完整结果。</summary>
 public sealed record OcrResult(
@@ -175,3 +184,4 @@ public sealed record OcrResourceLimits(
             throw new ArgumentException("OCR 图像像素载荷超过允许上限。", nameof(image));
     }
 }
+
