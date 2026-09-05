@@ -18,13 +18,23 @@ public sealed class OcrModelCatalogTests
             Assert.Equal(model.TotalSizeBytes, model.Artifacts.Sum(artifact => artifact.SizeBytes));
             Assert.All(model.Artifacts, artifact =>
             {
-                Assert.Equal("huggingface.co", artifact.DownloadUri.Host);
-                Assert.StartsWith("/PaddlePaddle/", artifact.DownloadUri.AbsolutePath, StringComparison.Ordinal);
-                Assert.Matches(@"/resolve/[0-9a-f]{40}/", artifact.DownloadUri.AbsolutePath);
-                Assert.DoesNotContain("/main/", artifact.DownloadUri.AbsolutePath, StringComparison.OrdinalIgnoreCase);
                 Assert.Matches("^[0-9A-F]{64}$", artifact.Sha256);
                 Assert.True(artifact.SizeBytes > 0);
                 Assert.DoesNotContain("..", artifact.RelativePath, StringComparison.Ordinal);
+                if (artifact.Kind == OcrModelArtifactKind.RemoteDownload)
+                {
+                    Assert.NotNull(artifact.DownloadUri);
+                    Assert.Equal("huggingface.co", artifact.DownloadUri!.Host);
+                    Assert.StartsWith("/PaddlePaddle/", artifact.DownloadUri.AbsolutePath, StringComparison.Ordinal);
+                    Assert.Matches(@"/resolve/[0-9a-f]{40}/", artifact.DownloadUri.AbsolutePath);
+                    Assert.DoesNotContain("/main/", artifact.DownloadUri.AbsolutePath, StringComparison.OrdinalIgnoreCase);
+                }
+                else
+                {
+                    Assert.Equal(OcrModelArtifactKind.DerivedCharacterDictionary, artifact.Kind);
+                    Assert.Null(artifact.DownloadUri);
+                    Assert.Equal("rec/ppocrv6_dict.txt", artifact.RelativePath);
+                }
             });
         }
     }

@@ -18,8 +18,8 @@ public sealed class OcrModelManagerTests
         var model = CreateModel(det, rec);
         using var manager = new OcrModelManager(root, new MapHandler(new Dictionary<string, byte[]>
         {
-            [model.Artifacts[0].DownloadUri.ToString()] = det,
-            [model.Artifacts[1].DownloadUri.ToString()] = rec
+            [model.Artifacts[0].DownloadUri!.ToString()] = det,
+            [model.Artifacts[1].DownloadUri!.ToString()] = rec
         }));
 
         var installed = await manager.InstallAsync(model);
@@ -31,6 +31,47 @@ public sealed class OcrModelManagerTests
     }
 
     [Fact]
+    public async Task InstallAsync_GeneratesDictionaryFromVerifiedInferenceYaml()
+    {
+        var root = CreateTempDirectory();
+        var det = Encoding.UTF8.GetBytes("det");
+        var rec = Encoding.UTF8.GetBytes("rec");
+        var yaml = Encoding.UTF8.GetBytes("  character_dict:\r\n  - A\r\n  - ''''\r\n");
+        var dictionary = Encoding.UTF8.GetBytes("A\r\n'\r\n");
+        var model = new OcrModelDescriptor(
+            "generated-model",
+            "1",
+            "Generated",
+            "Generated",
+            "Apache-2.0",
+            det.Length + rec.Length + yaml.Length + dictionary.Length,
+            new[]
+            {
+                Artifact("det/inference.onnx", det, "https://example.invalid/det"),
+                Artifact("rec/inference.onnx", rec, "https://example.invalid/rec"),
+                Artifact("rec/inference.yml", yaml, "https://example.invalid/yaml"),
+                new OcrModelArtifact(
+                    "rec/ppocrv6_dict.txt",
+                    dictionary.Length,
+                    Convert.ToHexString(SHA256.HashData(dictionary)),
+                    null,
+                    OcrModelArtifactKind.DerivedCharacterDictionary)
+            });
+        using var manager = new OcrModelManager(root, new MapHandler(new Dictionary<string, byte[]>
+        {
+            [model.Artifacts[0].DownloadUri!.ToString()] = det,
+            [model.Artifacts[1].DownloadUri!.ToString()] = rec,
+            [model.Artifacts[2].DownloadUri!.ToString()] = yaml
+        }));
+
+        var installed = await manager.InstallAsync(model);
+
+        Assert.Equal("A\r\n'\r\n", await File.ReadAllTextAsync(
+            Path.Combine(installed, "rec", "ppocrv6_dict.txt")));
+        await manager.VerifyInstalledAsync(model);
+    }
+
+    [Fact]
     public async Task InstallAsync_HashFailureDoesNotPromoteAndRemovesBadPart()
     {
         var root = CreateTempDirectory();
@@ -38,8 +79,8 @@ public sealed class OcrModelManagerTests
         var model = CreateModel(expected, expected);
         using var manager = new OcrModelManager(root, new MapHandler(new Dictionary<string, byte[]>
         {
-            [model.Artifacts[0].DownloadUri.ToString()] = Encoding.UTF8.GetBytes("xxxxxxxx"),
-            [model.Artifacts[1].DownloadUri.ToString()] = expected
+            [model.Artifacts[0].DownloadUri!.ToString()] = Encoding.UTF8.GetBytes("xxxxxxxx"),
+            [model.Artifacts[1].DownloadUri!.ToString()] = expected
         }));
 
         await Assert.ThrowsAsync<InvalidDataException>(() => manager.InstallAsync(model));
@@ -117,12 +158,6 @@ public sealed class OcrModelManagerTests
 
     private static OcrModelDescriptor CreateModel(byte[] det, byte[] rec)
     {
-        static OcrModelArtifact Artifact(string path, byte[] bytes) => new(
-            path,
-            bytes.Length,
-            Convert.ToHexString(SHA256.HashData(bytes)),
-            new Uri("https://example.invalid/" + path.Replace('/', '-')));
-
         return new(
             "test-model",
             "1",
@@ -130,8 +165,18 @@ public sealed class OcrModelManagerTests
             "Test",
             "Apache-2.0",
             det.Length + rec.Length,
-            new[] { Artifact("det/inference.onnx", det), Artifact("rec/inference.onnx", rec) });
+            new[]
+            {
+                Artifact("det/inference.onnx", det, "https://example.invalid/det-inference"),
+                Artifact("rec/inference.onnx", rec, "https://example.invalid/rec-inference")
+            });
     }
+
+    private static OcrModelArtifact Artifact(string path, byte[] bytes, string uri) => new(
+            path,
+            bytes.Length,
+            Convert.ToHexString(SHA256.HashData(bytes)),
+            new Uri(uri));
 
     private static string CreateTempDirectory()
     {

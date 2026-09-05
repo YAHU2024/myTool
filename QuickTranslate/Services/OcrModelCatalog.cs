@@ -2,11 +2,18 @@ using System.IO;
 
 namespace QuickTranslate.Services;
 
+public enum OcrModelArtifactKind
+{
+    RemoteDownload,
+    DerivedCharacterDictionary
+}
+
 public sealed record OcrModelArtifact(
     string RelativePath,
     long SizeBytes,
     string Sha256,
-    Uri DownloadUri);
+    Uri? DownloadUri,
+    OcrModelArtifactKind Kind = OcrModelArtifactKind.RemoteDownload);
 
 public sealed record OcrModelDescriptor(
     string Id,
@@ -42,9 +49,9 @@ public static class OcrModelCatalog
             "PaddlePaddle/PP-OCRv6_small_rec_onnx", "b8f84f0b80c529de40b4fbb3544b84fa7233a513",
             new[]
             {
-                new OcrModelArtifact("rec/inference.onnx", 21_159_378, "5435FD747C9E0EFE15A96D0B378D5BD157E9492ED8FD80EDF08F30D02FA24634", null!),
-                new OcrModelArtifact("rec/ppocrv6_dict.txt", 93_655, "769E7FA79BB297B5F18D8DBD149E364A45BC61F2B3F574E5EA836F0B261C23A6", null!),
-                new OcrModelArtifact("rec/inference.yml", 150_579, "AB078671BB49F06228EADCCD34F1BB501E157F7A047095FFB943BA81512C77D1", null!)
+                new OcrModelArtifact("rec/inference.onnx", 21_159_378, "5435FD747C9E0EFE15A96D0B378D5BD157E9492ED8FD80EDF08F30D02FA24634", null),
+                new OcrModelArtifact("rec/inference.yml", 150_579, "AB078671BB49F06228EADCCD34F1BB501E157F7A047095FFB943BA81512C77D1", null),
+                new OcrModelArtifact("rec/ppocrv6_dict.txt", 93_655, "769E7FA79BB297B5F18D8DBD149E364A45BC61F2B3F574E5EA836F0B261C23A6", null, OcrModelArtifactKind.DerivedCharacterDictionary)
             }),
         Create(
             "ppocrv6-tiny-cpu",
@@ -56,9 +63,9 @@ public static class OcrModelCatalog
             "PaddlePaddle/PP-OCRv6_tiny_rec_onnx", "2612ab37152ae0a677521bae4e1e3d4fb4cf7c30",
             new[]
             {
-                new OcrModelArtifact("rec/inference.onnx", 4_462_639, "9EF676D6ED3C88256A2D92C640C44F25B0C40947E111B14B8BE8F594091563E6", null!),
-                new OcrModelArtifact("rec/ppocrv6_dict.txt", 34_060, "2AF150BAB777D86FA1CE821F6A37EABEA90F1BB99AB9C41F031262E892A747BC", null!),
-                new OcrModelArtifact("rec/inference.yml", 55_571, "66170210BAD538E83FFF3C4A3867E547D6BF20B50D64B20347C4B913F3034EA1", null!)
+                new OcrModelArtifact("rec/inference.onnx", 4_462_639, "9EF676D6ED3C88256A2D92C640C44F25B0C40947E111B14B8BE8F594091563E6", null),
+                new OcrModelArtifact("rec/inference.yml", 55_571, "66170210BAD538E83FFF3C4A3867E547D6BF20B50D64B20347C4B913F3034EA1", null),
+                new OcrModelArtifact("rec/ppocrv6_dict.txt", 34_060, "2AF150BAB777D86FA1CE821F6A37EABEA90F1BB99AB9C41F031262E892A747BC", null, OcrModelArtifactKind.DerivedCharacterDictionary)
             })
     };
 
@@ -97,6 +104,8 @@ public static class OcrModelCatalog
         string repository,
         string revision)
     {
+        if (artifact.Kind != OcrModelArtifactKind.RemoteDownload)
+            return artifact;
         var sourceName = Path.GetFileName(artifact.RelativePath);
         return artifact with
         {

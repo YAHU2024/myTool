@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using QuickTranslate.Helpers;
 
@@ -204,6 +205,43 @@ public sealed class OcrModelManager : IDisposable
                 }
             }
 
+            if (artifact.Kind == OcrModelArtifactKind.DerivedCharacterDictionary)
+            {
+                // The PP-OCRv6 ONNX repositories do not publish the dictionary
+                // as a separate file. Generate it from the already verified
+                // inference.yml instead of requesting a non-existent URL.
+                var generatedPartialPath = completedPath + ".part";
+                TryDelete(generatedPartialPath);
+                try
+                {
+                    var sourceArtifact = model.Artifacts.FirstOrDefault(static candidate =>
+                        candidate.Kind == OcrModelArtifactKind.RemoteDownload &&
+                        string.Equals(candidate.RelativePath, "rec/inference.yml", StringComparison.Ordinal));
+                    if (sourceArtifact is null)
+                        throw new InvalidDataException("OCR 模型字符表来源未登记。");
+                    await VerifyFileAsync(
+                        ResolveContainedPath(stagingDirectory, sourceArtifact.RelativePath),
+                        sourceArtifact,
+                        cancellationToken).ConfigureAwait(false);
+                    await GenerateCharacterDictionaryAsync(
+                        stagingDirectory,
+                        artifact,
+                        generatedPartialPath,
+                        cancellationToken).ConfigureAwait(false);
+                    await VerifyFileAsync(generatedPartialPath, artifact, cancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidDataException)
+                {
+                    TryDelete(generatedPartialPath);
+                    throw;
+                }
+                File.Move(generatedPartialPath, completedPath, overwrite: true);
+                completedBytes += artifact.SizeBytes;
+                completedFiles++;
+                Report("verifying");
+                continue;
+            }
+
             Directory.CreateDirectory(Path.GetDirectoryName(completedPath)!);
             var partialPath = completedPath + ".part";
             var existingBytes = File.Exists(partialPath) ? new FileInfo(partialPath).Length : 0;
@@ -335,6 +373,8 @@ public sealed class OcrModelManager : IDisposable
         IProgress<OcrModelDownloadProgress>? progress,
         CancellationToken cancellationToken)
     {
+        if (artifact.Kind != OcrModelArtifactKind.RemoteDownload || artifact.DownloadUri is null)
+            throw new InvalidDataException("OCR 模型下载清单包含无效远程文件。");
         using var request = new HttpRequestMessage(HttpMethod.Get, artifact.DownloadUri);
         if (existingBytes > 0)
             request.Headers.Range = new RangeHeaderValue(existingBytes, null);
@@ -382,6 +422,56 @@ public sealed class OcrModelManager : IDisposable
                 model.TotalSizeBytes,
                 "downloading"));
         }
+    }
+
+    private static async Task GenerateCharacterDictionaryAsync(
+        string stagingDirectory,
+        OcrModelArtifact artifact,
+        string partialPath,
+        CancellationToken cancellationToken)
+    {
+        var sourcePath = ResolveContainedPath(
+            stagingDirectory,
+            "rec/inference.yml");
+        if (!File.Exists(sourcePath))
+            throw new InvalidDataException("OCR 模型字符表来源文件缺失。");
+
+        var yaml = await File.ReadAllTextAsync(sourcePath, cancellationToken).ConfigureAwait(false);
+        var lines = yaml.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+        var markerIndex = Array.FindIndex(lines, static line =>
+            string.Equals(line.TrimEnd('\r'), "  character_dict:", StringComparison.Ordinal));
+        if (markerIndex < 0)
+            throw new InvalidDataException("OCR 模型字符表配置缺失。");
+
+        var characters = new List<string>();
+        for (var index = markerIndex + 1; index < lines.Length; index++)
+        {
+            var line = lines[index].TrimEnd('\r');
+            if (!line.StartsWith("  - ", StringComparison.Ordinal))
+                break;
+            characters.Add(ParseYamlCharacter(line[4..]));
+        }
+
+        if (characters.Count == 0)
+            throw new InvalidDataException("OCR 模型字符表为空。");
+
+        // Keep the official dictionary's UTF-8 without BOM and CRLF format.
+        var dictionary = string.Join("\r\n", characters) + "\r\n";
+        var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(dictionary);
+        if (bytes.Length != artifact.SizeBytes)
+            throw new InvalidDataException("OCR 模型派生字符表大小与清单不一致。");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(partialPath)!);
+        await File.WriteAllBytesAsync(partialPath, bytes, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string ParseYamlCharacter(string scalar)
+    {
+        if (scalar.Length >= 2 && scalar[0] == '\'' && scalar[^1] == '\'')
+            return scalar[1..^1].Replace("''", "'", StringComparison.Ordinal);
+        if (scalar.Contains('#', StringComparison.Ordinal))
+            throw new InvalidDataException("OCR 模型字符表包含未支持的 YAML 标量。");
+        return scalar;
     }
 
     private static async Task VerifyFileAsync(
