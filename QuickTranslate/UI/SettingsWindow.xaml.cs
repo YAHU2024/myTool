@@ -536,7 +536,7 @@ namespace QuickTranslate.UI
                 { State: OcrModelInstallState.Corrupted } => "安装文件不完整或损坏，请重新下载。",
                 { State: OcrModelInstallState.Installed } when isActive => "当前生效；下次切换前仍会再次完整校验。",
                 { State: OcrModelInstallState.Installed } when isInUse => "正在校验模型并启动 Worker...",
-                { State: OcrModelInstallState.Installed } when IsRapidOcrSelected && !runtimeAvailable => "模型已安装，但本地 OCR 运行时缺失；请安装完整 OCR 运行时后再启用。",
+                { State: OcrModelInstallState.Installed } when IsRapidOcrSelected && !runtimeAvailable => "模型已安装，但本地 OCR 运行时缺失。源码运行请先执行 scripts\\install-ocr-runtime.ps1；发布版需使用包含 OCR 运行时的安装包。",
                 { State: OcrModelInstallState.Installed } => "已安装，切换前会完整校验。",
                 _ => "状态未知。"
             });
