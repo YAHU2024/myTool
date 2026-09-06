@@ -1,3 +1,5 @@
+using QuickTranslate.Models;
+
 namespace QuickTranslate.Services;
 
 public enum ScreenshotSourceLanguage
@@ -10,6 +12,13 @@ public enum ScreenshotSourceLanguage
 
 public static class ScreenshotLanguageRouter
 {
+    public static ScreenshotSourceLanguage Detect(OcrResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        var text = string.Join("\n", result.Blocks.Select(static block => block.Text));
+        return Detect(text);
+    }
+
     public static ScreenshotSourceLanguage Detect(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return ScreenshotSourceLanguage.Unknown;

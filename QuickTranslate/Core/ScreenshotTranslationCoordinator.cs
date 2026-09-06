@@ -55,6 +55,30 @@ public sealed class ScreenshotTranslationCoordinator
             .ConfigureAwait(false);
         ocrWatch.Stop();
 
+        return await ExecuteWithOcrResultAsync(
+            image,
+            ocrResult,
+            translateAsync,
+            ocrWatch.Elapsed,
+            cancellationToken,
+            onUnitsReady,
+            onUnitTranslated).ConfigureAwait(false);
+    }
+
+    public async Task<ScreenshotTranslationPipelineResult> ExecuteWithOcrResultAsync(
+        OcrImage image,
+        OcrResult ocrResult,
+        Func<IReadOnlyList<ScreenshotTranslationUnit>, CancellationToken, Task<IReadOnlyList<TranslatedTextUnit>>> translateAsync,
+        TimeSpan ocrElapsed,
+        CancellationToken cancellationToken = default,
+        Action<IReadOnlyList<ScreenshotTranslationUnit>>? onUnitsReady = null,
+        Action<TranslatedTextUnit>? onUnitTranslated = null)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(ocrResult);
+        ArgumentNullException.ThrowIfNull(translateAsync);
+        image.Validate(_limits);
+
         if (ocrResult.Blocks.Count > _limits.MaxBlockCount)
             throw new ArgumentException("OCR 块数超过允许上限。", nameof(ocrResult));
 
@@ -81,7 +105,7 @@ public sealed class ScreenshotTranslationCoordinator
             return new(ScreenshotTranslationPipelineStatus.NoText, ocrResult, units, emptyMapping)
             {
                 Timings = new(
-                    ocrWatch.Elapsed,
+                    ocrElapsed,
                     TimeSpan.Zero,
                     TimeSpan.Zero,
                     normalizedBlocks.Length,
@@ -110,11 +134,70 @@ public sealed class ScreenshotTranslationCoordinator
         return new(status, ocrResult, units, mapping)
         {
             Timings = new(
-                ocrWatch.Elapsed,
+                ocrElapsed,
                 translationWatch.Elapsed,
                 mappingWatch.Elapsed,
                 normalizedBlocks.Length,
                 units.Count)
         };
+    }
+
+    public async Task<ScreenshotTranslationPipelineResult> ExecuteWithUnitsAsync(
+        OcrResult ocrResult,
+        IReadOnlyList<ScreenshotTranslationUnit> units,
+        Func<IReadOnlyList<ScreenshotTranslationUnit>, CancellationToken, Task<IReadOnlyList<TranslatedTextUnit>>> translateAsync,
+        TimeSpan ocrElapsed,
+        CancellationToken cancellationToken = default,
+        Action<IReadOnlyList<ScreenshotTranslationUnit>>? onUnitsReady = null,
+        Action<TranslatedTextUnit>? onUnitTranslated = null)
+    {
+        ArgumentNullException.ThrowIfNull(ocrResult);
+        ArgumentNullException.ThrowIfNull(units);
+        ArgumentNullException.ThrowIfNull(translateAsync);
+        if (units.Count == 0)
+        {
+            var empty = ScreenshotTranslationMapper.Map(units, Array.Empty<TranslatedTextUnit>());
+            return new(ScreenshotTranslationPipelineStatus.NoText, ocrResult, units, empty)
+            {
+                Timings = new(ocrElapsed, TimeSpan.Zero, TimeSpan.Zero, ocrResult.Blocks.Count, 0)
+            };
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        onUnitsReady?.Invoke(units);
+        var translationWatch = Stopwatch.StartNew();
+        var translated = await translateAsync(units, cancellationToken).ConfigureAwait(false);
+        translationWatch.Stop();
+        cancellationToken.ThrowIfCancellationRequested();
+        foreach (var unit in translated)
+            onUnitTranslated?.Invoke(unit);
+        var mappingWatch = Stopwatch.StartNew();
+        var mapping = ScreenshotTranslationMapper.Map(units, translated);
+        mappingWatch.Stop();
+        var status = mapping.Accepted
+            ? ScreenshotTranslationPipelineStatus.Completed
+            : ScreenshotTranslationPipelineStatus.TranslationMappingRejected;
+        return new(status, ocrResult, units, mapping)
+        {
+            Timings = new(ocrElapsed, translationWatch.Elapsed, mappingWatch.Elapsed, ocrResult.Blocks.Count, units.Count)
+        };
+    }
+
+    public async Task<IReadOnlyList<TranslatedTextUnit>> TranslateUnitsAsync(
+        IReadOnlyList<ScreenshotTranslationUnit> units,
+        Func<IReadOnlyList<ScreenshotTranslationUnit>, CancellationToken, Task<IReadOnlyList<TranslatedTextUnit>>> translateAsync,
+        CancellationToken cancellationToken = default,
+        Action<TranslatedTextUnit>? onUnitTranslated = null)
+    {
+        ArgumentNullException.ThrowIfNull(units);
+        ArgumentNullException.ThrowIfNull(translateAsync);
+        if (units.Count == 0) return Array.Empty<TranslatedTextUnit>();
+        cancellationToken.ThrowIfCancellationRequested();
+        var translated = await translateAsync(units, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        foreach (var unit in translated) onUnitTranslated?.Invoke(unit);
+        var mapping = ScreenshotTranslationMapper.Map(units, translated);
+        if (!mapping.Accepted) throw new ScreenshotTranslationBatchFormatException(mapping.Reason);
+        return mapping.MappedUnits;
     }
 }

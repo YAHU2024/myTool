@@ -12,10 +12,25 @@ public sealed record MangaWorkerRequest(
     [property: JsonPropertyName("stages")] IReadOnlyList<string> Stages,
     [property: JsonPropertyName("output_directory")] string? OutputDirectory,
     [property: JsonPropertyName("include_source_text")] bool IncludeSourceText = false,
-    [property: JsonPropertyName("allow_model_download")] bool AllowModelDownload = false);
+    [property: JsonPropertyName("allow_model_download")] bool AllowModelDownload = false,
+    [property: JsonPropertyName("japanese_model_directory")] string? JapaneseModelDirectory = null);
 
 public static class MangaWorkerRequestFactory
 {
+    public static MangaWorkerRequest CreateProbe(
+        string requestId,
+        string imagePath,
+        string sourceLanguage,
+        string? outputDirectory = null,
+        string? japaneseModelDirectory = null)
+    {
+        if (string.IsNullOrWhiteSpace(requestId)) throw new ArgumentException("请求 ID 不能为空。", nameof(requestId));
+        if (string.IsNullOrWhiteSpace(imagePath)) throw new ArgumentException("图片路径不能为空。", nameof(imagePath));
+        if (string.IsNullOrWhiteSpace(sourceLanguage)) throw new ArgumentException("源语言不能为空。", nameof(sourceLanguage));
+        return new("quicktranslate.manga-worker.v1", "translate", requestId, Path.GetFullPath(imagePath), sourceLanguage,
+            new[] { "detect" }, outputDirectory is null ? null : Path.GetFullPath(outputDirectory), false, false, japaneseModelDirectory);
+    }
+
     public static MangaWorkerRequest CreateFromDetectedLanguage(
         string requestId,
         string imagePath,
@@ -33,11 +48,14 @@ public static class MangaWorkerRequestFactory
         string imagePath,
         string sourceLanguage,
         bool inpaint,
-        string? outputDirectory = null) {
+        string? outputDirectory = null,
+        bool includeSourceText = false,
+        string? japaneseModelDirectory = null)
+    {
         if (string.IsNullOrWhiteSpace(requestId)) throw new ArgumentException("请求 ID 不能为空。", nameof(requestId));
         if (string.IsNullOrWhiteSpace(imagePath)) throw new ArgumentException("图片路径不能为空。", nameof(imagePath));
         if (string.IsNullOrWhiteSpace(sourceLanguage)) throw new ArgumentException("源语言不能为空。", nameof(sourceLanguage));
         var stages = inpaint ? new[] { "detect", "ocr", "inpaint" } : new[] { "detect", "ocr" };
-        return new("quicktranslate.manga-worker.v1", "translate", requestId, Path.GetFullPath(imagePath), sourceLanguage, stages, outputDirectory is null ? null : Path.GetFullPath(outputDirectory));
+        return new("quicktranslate.manga-worker.v1", "translate", requestId, Path.GetFullPath(imagePath), sourceLanguage, stages, outputDirectory is null ? null : Path.GetFullPath(outputDirectory), includeSourceText, false, japaneseModelDirectory);
     }
 }

@@ -197,7 +197,9 @@ public partial class App : Application
         {
             var runtime = MangaWorkerRuntimeResolver.Resolve(_settings, AppContext.BaseDirectory);
             if (runtime is not null)
-                _mangaSceneRoutingService = new MangaSceneRoutingService(new MangaWorkerClient(runtime.PythonPath, runtime.ScriptPath));
+                _mangaSceneRoutingService = new MangaSceneRoutingService(
+                    new MangaWorkerClient(runtime.PythonPath, runtime.ScriptPath),
+                    _settings.MangaOcrModelDirectory);
             else
                 Logger.Warn("Screenshot", "screenshot.manga_worker_unavailable", new { reason = "worker_runtime_missing" });
         }
@@ -626,6 +628,7 @@ public partial class App : Application
         string? selectedOcrEngine = null;
         string? failureType = null;
         ScreenshotTranslationFailureKind? failureKind = null;
+        MangaSceneRoutingResult? mangaResult = null;
 
         // Let the hidden overlay leave the compositor before copying screen pixels.
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
@@ -685,6 +688,7 @@ public partial class App : Application
 
             stage = "ocr";
             pipelineStatus = "running";
+            var overlayImage = image;
 
             // OCR 单元准备好后立即创建稳定布局，但暂不显示空卡片。每个完整
             // UnitId 译文到达时只更新对应卡片，避免流式期间全量碰撞重排。
@@ -698,7 +702,7 @@ public partial class App : Application
                         return;
                     }
 
-                    var overlay = new ScreenshotTranslationOverlayWindow(region, image, units);
+                    var overlay = new ScreenshotTranslationOverlayWindow(region, overlayImage, units);
                     overlayItemCount = overlay.LayoutResult.Items.Count;
                     overlayPlacedCount = overlay.LayoutResult.PlacedCount;
                     overlayDegradedCount = overlay.LayoutResult.DegradedCount;
@@ -776,104 +780,171 @@ public partial class App : Application
                     Dispatcher.Invoke(UpdateOverlay, DispatcherPriority.Background);
             };
 
-            var pipeline = await coordinator.ExecuteAsync(
-                image,
-                async (units, token) =>
+            async Task<IReadOnlyList<TranslatedTextUnit>> TranslateUnitsAsync(
+                IReadOnlyList<ScreenshotTranslationUnit> units,
+                CancellationToken token)
+            {
+                stage = "translation";
+                await Dispatcher.InvokeAsync(() =>
                 {
-                    stage = "translation";
-                    await Dispatcher.InvokeAsync(() =>
+                    if (_screenshotProgressWindow is { } progress)
+                        progress.SetStatus($"正在翻译 {units.Count} 个文本单元…");
+                }, DispatcherPriority.Background);
+                if (translationService is IScreenshotBatchStreamingTranslationService streamingBatchTranslationService)
+                {
+                    translationStreamingUsed = true;
+                    Interlocked.Increment(ref translationRequestCount);
+                    try
                     {
-                        if (_screenshotProgressWindow is { } progress)
-                            progress.SetStatus($"正在翻译 {units.Count} 个文本单元…");
-                    }, DispatcherPriority.Background);
-                    if (translationService is IScreenshotBatchStreamingTranslationService streamingBatchTranslationService)
-                    {
-                        translationStreamingUsed = true;
-                        Interlocked.Increment(ref translationRequestCount);
-                        try
-                        {
-                            return await streamingBatchTranslationService
-                                .TranslateScreenshotBatchStreamingAsync(
-                                    units,
-                                    settings.TargetLanguage,
-                                    publishOverlayUnit,
-                                    token)
-                                .ConfigureAwait(false);
-                        }
-                        catch (ScreenshotTranslationBatchFormatException ex) when (!token.IsCancellationRequested)
-                        {
-                            translationStreamingFallback = true;
-                            Logger.Warn("Screenshot", "screenshot.batch_stream_mapping_rejected", new
-                            {
-                                reason = ex.Reason,
-                                unit_count = units.Count
-                            });
-                            // Structured stream incompatibility is the only
-                            // condition that may fall back to non-stream batch.
-                        }
+                        return await streamingBatchTranslationService
+                            .TranslateScreenshotBatchStreamingAsync(
+                                units,
+                                settings.TargetLanguage,
+                                publishOverlayUnit,
+                                token)
+                            .ConfigureAwait(false);
                     }
+                    catch (ScreenshotTranslationBatchFormatException ex) when (!token.IsCancellationRequested)
+                    {
+                        translationStreamingFallback = true;
+                        Logger.Warn("Screenshot", "screenshot.batch_stream_mapping_rejected", new
+                        {
+                            reason = ex.Reason,
+                            unit_count = units.Count
+                        });
+                        // Structured stream incompatibility is the only
+                        // condition that may fall back to non-stream batch.
+                    }
+                }
 
-                    if (translationService is IScreenshotBatchTranslationService batchTranslationService)
+                if (translationService is IScreenshotBatchTranslationService batchTranslationService)
+                {
+                    Interlocked.Increment(ref translationRequestCount);
+                    try
+                    {
+                        var translated = await batchTranslationService
+                            .TranslateScreenshotBatchAsync(units, settings.TargetLanguage, token)
+                            .ConfigureAwait(false);
+                        foreach (var unit in translated)
+                            publishOverlayUnit(unit);
+                        return translated;
+                    }
+                    catch (ScreenshotTranslationBatchFormatException ex) when (!token.IsCancellationRequested)
+                    {
+                        Logger.Warn("Screenshot", "screenshot.batch_mapping_rejected", new
+                        {
+                            reason = ex.Reason,
+                            unit_count = units.Count
+                        });
+                        // Only a structurally invalid batch response is safe to
+                        // retry per unit. Transport, auth, quota, and cancellation
+                        // errors must propagate without multiplying requests.
+                    }
+                }
+
+                using var gate = new SemaphoreSlim(MaxConcurrentScreenshotTranslations);
+                var tasks = units.Select(async unit =>
+                {
+                    await gate.WaitAsync(token).ConfigureAwait(false);
+                    try
                     {
                         Interlocked.Increment(ref translationRequestCount);
+                        string translation;
                         try
                         {
-                            var translated = await batchTranslationService
-                                .TranslateScreenshotBatchAsync(units, settings.TargetLanguage, token)
-                                .ConfigureAwait(false);
-                            foreach (var unit in translated)
-                                publishOverlayUnit(unit);
-                            return translated;
+                            translation = await translationService.TranslateToRequestedTargetAsync(
+                                unit.SourceText,
+                                settings.TargetLanguage,
+                                ContentType.Translation,
+                                token).ConfigureAwait(false);
                         }
-                        catch (ScreenshotTranslationBatchFormatException ex) when (!token.IsCancellationRequested)
+                        catch (FormatException ex) when (!token.IsCancellationRequested)
                         {
-                            Logger.Warn("Screenshot", "screenshot.batch_mapping_rejected", new
-                            {
-                                reason = ex.Reason,
-                                unit_count = units.Count
-                            });
-                            // Only a structurally invalid batch response is safe to
-                            // retry per unit. Transport, auth, quota, and cancellation
-                            // errors must propagate without multiplying requests.
+                            throw new ScreenshotTranslationBatchFormatException(
+                                "invalid_provider_response",
+                                ex);
                         }
+                        var translated = new TranslatedTextUnit(unit.UnitId, translation);
+                        publishOverlayUnit(translated);
+                        return translated;
                     }
-
-                    using var gate = new SemaphoreSlim(MaxConcurrentScreenshotTranslations);
-                    var tasks = units.Select(async unit =>
+                    finally
                     {
-                        await gate.WaitAsync(token).ConfigureAwait(false);
-                        try
-                        {
-                            Interlocked.Increment(ref translationRequestCount);
-                            string translation;
-                            try
-                            {
-                                translation = await translationService.TranslateToRequestedTargetAsync(
-                                    unit.SourceText,
-                                    settings.TargetLanguage,
-                                    ContentType.Translation,
-                                    token).ConfigureAwait(false);
-                            }
-                            catch (FormatException ex) when (!token.IsCancellationRequested)
-                            {
-                                throw new ScreenshotTranslationBatchFormatException(
-                                    "invalid_provider_response",
-                                    ex);
-                            }
-                            var translated = new TranslatedTextUnit(unit.UnitId, translation);
-                            publishOverlayUnit(translated);
-                            return translated;
-                        }
-                        finally
-                        {
-                            gate.Release();
-                        }
-                    });
-                    return await Task.WhenAll(tasks).ConfigureAwait(false);
-                },
-                new OcrRecognitionOptions(LanguageHint: null, AllowLanguageFallback: true),
-                cancellationToken,
-                prepareOverlay).ConfigureAwait(true);
+                        gate.Release();
+                    }
+                });
+                return await Task.WhenAll(tasks).ConfigureAwait(false);
+            }
+
+            ScreenshotTranslationPipelineResult pipeline;
+            if (settings.EnhancedScreenshotTranslationEnabled && _mangaSceneRoutingService is not null)
+            {
+                var standardOcrWatch = Stopwatch.StartNew();
+                var standardOcr = await ocrService.RecognizeAsync(
+                    image,
+                    new OcrRecognitionOptions(LanguageHint: null, AllowLanguageFallback: true),
+                    cancellationToken).ConfigureAwait(false);
+                standardOcrWatch.Stop();
+                var sourceLanguage = ScreenshotLanguageRouter.Detect(standardOcr).ToWorkerLanguage();
+                if (sourceLanguage is not null)
+                {
+                    stage = "manga_worker";
+                    mangaResult = await _mangaSceneRoutingService.ProcessAsync(
+                        image,
+                        $"screenshot-{Guid.NewGuid():N}",
+                        sourceLanguage,
+                        TimeSpan.FromSeconds(90),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                if (mangaResult?.Route == ScreenshotSceneRoute.MangaWorker && mangaResult.WorkerResponse is not null)
+                {
+                    var mangaUnits = MangaTranslationOrchestrator.CreateUnits(mangaResult.WorkerResponse);
+                    if (mangaUnits.Count >= 2)
+                    {
+                        selectedOcrEngine = "manga-worker";
+                        if (!string.IsNullOrWhiteSpace(mangaResult.CleanedImagePath) && File.Exists(mangaResult.CleanedImagePath))
+                            overlayImage = MangaSceneRoutingService.LoadPng(mangaResult.CleanedImagePath);
+                        pipeline = await coordinator.ExecuteWithUnitsAsync(
+                            standardOcr,
+                            mangaUnits,
+                            TranslateUnitsAsync,
+                            standardOcrWatch.Elapsed,
+                            cancellationToken,
+                            prepareOverlay).ConfigureAwait(true);
+                    }
+                    else
+                    {
+                        mangaResult = mangaResult with { Route = ScreenshotSceneRoute.FallbackStandardOcr };
+                        pipeline = await coordinator.ExecuteWithOcrResultAsync(
+                            image,
+                            standardOcr,
+                            TranslateUnitsAsync,
+                            standardOcrWatch.Elapsed,
+                            cancellationToken,
+                            prepareOverlay).ConfigureAwait(true);
+                    }
+                }
+                else
+                {
+                    pipeline = await coordinator.ExecuteWithOcrResultAsync(
+                        image,
+                        standardOcr,
+                        TranslateUnitsAsync,
+                        standardOcrWatch.Elapsed,
+                        cancellationToken,
+                        prepareOverlay).ConfigureAwait(true);
+                }
+            }
+            else
+            {
+                pipeline = await coordinator.ExecuteAsync(
+                    image,
+                    TranslateUnitsAsync,
+                    new OcrRecognitionOptions(LanguageHint: null, AllowLanguageFallback: true),
+                    cancellationToken,
+                    prepareOverlay).ConfigureAwait(true);
+            }
 
             pipelineTimings = pipeline.Timings;
             pipelineStatus = pipeline.Status.ToString();
@@ -1042,6 +1113,11 @@ public partial class App : Application
                 _screenshotWindow = null;
             if (ReferenceEquals(_screenshotTranslationCts, translationCts))
                 _screenshotTranslationCts = null;
+            if (mangaResult is not null)
+            {
+                MangaSceneRoutingService.CleanupTemporaryImage(mangaResult.TemporaryImagePath);
+                MangaSceneRoutingService.CleanupTemporaryImage(mangaResult.CleanedImagePath);
+            }
             if (_screenshotOverlayWindow is null)
                 RestoreScreenshotUi(restoreState);
         }

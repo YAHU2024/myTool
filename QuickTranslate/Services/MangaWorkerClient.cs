@@ -27,8 +27,6 @@ public static class MangaWorkerEvidenceParser
         var bubbles = 0;
         foreach (var block in blocks.EnumerateArray())
         {
-            if (!block.TryGetProperty("nonempty", out var nonempty) || !nonempty.GetBoolean())
-                continue;
             total++;
             if (block.TryGetProperty("region_type", out var region) &&
                 string.Equals(region.GetString(), "text_bubble", StringComparison.OrdinalIgnoreCase))
