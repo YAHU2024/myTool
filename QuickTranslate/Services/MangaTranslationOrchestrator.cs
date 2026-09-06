@@ -28,4 +28,25 @@ public sealed class MangaTranslationOrchestrator
         var map = translated.ToDictionary(static x => x.UnitId, static x => x.Translation, StringComparer.Ordinal);
         return MangaTranslationResultMapper.Apply(blocks, map);
     }
+
+    public static IReadOnlyList<ScreenshotTranslationUnit> CreateUnits(MangaWorkerResponse response)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        if (!string.Equals(response.Type, "completed", StringComparison.Ordinal) ||
+            !response.Payload.TryGetProperty("blocks", out var blocks) || blocks.ValueKind != System.Text.Json.JsonValueKind.Array)
+            return Array.Empty<ScreenshotTranslationUnit>();
+        var result = new List<ScreenshotTranslationUnit>();
+        foreach (var item in blocks.EnumerateArray())
+        {
+            var id = item.GetProperty("block_id").GetString() ?? string.Empty;
+            var text = item.TryGetProperty("source_text", out var source) && source.ValueKind == System.Text.Json.JsonValueKind.String
+                ? source.GetString() ?? string.Empty : string.Empty;
+            var bounds = item.GetProperty("bounds").EnumerateArray().Select(x => x.GetInt32()).ToArray();
+            if (bounds.Length != 4 || string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(text)) continue;
+            var ocrBounds = new OcrBounds(bounds[0], bounds[1], bounds[2] - bounds[0], bounds[3] - bounds[1]);
+            var block = new OcrTextBlock(id, text, ocrBounds);
+            result.Add(new ScreenshotTranslationUnit(id, text, new[] { block }, ocrBounds));
+        }
+        return result;
+    }
 }
