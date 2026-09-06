@@ -13,6 +13,32 @@ public sealed record MangaWorkerResponse(
     string? Stage,
     JsonElement Payload);
 
+public static class MangaWorkerEvidenceParser
+{
+    public static ScreenshotSceneEvidence ToSceneEvidence(MangaWorkerResponse response)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        if (!string.Equals(response.Type, "completed", StringComparison.Ordinal) ||
+            !response.Payload.TryGetProperty("blocks", out var blocks) ||
+            blocks.ValueKind != JsonValueKind.Array)
+            return new(0, 0, 0, false);
+
+        var total = 0;
+        var bubbles = 0;
+        foreach (var block in blocks.EnumerateArray())
+        {
+            if (!block.TryGetProperty("nonempty", out var nonempty) || !nonempty.GetBoolean())
+                continue;
+            total++;
+            if (block.TryGetProperty("region_type", out var region) &&
+                string.Equals(region.GetString(), "text_bubble", StringComparison.OrdinalIgnoreCase))
+                bubbles++;
+        }
+        var score = total == 0 ? 0 : Math.Clamp((double)bubbles / total, 0, 1);
+        return new(total, bubbles, score, true);
+    }
+}
+
 /// <summary>Runs the isolated manga worker as a one-request process.</summary>
 public sealed class MangaWorkerClient
 {

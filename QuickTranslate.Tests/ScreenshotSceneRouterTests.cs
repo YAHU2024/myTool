@@ -6,6 +6,17 @@ namespace QuickTranslate.Tests;
 public sealed class ScreenshotSceneRouterTests
 {
     [Fact]
+    public void WorkerResponse_ProvidesBubbleEvidence()
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse("{\"type\":\"completed\",\"blocks\":[{\"nonempty\":true,\"region_type\":\"text_bubble\"},{\"nonempty\":true,\"region_type\":\"text_free\"}]}" );
+        var response = new MangaWorkerResponse("r1", "completed", null, doc.RootElement.Clone());
+        var evidence = MangaWorkerEvidenceParser.ToSceneEvidence(response);
+        Assert.Equal(2, evidence.BlockCount);
+        Assert.Equal(1, evidence.BubbleBlockCount);
+        Assert.True(evidence.WorkerAvailable);
+    }
+
+    [Fact]
     public void FromOcrResult_ComputesBubbleEvidence()
     {
         var result = new OcrResult(new[]
