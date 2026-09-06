@@ -17,6 +17,20 @@ public sealed class MangaSceneRoutingService
 
     public MangaSceneRoutingService(MangaWorkerClient client) => _client = client ?? throw new ArgumentNullException(nameof(client));
 
+    public static void CleanupTemporaryImage(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "QuickTranslate", "manga-worker"));
+            if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(full))
+                File.Delete(full);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
     public async Task<MangaSceneRoutingResult> ProbeAsync(
         OcrImage image,
         string requestId,
