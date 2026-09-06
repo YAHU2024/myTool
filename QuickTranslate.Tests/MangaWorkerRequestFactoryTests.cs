@@ -14,4 +14,22 @@ public sealed class MangaWorkerRequestFactoryTests
         Assert.True(Path.IsPathFullyQualified(request.ImagePath));
         Assert.True(Path.IsPathFullyQualified(request.OutputDirectory!));
     }
+
+    [Fact]
+    public void CreateFromDetectedLanguage_MapsJapanese()
+    {
+        var request = MangaWorkerRequestFactory.CreateFromDetectedLanguage("r2", ".\\image.png", ScreenshotSourceLanguage.Japanese, false);
+        Assert.Equal("ja", request.SourceLanguage);
+    }
+
+    [Fact]
+    public void WorkerResponse_CreatesTranslationUnits()
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse("{\"type\":\"completed\",\"blocks\":[{\"block_id\":\"b1\",\"bounds\":[1,2,11,22],\"source_text\":\"hello\"}]}" );
+        var response = new MangaWorkerResponse("r1", "completed", null, doc.RootElement.Clone());
+        var units = MangaTranslationOrchestrator.CreateUnits(response);
+        Assert.Single(units);
+        Assert.Equal("b1", units[0].UnitId);
+        Assert.Equal(10, units[0].Bounds.Width);
+    }
 }

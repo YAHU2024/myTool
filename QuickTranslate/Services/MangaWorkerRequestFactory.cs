@@ -16,6 +16,18 @@ public sealed record MangaWorkerRequest(
 
 public static class MangaWorkerRequestFactory
 {
+    public static MangaWorkerRequest CreateFromDetectedLanguage(
+        string requestId,
+        string imagePath,
+        ScreenshotSourceLanguage language,
+        bool inpaint,
+        string? outputDirectory = null)
+    {
+        var workerLanguage = language.ToWorkerLanguage()
+            ?? throw new ArgumentException("无法从当前截图文本确定 Worker 源语言。", nameof(language));
+        return Create(requestId, imagePath, workerLanguage, inpaint, outputDirectory);
+    }
+
     public static MangaWorkerRequest Create(
         string requestId,
         string imagePath,
