@@ -195,14 +195,9 @@ public partial class App : Application
         _screenshotTranslationCoordinator = new ScreenshotTranslationCoordinator(_screenshotOcrService);
         if (_settings.EnhancedScreenshotTranslationEnabled)
         {
-            var workerPython = string.IsNullOrWhiteSpace(_settings.MangaWorkerPythonPath)
-                ? Path.Combine(AppContext.BaseDirectory, ".m4-external-spike", "comic-translate", ".venv", "Scripts", "python.exe")
-                : _settings.MangaWorkerPythonPath;
-            var workerScript = string.IsNullOrWhiteSpace(_settings.MangaWorkerScriptPath)
-                ? Path.Combine(AppContext.BaseDirectory, "scripts", "manga-worker.py")
-                : _settings.MangaWorkerScriptPath;
-            if (File.Exists(workerPython) && File.Exists(workerScript))
-                _mangaSceneRoutingService = new MangaSceneRoutingService(new MangaWorkerClient(workerPython, workerScript));
+            var runtime = MangaWorkerRuntimeResolver.Resolve(_settings, AppContext.BaseDirectory);
+            if (runtime is not null)
+                _mangaSceneRoutingService = new MangaSceneRoutingService(new MangaWorkerClient(runtime.PythonPath, runtime.ScriptPath));
             else
                 Logger.Warn("Screenshot", "screenshot.manga_worker_unavailable", new { reason = "worker_runtime_missing" });
         }
