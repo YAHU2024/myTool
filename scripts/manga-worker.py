@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """QuickTranslate M4.3 isolated manga worker (JSONL over stdin/stdout)."""
 from __future__ import annotations
-import importlib.util, json, pathlib, sys, traceback
+import importlib.util, json, pathlib, sys, tempfile, shutil
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 REPOSITORY = ROOT / ".m4-external-spike" / "comic-translate"
@@ -37,7 +37,9 @@ def handle(msg):
     if not isinstance(stages, list) or not set(stages).issubset({"detect","ocr","inpaint","layout"}):
         raise ValueError("InvalidStages")
     if "layout" in stages: stages = [s for s in stages if s != "layout"]
-    out_dir = pathlib.Path(msg.get("output_directory", image_path.parent)); out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = pathlib.Path(msg.get("output_directory", image_path.parent)).resolve(); out_dir.mkdir(parents=True, exist_ok=True)
+    # Only write artifacts below the caller-provided output directory.
+    if not out_dir.is_dir(): raise NotADirectoryError("OutputDirectoryInvalid")
     import numpy as np
     from PIL import Image
     from modules.detection.rtdetr_v2_onnx import RTDetrV2ONNXDetection
@@ -45,10 +47,13 @@ def handle(msg):
         src.load(); rgb = src.convert("RGB")
     image = np.asarray(rgb); detector = RTDetrV2ONNXDetection(); detector.initialize("cpu", 0.3)
     engines = comic.LocalEngines(language, pathlib.Path(msg["japanese_model_directory"]) if msg.get("japanese_model_directory") else None, bool(msg.get("allow_model_download")))
+    stage = "detect"
     try:
         if req in cancelled: emit({"schema":msg["schema"],"type":"cancelled","request_id":req,"stage":"detect"}); return
         emit({"schema":msg["schema"],"type":"progress","request_id":req,"stage":"detect","completed":0,"total":1})
         blocks = detector.detect(image)
+        emit({"schema":msg["schema"],"type":"progress","request_id":req,"stage":"detect","completed":1,"total":1})
+        stage = "ocr"
         if "ocr" in stages or "inpaint" in stages:
             engines.recognize(image, blocks)
         result = {"schema":msg["schema"],"type":"completed","request_id":req,"image_width":rgb.width,"image_height":rgb.height,"blocks":[]}
@@ -56,9 +61,12 @@ def handle(msg):
             m = comic.block_metadata(block, i, rgb.width, rgb.height, comic.ROUTES[language]); m.update({"source_language":language,"source_text":block.text if msg.get("include_source_text",False) else None})
             result["blocks"].append(m)
         if "inpaint" in stages:
+            stage = "inpaint"
             cleaned, mask, status = engines.clean(image, blocks)
             clean_path = out_dir / f"{req}.cleaned.png"; Image.fromarray(cleaned).save(clean_path); result["cleaned_image_path"] = str(clean_path); result["inpainting"] = {"status":status,"mask_pixels":int(np.count_nonzero(mask))}
         emit(result)
+    except KeyboardInterrupt:
+        emit({"schema":msg["schema"],"type":"cancelled","request_id":req,"stage":stage})
     finally: engines.close()
 
 for line in sys.stdin:
@@ -66,4 +74,4 @@ for line in sys.stdin:
         msg = json.loads(line); handle(msg)
     except Exception as exc:
         req = msg.get("request_id") if isinstance(msg, dict) else "unknown"
-        fail(req, "validate", exc)
+        fail(req, locals().get("stage", "validate"), exc, retryable=isinstance(exc, (OSError, TimeoutError)))
