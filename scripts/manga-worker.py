@@ -1,10 +1,29 @@
 #!/usr/bin/env python3
 """QuickTranslate M4.3 isolated manga worker (JSONL over stdin/stdout)."""
 from __future__ import annotations
-import importlib.util, json, pathlib, sys, tempfile, shutil
+import importlib.util, json, os, pathlib, sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-REPOSITORY = ROOT / ".m4-external-spike" / "comic-translate"
+
+def find_repository() -> tuple[pathlib.Path, pathlib.Path]:
+    configured = os.environ.get("QUICKTRANSLATE_MANGA_REPOSITORY")
+    candidates = []
+    if configured:
+        candidates.append(pathlib.Path(configured))
+    script_path = pathlib.Path(__file__).resolve()
+    candidates.extend(
+        parent / ".m4-external-spike" / "comic-translate"
+        for parent in [script_path.parent, *script_path.parents]
+    )
+    for repository in candidates:
+        repository = repository.resolve()
+        root = repository.parent.parent
+        spike = root / "scripts" / "run-comic-detection-ocr-spike.py"
+        if repository.is_dir() and spike.is_file():
+            return root, repository
+    raise ModuleNotFoundError("ComicTranslateSourceUnavailable")
+
+
+ROOT, REPOSITORY = find_repository()
 sys.path.insert(0, str(REPOSITORY))
 SPIKE = ROOT / "scripts" / "run-comic-detection-ocr-spike.py"
 spec = importlib.util.spec_from_file_location("comic_spike", SPIKE)
@@ -46,7 +65,12 @@ def handle(msg):
     with Image.open(image_path) as src:
         src.load(); rgb = src.convert("RGB")
     image = np.asarray(rgb); detector = RTDetrV2ONNXDetection(); detector.initialize("cpu", 0.3)
-    engines = comic.LocalEngines(language, pathlib.Path(msg["japanese_model_directory"]) if msg.get("japanese_model_directory") else None, bool(msg.get("allow_model_download")))
+    engines = comic.LocalEngines(
+        language,
+        pathlib.Path(msg["japanese_model_directory"]) if msg.get("japanese_model_directory") else None,
+        bool(msg.get("allow_model_download")),
+        pathlib.Path(msg["inpainting_model_directory"]) if msg.get("inpainting_model_directory") else None,
+    )
     stage = "detect"
     try:
         if req in cancelled: emit({"schema":msg["schema"],"type":"cancelled","request_id":req,"stage":"detect"}); return

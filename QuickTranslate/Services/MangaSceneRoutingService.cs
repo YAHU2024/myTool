@@ -10,7 +10,8 @@ public sealed record MangaSceneRoutingResult(
     MangaWorkerResponse? WorkerResponse,
     string? TemporaryImagePath,
     string? CleanedImagePath = null,
-    string? SourceLanguage = null);
+    string? SourceLanguage = null,
+    string? FailureType = null);
 
 /// <summary>Coordinates a one-shot manga probe without exposing process details to WPF.</summary>
 public sealed class MangaSceneRoutingService
@@ -18,11 +19,16 @@ public sealed class MangaSceneRoutingService
     public const long DefaultMaxPixels = 20_000_000;
     private readonly MangaWorkerClient _client;
     private readonly string? _japaneseModelDirectory;
+    private readonly string? _inpaintingModelDirectory;
 
-    public MangaSceneRoutingService(MangaWorkerClient client, string? japaneseModelDirectory = null)
+    public MangaSceneRoutingService(
+        MangaWorkerClient client,
+        string? japaneseModelDirectory = null,
+        string? inpaintingModelDirectory = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _japaneseModelDirectory = string.IsNullOrWhiteSpace(japaneseModelDirectory) ? null : Path.GetFullPath(japaneseModelDirectory);
+        _inpaintingModelDirectory = string.IsNullOrWhiteSpace(inpaintingModelDirectory) ? null : Path.GetFullPath(inpaintingModelDirectory);
     }
 
     public static void CleanupTemporaryImage(string? path)
@@ -72,7 +78,13 @@ public sealed class MangaSceneRoutingService
         try
         {
             SavePng(image, path);
-            var request = MangaWorkerRequestFactory.CreateProbe(requestId, path, sourceLanguage, tempDir, _japaneseModelDirectory);
+            var request = MangaWorkerRequestFactory.CreateProbe(
+                requestId,
+                path,
+                sourceLanguage,
+                tempDir,
+                _japaneseModelDirectory,
+                _inpaintingModelDirectory);
             var response = await _client.RunAsync(request, timeout, cancellationToken: cancellationToken).ConfigureAwait(false);
             var evidence = MangaWorkerEvidenceParser.ToSceneEvidence(response);
             var route = response.Type == "completed"
@@ -83,12 +95,12 @@ public sealed class MangaSceneRoutingService
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             CleanupTemporaryImage(path);
-            return new(ScreenshotSceneRoute.FallbackStandardOcr, null, path, null, sourceLanguage);
+            return new(ScreenshotSceneRoute.FallbackStandardOcr, null, path, null, sourceLanguage, nameof(OperationCanceledException));
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             CleanupTemporaryImage(path);
-            return new(ScreenshotSceneRoute.FallbackStandardOcr, null, path, null, sourceLanguage);
+            return new(ScreenshotSceneRoute.FallbackStandardOcr, null, path, null, sourceLanguage, ex.GetType().Name);
         }
     }
 
@@ -107,7 +119,15 @@ public sealed class MangaSceneRoutingService
         try
         {
             SavePng(image, path);
-            var request = MangaWorkerRequestFactory.Create(requestId, path, sourceLanguage, true, tempDir, true, _japaneseModelDirectory);
+            var request = MangaWorkerRequestFactory.Create(
+                requestId,
+                path,
+                sourceLanguage,
+                true,
+                tempDir,
+                true,
+                _japaneseModelDirectory,
+                _inpaintingModelDirectory);
             var response = await _client.RunAsync(request, timeout, cancellationToken: cancellationToken).ConfigureAwait(false);
             var evidence = MangaWorkerEvidenceParser.ToSceneEvidence(response);
             var route = response.Type == "completed" ? ScreenshotSceneRouter.Decide(true, evidence) : ScreenshotSceneRoute.FallbackStandardOcr;
@@ -118,12 +138,12 @@ public sealed class MangaSceneRoutingService
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             CleanupTemporaryImage(path);
-            return new(ScreenshotSceneRoute.FallbackStandardOcr, null, path, null, sourceLanguage);
+            return new(ScreenshotSceneRoute.FallbackStandardOcr, null, path, null, sourceLanguage, nameof(OperationCanceledException));
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             CleanupTemporaryImage(path);
-            return new(ScreenshotSceneRoute.FallbackStandardOcr, null, path, null, sourceLanguage);
+            return new(ScreenshotSceneRoute.FallbackStandardOcr, null, path, null, sourceLanguage, ex.GetType().Name);
         }
     }
 

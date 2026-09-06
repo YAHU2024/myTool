@@ -61,7 +61,6 @@ public sealed class MangaWorkerClient
             StartInfo = new ProcessStartInfo
             {
                 FileName = _pythonPath,
-                Arguments = $"\"{_workerPath}\"",
                 WorkingDirectory = Path.GetDirectoryName(_workerPath) ?? Environment.CurrentDirectory,
                 UseShellExecute = false,
                 RedirectStandardInput = true,
@@ -72,6 +71,7 @@ public sealed class MangaWorkerClient
                 StandardErrorEncoding = Encoding.UTF8
             }
         };
+        process.StartInfo.ArgumentList.Add(_workerPath);
 
         if (!process.Start())
             throw new InvalidOperationException("MangaWorkerStartFailed");

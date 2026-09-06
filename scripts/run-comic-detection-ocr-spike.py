@@ -17,6 +17,7 @@ import pathlib
 import subprocess
 import sys
 import time
+from dataclasses import replace
 
 
 REVISION = "8f13ae5c4bab567c12b9383f085ba32d98b43348"
@@ -61,7 +62,7 @@ def block_metadata(block, index, width, height, route):
 
 
 class LocalEngines:
-    def __init__(self, language, japanese_directory, allow_download):
+    def __init__(self, language, japanese_directory, allow_download, inpainting_directory=None):
         from modules.utils.download import ModelDownloader, ModelID
 
         self.language = language
@@ -72,6 +73,14 @@ class LocalEngines:
         self.initialization_ms = {}
         self.providers = {}
         self._original_get = ModelDownloader.__dict__["get"]
+        self._lama_spec = ModelDownloader.registry[ModelID.LAMA_ONNX]
+        self._original_lama_spec = self._lama_spec
+        if inpainting_directory is not None:
+            self._lama_spec = replace(
+                self._lama_spec,
+                save_dir=str(pathlib.Path(inpainting_directory).resolve()),
+            )
+            ModelDownloader.registry[ModelID.LAMA_ONNX] = self._lama_spec
         original = ModelDownloader.get
 
         def guarded_get(cls, model):
@@ -93,7 +102,8 @@ class LocalEngines:
         ModelDownloader.get = classmethod(guarded_get)
 
     def close(self):
-        from modules.utils.download import ModelDownloader
+        from modules.utils.download import ModelDownloader, ModelID
+        ModelDownloader.registry[ModelID.LAMA_ONNX] = self._original_lama_spec
         ModelDownloader.get = self._original_get
 
     def recognize(self, image, blocks):
@@ -140,7 +150,7 @@ class LocalEngines:
             lines = getattr(block, "lines", None) or []
             if lines:
                 for line in lines:
-                    x1, y1, x2, y2 = (int(v) for v in line[:4])
+                    x1, y1, x2, y2 = line_bounds(line)
                     draw.rectangle((x1 - 3, y1 - 3, x2 + 3, y2 + 3), fill=255)
             else:
                 x1, y1, x2, y2 = (int(v) for v in block.xyxy)
@@ -158,6 +168,19 @@ class LocalEngines:
         if cleaned.shape != image.shape or np.any(cleaned[mask == 0] != image[mask == 0]):
             raise ValueError("UnmaskedPixelsChanged")
         return cleaned, mask, "applied"
+
+
+def line_bounds(line):
+    """Normalize axis-aligned OCR lines and four-point polygons to a box."""
+    values = list(line)
+    if len(values) >= 4 and all(not isinstance(value, (list, tuple)) for value in values[:4]):
+        return tuple(int(round(float(value))) for value in values[:4])
+    points = [point for point in values if isinstance(point, (list, tuple)) and len(point) >= 2]
+    if len(points) < 2:
+        raise ValueError("InvalidTextLineGeometry")
+    xs = [int(round(float(point[0]))) for point in points]
+    ys = [int(round(float(point[1]))) for point in points]
+    return min(xs), min(ys), max(xs), max(ys)
 
 
 def parse_args():

@@ -193,16 +193,7 @@ public partial class App : Application
         _ocrModelManager = new OcrModelManager();
         _screenshotOcrService = new WindowsMediaOcrService();
         _screenshotTranslationCoordinator = new ScreenshotTranslationCoordinator(_screenshotOcrService);
-        if (_settings.EnhancedScreenshotTranslationEnabled)
-        {
-            var runtime = MangaWorkerRuntimeResolver.Resolve(_settings, AppContext.BaseDirectory);
-            if (runtime is not null)
-                _mangaSceneRoutingService = new MangaSceneRoutingService(
-                    new MangaWorkerClient(runtime.PythonPath, runtime.ScriptPath),
-                    _settings.MangaOcrModelDirectory);
-            else
-                Logger.Warn("Screenshot", "screenshot.manga_worker_unavailable", new { reason = "worker_runtime_missing" });
-        }
+        RefreshMangaSceneRoutingService(_settings);
         var screenshotOcrCapability = _screenshotOcrService.Probe();
         Logger.Info("Screenshot", "screenshot.ocr_engine_selected", new
         {
@@ -628,6 +619,7 @@ public partial class App : Application
         string? selectedOcrEngine = null;
         string? failureType = null;
         ScreenshotTranslationFailureKind? failureKind = null;
+        MangaSceneRoutingResult? mangaProbeResult = null;
         MangaSceneRoutingResult? mangaResult = null;
 
         // Let the hidden overlay leave the compositor before copying screen pixels.
@@ -676,6 +668,8 @@ public partial class App : Application
             var settings = _settings;
             if (ocrService is null || coordinator is null || translationService is null || settings is null)
                 throw new InvalidOperationException("截图翻译服务尚未初始化。");
+            if (settings.EnhancedScreenshotTranslationEnabled && _mangaSceneRoutingService is null)
+                RefreshMangaSceneRoutingService(settings);
 
             var capability = ocrService.Probe();
             selectedOcrEngine = capability.EngineId;
@@ -886,15 +880,33 @@ public partial class App : Application
                     cancellationToken).ConfigureAwait(false);
                 standardOcrWatch.Stop();
                 var sourceLanguage = ScreenshotLanguageRouter.Detect(standardOcr).ToWorkerLanguage();
-                if (sourceLanguage is not null)
+                if (sourceLanguage is not null && _mangaSceneRoutingService is not null)
                 {
-                    stage = "manga_worker";
-                    mangaResult = await _mangaSceneRoutingService.ProcessAsync(
+                    stage = "manga_probe";
+                    mangaProbeResult = await _mangaSceneRoutingService.ProbeAsync(
                         image,
                         $"screenshot-{Guid.NewGuid():N}",
                         sourceLanguage,
+                        settings.EnhancedScreenshotTranslationEnabled,
                         TimeSpan.FromSeconds(90),
-                        cancellationToken).ConfigureAwait(false);
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                    Logger.Info("Screenshot", "screenshot.manga_route_decided", new
+                    {
+                        route = mangaProbeResult.Route.ToString(),
+                        worker_response_type = mangaProbeResult.WorkerResponse?.Type,
+                        source_language = sourceLanguage,
+                        failure_type = mangaProbeResult.FailureType
+                    });
+                    if (mangaProbeResult.Route == ScreenshotSceneRoute.MangaWorker)
+                    {
+                        stage = "manga_worker";
+                        mangaResult = await _mangaSceneRoutingService.ProcessAsync(
+                            image,
+                            $"screenshot-{Guid.NewGuid():N}",
+                            sourceLanguage,
+                            TimeSpan.FromSeconds(90),
+                            cancellationToken).ConfigureAwait(false);
+                    }
                 }
 
                 if (mangaResult?.Route == ScreenshotSceneRoute.MangaWorker && mangaResult.WorkerResponse is not null)
@@ -1118,6 +1130,8 @@ public partial class App : Application
                 MangaSceneRoutingService.CleanupTemporaryImage(mangaResult.TemporaryImagePath);
                 MangaSceneRoutingService.CleanupTemporaryImage(mangaResult.CleanedImagePath);
             }
+            if (mangaProbeResult is not null)
+                MangaSceneRoutingService.CleanupTemporaryImage(mangaProbeResult.TemporaryImagePath);
             if (_screenshotOverlayWindow is null)
                 RestoreScreenshotUi(restoreState);
         }
@@ -2763,6 +2777,7 @@ public partial class App : Application
         CancelActiveTranslationRequest();
         _translationCache.Clear();
         _settings = settings;
+        RefreshMangaSceneRoutingService(settings);
         _ = ApplyScreenshotOcrSettingsAsync(settings, persistFallback: true);
         var refreshedCurrentProfile = settings.SavedConfigs
             .Select(ModelProfileCatalog.Create)
@@ -2805,6 +2820,40 @@ public partial class App : Application
 
         RefreshFloatingModelSelector();
         UpdateTrayToolTip();
+    }
+
+    private void RefreshMangaSceneRoutingService(AppSettings settings)
+    {
+        _mangaSceneRoutingService = null;
+        if (!settings.EnhancedScreenshotTranslationEnabled)
+        {
+            Logger.Info("Screenshot", "screenshot.manga_worker_disabled", new { });
+            return;
+        }
+
+        var runtime = MangaWorkerRuntimeResolver.Resolve(settings, AppContext.BaseDirectory);
+        if (runtime is null)
+        {
+            Logger.Warn("Screenshot", "screenshot.manga_worker_unavailable", new
+            {
+                reason = "worker_runtime_missing",
+                base_directory = AppContext.BaseDirectory
+            });
+            return;
+        }
+
+        _mangaSceneRoutingService = new MangaSceneRoutingService(
+            new MangaWorkerClient(runtime.PythonPath, runtime.ScriptPath),
+            settings.MangaOcrModelDirectory,
+            settings.MangaInpaintingModelDirectory);
+        Logger.Info("Screenshot", "screenshot.manga_worker_ready", new
+        {
+            bundled = runtime.IsBundled,
+            python = Path.GetFileName(runtime.PythonPath),
+            script = Path.GetFileName(runtime.ScriptPath),
+            has_japanese_model_directory = !string.IsNullOrWhiteSpace(settings.MangaOcrModelDirectory),
+            has_inpainting_model_directory = !string.IsNullOrWhiteSpace(settings.MangaInpaintingModelDirectory)
+        });
     }
 
     /// <summary>

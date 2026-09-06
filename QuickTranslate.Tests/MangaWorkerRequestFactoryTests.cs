@@ -16,6 +16,24 @@ public sealed class MangaWorkerRequestFactoryTests
     }
 
     [Fact]
+    public void Create_PropagatesOptionalModelDirectories()
+    {
+        var request = MangaWorkerRequestFactory.Create(
+            "r-models",
+            ".\\image.png",
+            "en",
+            true,
+            ".\\out",
+            includeSourceText: true,
+            japaneseModelDirectory: ".\\manga-model",
+            inpaintingModelDirectory: ".\\lama-model");
+
+        Assert.True(request.IncludeSourceText);
+        Assert.Equal(Path.GetFullPath(".\\manga-model"), request.JapaneseModelDirectory);
+        Assert.Equal(Path.GetFullPath(".\\lama-model"), request.InpaintingModelDirectory);
+    }
+
+    [Fact]
     public void CreateFromDetectedLanguage_MapsJapanese()
     {
         var request = MangaWorkerRequestFactory.CreateFromDetectedLanguage("r2", ".\\image.png", ScreenshotSourceLanguage.Japanese, false);
