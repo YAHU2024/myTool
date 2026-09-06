@@ -362,6 +362,7 @@
                     <StackPanel>
                         <TextBlock Text="截图 OCR" Style="{StaticResource SectionTitle}" Margin="0,0,0,4"/>
                         <TextBlock Text="Windows OCR 始终可用；本地场景 OCR 需要主动下载模型，切换前会完整校验并等待 Worker 就绪。" Style="{StaticResource HintStyle}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <CheckBox x:Name="EnhancedScreenshotTranslationCheckBox" Content="启用增强截图翻译（漫画/复杂背景，实验性）" Margin="0,0,0,10" Checked="EnhancedScreenshotTranslationCheckBox_Changed" Unchecked="EnhancedScreenshotTranslationCheckBox_Changed"/>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>

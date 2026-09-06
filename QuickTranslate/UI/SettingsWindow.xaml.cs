@@ -487,6 +487,7 @@ namespace QuickTranslate.UI
 
         private void LoadScreenshotOcrSettings()
         {
+            EnhancedScreenshotTranslationCheckBox.IsChecked = _settings.EnhancedScreenshotTranslationEnabled;
             ScreenshotOcrEngineComboBox.ItemsSource = new[]
             {
                 new OcrEngineChoice("windows", "Windows OCR（内置兜底）"),
@@ -1010,6 +1011,7 @@ namespace QuickTranslate.UI
         /// </summary>
         private void ApplySettingsToModel()
         {
+            _settings.EnhancedScreenshotTranslationEnabled = EnhancedScreenshotTranslationCheckBox.IsChecked == true;
             if (ScreenshotOcrEngineComboBox.SelectedValue is string screenshotEngine)
             {
                 var selectedModelStatus = SelectedScreenshotOcrModel is { } selectedOcrModel
@@ -1139,6 +1141,12 @@ namespace QuickTranslate.UI
                     _settings.SavedConfigs.RemoveAt(_settings.SavedConfigs.Count - 1);
             }
 
+        }
+
+        private void EnhancedScreenshotTranslationCheckBox_Changed(object sender, RoutedEventArgs e)
+        {
+            if (!_isInitializing)
+                _isDirty = true;
         }
 
         internal static string ResolveModelNameForSave(

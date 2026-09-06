@@ -198,6 +198,9 @@ namespace QuickTranslate.Models
         /// <summary>Selected catalog model for the optional local scene OCR engine.</summary>
         public string ScreenshotOcrModelId { get; set; } = "ppocrv6-small-cpu";
 
+        /// <summary>Enables automatic scene routing to the isolated manga worker.</summary>
+        public bool EnhancedScreenshotTranslationEnabled { get; set; } = false;
+
         /// <summary>
         /// 模型思考控制偏好。默认不发送供应商私有参数。
         /// </summary>
