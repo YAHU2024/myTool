@@ -1,3 +1,5 @@
+using QuickTranslate.Models;
+
 namespace QuickTranslate.Services;
 
 public enum ScreenshotSceneRoute
@@ -16,6 +18,16 @@ public sealed record ScreenshotSceneEvidence(
 /// <summary>Conservative scene routing: enhancement requires strong evidence and an available worker.</summary>
 public static class ScreenshotSceneRouter
 {
+    public static ScreenshotSceneEvidence FromOcrResult(OcrResult result, bool workerAvailable)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        var blocks = result.Blocks.Where(static b => !string.IsNullOrWhiteSpace(b.Text)).ToArray();
+        var bubbles = blocks.Count(static b => b.RegionType == OcrRegionType.Bubble);
+        var ratio = blocks.Length == 0 ? 0 : (double)bubbles / blocks.Length;
+        var score = Math.Clamp(ratio * 0.75 + (bubbles >= 2 ? 0.25 : 0), 0, 1);
+        return new(blocks.Length, bubbles, score, workerAvailable);
+    }
+
     public static ScreenshotSceneRoute Decide(bool enhancementEnabled, ScreenshotSceneEvidence evidence)
     {
         ArgumentNullException.ThrowIfNull(evidence);
