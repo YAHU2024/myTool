@@ -1,5 +1,6 @@
 using QuickTranslate.Services;
 using QuickTranslate.Models;
+using Xunit;
 
 namespace QuickTranslate.Tests;
 
