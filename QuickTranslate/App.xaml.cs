@@ -57,6 +57,7 @@ public partial class App : Application
     private CancellationTokenSource? _ocrEngineSwitchCts;
     private long _ocrEngineSwitchGeneration;
     private ScreenshotTranslationCoordinator? _screenshotTranslationCoordinator;
+    private MangaSceneRoutingService? _mangaSceneRoutingService;
     private CancellationTokenSource? _screenshotTranslationCts;
     private TrayIconManager? _trayIcon;
     private SettingsWindow? _settingsWindow;
@@ -192,6 +193,15 @@ public partial class App : Application
         _ocrModelManager = new OcrModelManager();
         _screenshotOcrService = new WindowsMediaOcrService();
         _screenshotTranslationCoordinator = new ScreenshotTranslationCoordinator(_screenshotOcrService);
+        if (_settings.EnhancedScreenshotTranslationEnabled)
+        {
+            var workerPython = Path.Combine(AppContext.BaseDirectory, ".m4-external-spike", "comic-translate", ".venv", "Scripts", "python.exe");
+            var workerScript = Path.Combine(AppContext.BaseDirectory, "scripts", "manga-worker.py");
+            if (File.Exists(workerPython) && File.Exists(workerScript))
+                _mangaSceneRoutingService = new MangaSceneRoutingService(new MangaWorkerClient(workerPython, workerScript));
+            else
+                Logger.Warn("Screenshot", "screenshot.manga_worker_unavailable", new { reason = "worker_runtime_missing" });
+        }
         var screenshotOcrCapability = _screenshotOcrService.Probe();
         Logger.Info("Screenshot", "screenshot.ocr_engine_selected", new
         {
