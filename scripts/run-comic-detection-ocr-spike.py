@@ -128,10 +128,24 @@ class LocalEngines:
 
     def clean(self, image, blocks):
         import numpy as np
-        from modules.utils.image_utils import generate_mask
+        from PIL import Image, ImageDraw
         from modules.inpainting.lama import LaMa
         from modules.inpainting.schema import Config, HDStrategy
-        mask = generate_mask(image, [b for b in blocks if (b.text or "").strip()])
+        # Prefer detector text-line geometry over the whole bubble rectangle.
+        mask_image = Image.new("L", (image.shape[1], image.shape[0]), 0)
+        draw = ImageDraw.Draw(mask_image)
+        for block in blocks:
+            if not (b_text := (block.text or "").strip()):
+                continue
+            lines = getattr(block, "lines", None) or []
+            if lines:
+                for line in lines:
+                    x1, y1, x2, y2 = (int(v) for v in line[:4])
+                    draw.rectangle((x1 - 3, y1 - 3, x2 + 3, y2 + 3), fill=255)
+            else:
+                x1, y1, x2, y2 = (int(v) for v in block.xyxy)
+                draw.rectangle((x1 - 3, y1 - 3, x2 + 3, y2 + 3), fill=255)
+        mask = np.asarray(mask_image)
         if not np.any(mask):
             return image.copy(), mask, "skipped_empty_mask"
         if self.inpainter is None:
