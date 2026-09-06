@@ -201,6 +201,11 @@ namespace QuickTranslate.Models
         /// <summary>Enables automatic scene routing to the isolated manga worker.</summary>
         public bool EnhancedScreenshotTranslationEnabled { get; set; } = false;
 
+        public string MangaWorkerPythonPath { get; set; } = string.Empty;
+        public string MangaWorkerScriptPath { get; set; } = string.Empty;
+        public string MangaOcrModelDirectory { get; set; } = string.Empty;
+        public string MangaInpaintingModelDirectory { get; set; } = string.Empty;
+
         /// <summary>
         /// 模型思考控制偏好。默认不发送供应商私有参数。
         /// </summary>

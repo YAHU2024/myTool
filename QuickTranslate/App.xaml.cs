@@ -195,8 +195,12 @@ public partial class App : Application
         _screenshotTranslationCoordinator = new ScreenshotTranslationCoordinator(_screenshotOcrService);
         if (_settings.EnhancedScreenshotTranslationEnabled)
         {
-            var workerPython = Path.Combine(AppContext.BaseDirectory, ".m4-external-spike", "comic-translate", ".venv", "Scripts", "python.exe");
-            var workerScript = Path.Combine(AppContext.BaseDirectory, "scripts", "manga-worker.py");
+            var workerPython = string.IsNullOrWhiteSpace(_settings.MangaWorkerPythonPath)
+                ? Path.Combine(AppContext.BaseDirectory, ".m4-external-spike", "comic-translate", ".venv", "Scripts", "python.exe")
+                : _settings.MangaWorkerPythonPath;
+            var workerScript = string.IsNullOrWhiteSpace(_settings.MangaWorkerScriptPath)
+                ? Path.Combine(AppContext.BaseDirectory, "scripts", "manga-worker.py")
+                : _settings.MangaWorkerScriptPath;
             if (File.Exists(workerPython) && File.Exists(workerScript))
                 _mangaSceneRoutingService = new MangaSceneRoutingService(new MangaWorkerClient(workerPython, workerScript));
             else
