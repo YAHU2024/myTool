@@ -488,6 +488,10 @@ namespace QuickTranslate.UI
         private void LoadScreenshotOcrSettings()
         {
             EnhancedScreenshotTranslationCheckBox.IsChecked = _settings.EnhancedScreenshotTranslationEnabled;
+            MangaWorkerPythonPathTextBox.Text = _settings.MangaWorkerPythonPath;
+            MangaWorkerScriptPathTextBox.Text = _settings.MangaWorkerScriptPath;
+            MangaOcrModelDirectoryTextBox.Text = _settings.MangaOcrModelDirectory;
+            MangaInpaintingModelDirectoryTextBox.Text = _settings.MangaInpaintingModelDirectory;
             ScreenshotOcrEngineComboBox.ItemsSource = new[]
             {
                 new OcrEngineChoice("windows", "Windows OCR（内置兜底）"),
@@ -1012,6 +1016,10 @@ namespace QuickTranslate.UI
         private void ApplySettingsToModel()
         {
             _settings.EnhancedScreenshotTranslationEnabled = EnhancedScreenshotTranslationCheckBox.IsChecked == true;
+            _settings.MangaWorkerPythonPath = MangaWorkerPythonPathTextBox.Text?.Trim() ?? string.Empty;
+            _settings.MangaWorkerScriptPath = MangaWorkerScriptPathTextBox.Text?.Trim() ?? string.Empty;
+            _settings.MangaOcrModelDirectory = MangaOcrModelDirectoryTextBox.Text?.Trim() ?? string.Empty;
+            _settings.MangaInpaintingModelDirectory = MangaInpaintingModelDirectoryTextBox.Text?.Trim() ?? string.Empty;
             if (ScreenshotOcrEngineComboBox.SelectedValue is string screenshotEngine)
             {
                 var selectedModelStatus = SelectedScreenshotOcrModel is { } selectedOcrModel
