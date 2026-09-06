@@ -453,7 +453,12 @@ public sealed class RapidOcrWorkerService : IOcrService, IOcrWarmupService, IDis
                 ++readingOrder));
         }
 
-        return blocks;
+        var ordered = OcrReadingOrderSorter.Sort(blocks);
+        var readingOrderById = ordered.ToDictionary(static block => block.BlockId, static block => block.ReadingOrder, StringComparer.Ordinal);
+        return blocks.Select(block => block with
+        {
+            ReadingOrder = readingOrderById.TryGetValue(block.BlockId, out var order) ? order : 0
+        }).ToArray();
     }
 
     private void StopWorker(string reason)

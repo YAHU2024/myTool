@@ -492,6 +492,7 @@ namespace QuickTranslate.UI
             MangaWorkerScriptPathTextBox.Text = _settings.MangaWorkerScriptPath;
             MangaOcrModelDirectoryTextBox.Text = _settings.MangaOcrModelDirectory;
             MangaInpaintingModelDirectoryTextBox.Text = _settings.MangaInpaintingModelDirectory;
+            RefreshMangaModelStatus();
             ScreenshotOcrEngineComboBox.ItemsSource = new[]
             {
                 new OcrEngineChoice("windows", "Windows OCR（内置兜底）"),
@@ -1155,6 +1156,29 @@ namespace QuickTranslate.UI
         {
             if (!_isInitializing)
                 _isDirty = true;
+        }
+
+        private void RefreshMangaModelStatus()
+        {
+            var ocr = MangaModelStatusService.Inspect("Manga OCR", MangaOcrModelDirectoryTextBox.Text, "pytorch_model.bin");
+            var lama = MangaModelStatusService.Inspect("LaMa", MangaInpaintingModelDirectoryTextBox.Text, "lama-manga-dynamic.onnx");
+            MangaModelStatusText.Text = $"Manga OCR：{FormatMangaState(ocr)}；LaMa：{FormatMangaState(lama)}";
+        }
+
+        private static string FormatMangaState(MangaModelStatus status) => status.State switch
+        {
+            MangaModelInstallState.Installed => $"已安装（{status.TotalBytes / 1024 / 1024} MB）",
+            MangaModelInstallState.Invalid => $"损坏或不完整（{status.Reason}）",
+            _ => $"缺失（{status.Reason}）"
+        };
+
+        private void MangaModelPath_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!_isInitializing)
+            {
+                _isDirty = true;
+                RefreshMangaModelStatus();
+            }
         }
 
         internal static string ResolveModelNameForSave(

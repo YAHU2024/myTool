@@ -13,6 +13,7 @@ public sealed record MangaSceneRoutingResult(
 /// <summary>Coordinates a one-shot manga probe without exposing process details to WPF.</summary>
 public sealed class MangaSceneRoutingService
 {
+    public const long DefaultMaxPixels = 20_000_000;
     private readonly MangaWorkerClient _client;
 
     public MangaSceneRoutingService(MangaWorkerClient client) => _client = client ?? throw new ArgumentNullException(nameof(client));
@@ -37,12 +38,15 @@ public sealed class MangaSceneRoutingService
         string sourceLanguage,
         bool enabled,
         TimeSpan timeout,
+        long maxPixels = DefaultMaxPixels,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
         image.Validate();
         if (!enabled)
             return new(ScreenshotSceneRoute.StandardOcr, null, null);
+        if ((long)image.PixelWidth * image.PixelHeight > maxPixels)
+            return new(ScreenshotSceneRoute.FallbackStandardOcr, null, null);
 
         var tempDir = Path.Combine(Path.GetTempPath(), "QuickTranslate", "manga-worker");
         Directory.CreateDirectory(tempDir);
@@ -60,10 +64,12 @@ public sealed class MangaSceneRoutingService
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            CleanupTemporaryImage(path);
             return new(ScreenshotSceneRoute.FallbackStandardOcr, null, path);
         }
         catch (Exception)
         {
+            CleanupTemporaryImage(path);
             return new(ScreenshotSceneRoute.FallbackStandardOcr, null, path);
         }
     }

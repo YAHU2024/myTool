@@ -365,8 +365,9 @@
                         <CheckBox x:Name="EnhancedScreenshotTranslationCheckBox" Content="启用增强截图翻译（漫画/复杂背景，实验性）" Margin="0,0,0,10" Checked="EnhancedScreenshotTranslationCheckBox_Changed" Unchecked="EnhancedScreenshotTranslationCheckBox_Changed"/>
                         <TextBox x:Name="MangaWorkerPythonPathTextBox" ToolTip="Python runtime 路径" Margin="0,0,0,4"/>
                         <TextBox x:Name="MangaWorkerScriptPathTextBox" ToolTip="Worker 脚本路径" Margin="0,0,0,4"/>
-                        <TextBox x:Name="MangaOcrModelDirectoryTextBox" ToolTip="Manga OCR 模型目录" Margin="0,0,0,4"/>
-                        <TextBox x:Name="MangaInpaintingModelDirectoryTextBox" ToolTip="LaMa 模型目录" Margin="0,0,0,10"/>
+                        <TextBox x:Name="MangaOcrModelDirectoryTextBox" ToolTip="Manga OCR 模型目录" Margin="0,0,0,4" TextChanged="MangaModelPath_TextChanged"/>
+                        <TextBox x:Name="MangaInpaintingModelDirectoryTextBox" ToolTip="LaMa 模型目录" Margin="0,0,0,10" TextChanged="MangaModelPath_TextChanged"/>
+                        <TextBlock x:Name="MangaModelStatusText" Style="{StaticResource HintStyle}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
