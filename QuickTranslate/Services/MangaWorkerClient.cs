@@ -40,6 +40,7 @@ public static class MangaWorkerEvidenceParser
 /// <summary>Runs the isolated manga worker as a one-request process.</summary>
 public sealed class MangaWorkerClient
 {
+    private static readonly TimeSpan ProcessExitWaitTimeout = TimeSpan.FromSeconds(2);
     private readonly string _pythonPath;
     private readonly string _workerPath;
 
@@ -117,7 +118,17 @@ public sealed class MangaWorkerClient
         finally
         {
             TryKill(process);
-            await process.WaitForExitAsync().ConfigureAwait(false);
+            try
+            {
+                await process.WaitForExitAsync()
+                    .WaitAsync(ProcessExitWaitTimeout)
+                    .ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                // Cancellation must release the screenshot entry point even
+                // when a misbehaving child process ignores the kill request.
+            }
         }
     }
 
