@@ -43,7 +43,8 @@ public sealed class ScreenshotTranslationCoordinator
         OcrRecognitionOptions? options = null,
         CancellationToken cancellationToken = default,
         Action<IReadOnlyList<ScreenshotTranslationUnit>>? onUnitsReady = null,
-        Action<TranslatedTextUnit>? onUnitTranslated = null)
+        Action<TranslatedTextUnit>? onUnitTranslated = null,
+        Func<ScreenshotTranslationUnit, bool>? shouldTranslate = null)
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(translateAsync);
@@ -62,7 +63,8 @@ public sealed class ScreenshotTranslationCoordinator
             ocrWatch.Elapsed,
             cancellationToken,
             onUnitsReady,
-            onUnitTranslated).ConfigureAwait(false);
+            onUnitTranslated,
+            shouldTranslate).ConfigureAwait(false);
     }
 
     public async Task<ScreenshotTranslationPipelineResult> ExecuteWithOcrResultAsync(
@@ -72,7 +74,8 @@ public sealed class ScreenshotTranslationCoordinator
         TimeSpan ocrElapsed,
         CancellationToken cancellationToken = default,
         Action<IReadOnlyList<ScreenshotTranslationUnit>>? onUnitsReady = null,
-        Action<TranslatedTextUnit>? onUnitTranslated = null)
+        Action<TranslatedTextUnit>? onUnitTranslated = null,
+        Func<ScreenshotTranslationUnit, bool>? shouldTranslate = null)
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(ocrResult);
@@ -95,11 +98,13 @@ public sealed class ScreenshotTranslationCoordinator
             throw new ArgumentException("OCR 规范化文本超过允许上限。", nameof(ocrResult));
         }
 
-        var units = ScreenshotTranslationMapper.CreateUnits(paragraphs);
-        if (units.Count > _limits.MaxTranslationUnitCount)
+        var units = ScreenshotTranslationMapper.CreateUnits(paragraphs)
+            .Where(unit => shouldTranslate?.Invoke(unit) ?? true)
+            .ToArray();
+        if (units.Length > _limits.MaxTranslationUnitCount)
             throw new ArgumentException("翻译单元数超过允许上限。", nameof(ocrResult));
 
-        if (units.Count == 0)
+        if (units.Length == 0)
         {
             var emptyMapping = ScreenshotTranslationMapper.Map(units, Array.Empty<TranslatedTextUnit>());
             return new(ScreenshotTranslationPipelineStatus.NoText, ocrResult, units, emptyMapping)
@@ -138,7 +143,7 @@ public sealed class ScreenshotTranslationCoordinator
                 translationWatch.Elapsed,
                 mappingWatch.Elapsed,
                 normalizedBlocks.Length,
-                units.Count)
+                    units.Length)
         };
     }
 
@@ -149,11 +154,16 @@ public sealed class ScreenshotTranslationCoordinator
         TimeSpan ocrElapsed,
         CancellationToken cancellationToken = default,
         Action<IReadOnlyList<ScreenshotTranslationUnit>>? onUnitsReady = null,
-        Action<TranslatedTextUnit>? onUnitTranslated = null)
+        Action<TranslatedTextUnit>? onUnitTranslated = null,
+        Func<ScreenshotTranslationUnit, bool>? shouldTranslate = null)
     {
         ArgumentNullException.ThrowIfNull(ocrResult);
         ArgumentNullException.ThrowIfNull(units);
         ArgumentNullException.ThrowIfNull(translateAsync);
+        units = units
+            .Where(unit => shouldTranslate?.Invoke(unit) ?? true)
+            .ToArray();
+
         if (units.Count == 0)
         {
             var empty = ScreenshotTranslationMapper.Map(units, Array.Empty<TranslatedTextUnit>());

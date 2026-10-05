@@ -180,7 +180,7 @@ public partial class ScreenshotTranslationOverlayWindow : Window
         }
 
         var occupied = LayoutResult.Items
-            .Where(item => _completedUnitIds.Contains(item.UnitId) &&
+            .Where(item => !string.Equals(item.UnitId, translated.UnitId, StringComparison.Ordinal) &&
                            item.Status != ScreenshotOverlayLayoutStatus.Skipped)
             .Select(static item => item.LayoutBounds)
             .ToArray();
@@ -190,12 +190,47 @@ public partial class ScreenshotTranslationOverlayWindow : Window
             sourceUnit.Blocks.Count == 1 ? sourceUnit.Blocks[0].Polygon : null,
             sourceUnit.UnitId,
             AverageConfidence(sourceUnit.Blocks));
-        var layout = _layoutEngine.LayoutIncremental(
+        var reserved = LayoutResult.Items.FirstOrDefault(item =>
+            string.Equals(item.UnitId, translated.UnitId, StringComparison.Ordinal));
+        ScreenshotOverlayLayout layout;
+        if (reserved is not null &&
+            reserved.DegradationReason?.Contains("collision_unavoidable", StringComparison.Ordinal) != true &&
+            _layoutEngine.TryFitFontSize(
+                translated.Translation.Trim(),
+                reserved.LayoutBounds,
+                reserved.FontSize,
+                out var reservedFontSize))
+        {
+            var measured = MeasureTextWithWpf(
+                translated.Translation.Trim(),
+                reservedFontSize,
+                reserved.LayoutBounds.Width);
+            layout = reserved with
+            {
+                Translation = translated.Translation.Trim(),
+                FontSize = reservedFontSize,
+                LineCount = measured.LineCount,
+                MeasuredTextWidth = measured.Width,
+                MeasuredTextHeight = measured.Height,
+                Status = reserved.SourceBounds == reserved.LayoutBounds
+                    ? ScreenshotOverlayLayoutStatus.Placed
+                    : ScreenshotOverlayLayoutStatus.Degraded,
+                DegradationReason = reserved.SourceBounds == reserved.LayoutBounds
+                    ? null
+                    : reserved.DegradationReason
+            };
+        }
+        else
+        {
+            layout = _layoutEngine.LayoutIncremental(
             _pixelWidth,
             _pixelHeight,
             overlayItem,
             occupied);
+        }
         if (layout.Status == ScreenshotOverlayLayoutStatus.Skipped)
+            return false;
+        if (layout.DegradationReason?.Contains("collision_unavoidable", StringComparison.Ordinal) == true)
             return false;
 
         var border = CreateCard(layout, translated.Translation.Trim(), pending: false);
@@ -246,12 +281,12 @@ public partial class ScreenshotTranslationOverlayWindow : Window
         textBlock.SetValue(TextOptions.TextFormattingModeProperty, TextFormattingMode.Display);
         var border = new Border
         {
-            Background = new SolidColorBrush(isDegraded
-                ? Color.FromArgb(228, 69, 43, 15)
-                : Color.FromArgb(218, 15, 23, 42)),
-            BorderBrush = new SolidColorBrush(isDegraded
-                ? Color.FromArgb(235, 251, 191, 36)
-                : Color.FromArgb(220, 255, 255, 255)),
+            Background = new SolidColorBrush(Color.FromArgb(218, 15, 23, 42)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(
+                isDegraded ? (byte)175 : (byte)220,
+                255,
+                255,
+                255)),
             BorderThickness = new Thickness(borderDip),
             Padding = new Thickness(
                 horizontalPadding,

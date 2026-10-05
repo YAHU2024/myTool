@@ -22,6 +22,16 @@ public partial class ScreenshotTranslationProgressWindow : Window
 
     public event Action? CancelRequested;
 
+    private bool _closeForOverlay;
+
+    public bool ClosedForOverlay => _closeForOverlay;
+
+    public void CloseForOverlay()
+    {
+        _closeForOverlay = true;
+        Close();
+    }
+
     public void SetStatus(string message)
     {
         if (string.IsNullOrWhiteSpace(message))
@@ -68,4 +78,5 @@ public partial class ScreenshotTranslationProgressWindow : Window
         Close();
         e.Handled = true;
     }
+
 }

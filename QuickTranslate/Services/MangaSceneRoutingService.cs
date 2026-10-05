@@ -13,7 +13,7 @@ public sealed record MangaSceneRoutingResult(
     string? SourceLanguage = null,
     string? FailureType = null);
 
-/// <summary>Coordinates a one-shot manga probe without exposing process details to WPF.</summary>
+/// <summary>Coordinates one manga worker pass without exposing process details to WPF.</summary>
 public sealed class MangaSceneRoutingService
 {
     public const long DefaultMaxPixels = 20_000_000;
@@ -37,7 +37,8 @@ public sealed class MangaSceneRoutingService
         try
         {
             var full = Path.GetFullPath(path);
-            var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "QuickTranslate", "manga-worker"));
+            var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "QuickTranslate", "manga-worker"))
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
             if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(full))
                 File.Delete(full);
         }

@@ -127,6 +127,34 @@ public sealed class ScreenshotTranslationCoordinatorTests
         Assert.Equal(new[] { "ready:1", "translate", "done:u0001" }, callbacks);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_FiltersUnitsThatShouldRemainOnScreen()
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            new[]
+            {
+                new OcrTextBlock("b0001", "https://example.com", new OcrBounds(0, 0, 90, 12)),
+                new OcrTextBlock("b0002", "This sentence needs translation.", new OcrBounds(0, 30, 90, 12))
+            },
+            "en-US",
+            false,
+            0,
+            TimeSpan.Zero));
+        var coordinator = new ScreenshotTranslationCoordinator(ocr);
+
+        var result = await coordinator.ExecuteAsync(
+            ValidImage(),
+            (units, _) => Task.FromResult<IReadOnlyList<TranslatedTextUnit>>(
+                units.Select(unit => new TranslatedTextUnit(unit.UnitId, "译文")).ToArray()),
+            shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
+                .Evaluate(unit.SourceText, "简体中文")
+                .ShouldTranslate);
+
+        var unit = Assert.Single(result.Units);
+        Assert.Equal("This sentence needs translation.", unit.SourceText);
+        Assert.Equal(1, result.Timings.TranslationUnitCount);
+    }
+
     private static OcrImage ValidImage() => new(100, 100, 400, new byte[40_000]);
 
     private sealed class FakeOcrService : IOcrService

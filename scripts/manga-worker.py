@@ -84,10 +84,14 @@ def handle(msg):
         for i, block in enumerate(blocks, 1):
             m = comic.block_metadata(block, i, rgb.width, rgb.height, comic.ROUTES[language]); m.update({"source_language":language,"source_text":block.text if msg.get("include_source_text",False) else None})
             result["blocks"].append(m)
-        if "inpaint" in stages:
+        bubble_count = sum(1 for block in blocks if str(getattr(block, "text_class", "")) == "text_bubble")
+        should_inpaint = "inpaint" in stages and len(blocks) >= 2 and bubble_count / max(1, len(blocks)) >= 0.7
+        if should_inpaint:
             stage = "inpaint"
             cleaned, mask, status = engines.clean(image, blocks)
             clean_path = out_dir / f"{req}.cleaned.png"; Image.fromarray(cleaned).save(clean_path); result["cleaned_image_path"] = str(clean_path); result["inpainting"] = {"status":status,"mask_pixels":int(np.count_nonzero(mask))}
+        elif "inpaint" in stages:
+            result["inpainting"] = {"status":"skipped_non_manga","mask_pixels":0}
         emit(result)
     except KeyboardInterrupt:
         emit({"schema":msg["schema"],"type":"cancelled","request_id":req,"stage":stage})
