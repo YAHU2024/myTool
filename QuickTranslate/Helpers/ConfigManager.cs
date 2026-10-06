@@ -496,6 +496,14 @@ namespace QuickTranslate.Helpers
         internal static bool NormalizeScreenshotOcrSettings(AppSettings settings)
         {
             var changed = false;
+            if (settings.EnhancedScreenshotTranslationEnabled)
+            {
+                // The complex-image route is retained for internal research but
+                // is no longer part of the supported user-facing pipeline.
+                settings.EnhancedScreenshotTranslationEnabled = false;
+                changed = true;
+            }
+
             if (!string.Equals(settings.ScreenshotOcrEngine, "windows", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(settings.ScreenshotOcrEngine, "rapidocr", StringComparison.OrdinalIgnoreCase))
             {

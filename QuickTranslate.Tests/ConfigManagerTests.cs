@@ -90,6 +90,17 @@ public class ConfigManagerTests : IDisposable
     }
 
     [Fact]
+    public void Load_DisablesRetiredEnhancedScreenshotRoute()
+    {
+        Directory.CreateDirectory(_testDir);
+        File.WriteAllText(ConfigPath, "{\"EnhancedScreenshotTranslationEnabled\":true}");
+
+        var settings = CreateManager().LoadInternal();
+
+        Assert.False(settings.EnhancedScreenshotTranslationEnabled);
+    }
+
+    [Fact]
     public void SaveAndLoad_PersistsSupportedScreenshotOcrSelection()
     {
         var manager = CreateManager();

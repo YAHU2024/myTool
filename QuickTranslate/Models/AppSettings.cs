@@ -198,7 +198,10 @@ namespace QuickTranslate.Models
         /// <summary>Selected catalog model for the optional local scene OCR engine.</summary>
         public string ScreenshotOcrModelId { get; set; } = "ppocrv6-small-cpu";
 
-        /// <summary>Enables automatic scene routing to the isolated manga worker.</summary>
+        /// <summary>
+        /// Legacy compatibility flag for the retired complex-image route. It is
+        /// normalized to false and is not exposed in the supported settings UI.
+        /// </summary>
         public bool EnhancedScreenshotTranslationEnabled { get; set; } = false;
 
         public string MangaWorkerPythonPath { get; set; } = string.Empty;

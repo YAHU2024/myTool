@@ -55,13 +55,13 @@ The feedback window shows a public-content preview before leaving the app and le
 
 Select text to open a red-dot guide and route it into translation, code, or terminology mode. Results are streamed in real time. The feature supports drag, double-click, and triple-click activation. Translation mode makes a conservative direction decision by default, but you can switch the target language from the status bar with one click. The floating window also supports temporarily using a saved model for the current text without modifying the global default settings.
 
-### Screenshot Translation · Local OCR Overlay
+### Screenshot Translation · Clear-Region OCR Overlay
 
-Choose “Screenshot Translation” from the tray menu and select a region on one monitor. QuickTranslate recognizes text locally, calls the current translation model, and places translated text back over the captured region. Press `Esc` or click the overlay to close it and restore the original view; screenshots, OCR text, and translations stay in memory by default and are not written to history or logs.
+Choose “Screenshot Translation” from the tray menu and select a clear web, IDE, document, or other single text region on one monitor. QuickTranslate recognizes text locally, calls the current translation model, and places translated text back over the captured region. Press `Esc` or click the overlay to close it and restore the original view; screenshots, OCR text, and translations stay in memory by default and are not written to history or logs. Dense full-page papers, complex backgrounds, full-page comic detection, erasure, and automatic re-layout are outside the supported product scope.
 
 Models that support structured streaming show each region as soon as its complete `UnitId` translation arrives, while keeping already placed cards stable. If the stream is interrupted, completed results remain visible with an explicit partial-completion state; missing translations are never fabricated. An unsupported or unsafe stream format falls back to one structured batch request, then to bounded per-unit requests under the existing mapping contract.
 
-An installed RapidOCR/ONNX local scene-OCR Worker is preferred for complex backgrounds, Japanese, and rotated text; without a local model or runtime, the app falls back to Windows built-in OCR. Both Standard and Full packages can explicitly download, verify, and switch supported models from Settings; neither package bundles scene model weights, and the app never downloads models automatically at startup or when a screenshot is captured. From a source checkout, run `scripts\install-ocr-runtime.ps1` when needed to create the isolated runtime. Complex background erasure currently uses a translucent mask/card fallback, and low-confidence or unsafe mappings are not overlaid automatically.
+Windows OCR is always available; an optional RapidOCR/ONNX local scene-OCR runtime can be installed from Settings for clear web, IDE, and document regions. The app never downloads models automatically at startup or when a screenshot is captured. URLs, code, paths, identifiers, and text already in the target language remain unchanged and are not sent to the translation provider. Complex-image enhancement, comic background erasure, and full-page automatic layout remain internal research assets.
 
 ---
 
@@ -123,7 +123,7 @@ Structured JSON Lines logs, multi-file switching, level and keyword filtering, *
   - [Three AI Experiences, One Open Entry Point](#three-ai-experiences-one-open-entry-point)
   - [Features](#features)
     - [AI text selection translation · red-dot guidance](#ai-text-selection-translation--red-dot-guidance)
-    - [Screenshot Translation · Local OCR Overlay](#screenshot-translation--local-ocr-overlay)
+    - [Screenshot Translation · Clear-Region OCR Overlay](#screenshot-translation--clear-region-ocr-overlay)
     - [Follow-up analysis · keep understanding the result](#follow-up-analysis--keep-understanding-the-result)
     - [Settings window · multi-model and shortcut management](#settings-window--multi-model-and-shortcut-management)
     - [AI lookup · local dictionary foundation, cloud-model completion](#ai-lookup--local-dictionary-foundation-cloud-model-completion)
@@ -289,6 +289,9 @@ QuickTranslate/
 │   ├── OcrBlockAggregator.cs                           # Deterministic OCR line-block aggregation
 │   ├── OcrLanguageSelector.cs                          # OCR language selection and fallback
 │   ├── OcrTextNormalizer.cs                            # OCR text normalization
+│   ├── OcrReadingOrderSorter.cs                        # OCR reading-order sorting
+│   ├── ScreenshotTranslationEligibility.cs             # Screenshot translation eligibility
+│   ├── ScreenshotTranslationSessionState.cs            # Screenshot translation session lifecycle state
 │   ├── ScreenshotTranslationCoordinator.cs             # Screenshot OCR-to-translation coordination
 │   ├── ScreenshotTranslationTiming.cs                  # Screenshot pipeline stage timings and counts
 │   ├── ScreenshotSelection.cs                          # Physical screenshot region and resource gate
@@ -335,6 +338,15 @@ QuickTranslate/
 │   ├── WindowsMediaOcrService.cs                       # Windows built-in OCR adapter
 │   ├── RapidOcrWorkerService.cs                        # Isolated RapidOCR/ONNX worker service
 │   ├── ScreenshotOcrServiceFactory.cs                  # Screenshot OCR engine selection and fallback
+│   ├── ScreenshotLanguageRouter.cs                     # Screenshot source-language routing
+│   ├── ScreenshotSceneRouter.cs                        # Screenshot scene routing
+│   ├── MangaModelStatusService.cs                      # Manga model status inspection (internal research)
+│   ├── MangaSceneRoutingService.cs                     # Manga scene Worker routing (internal research)
+│   ├── MangaTranslationOrchestrator.cs                 # Manga translation orchestration (internal research)
+│   ├── MangaTranslationResult.cs                       # Manga translation result model (internal research)
+│   ├── MangaWorkerClient.cs                            # Manga Worker client (internal research)
+│   ├── MangaWorkerRequestFactory.cs                    # Manga Worker request builder (internal research)
+│   ├── MangaWorkerRuntimeResolver.cs                   # Manga Worker runtime resolution (internal research)
 │   ├── OcrModelCatalog.cs                              # Pinned official OCR model catalog
 │   ├── OcrModelManager.cs                              # OCR model download, verification, and atomic install
 │   ├── IWordLookupService.cs                           # Word lookup service interface

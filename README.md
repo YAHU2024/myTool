@@ -56,13 +56,13 @@ QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中�
 
 选中文本自动弹出红点引导，根据内容进入翻译、代码或术语模式，**流式输出 AI 结果**；支持拖拽、双击和三击触发。翻译模式会保守判断方向，也可在状态栏一键切换目标语言；悬浮窗的翻译、代码、术语和解析模式都支持为当前文本临时换用已保存模型，不会修改全局默认配置。
 
-### 截图翻译 · 本地 OCR 覆盖
+### 截图翻译 · 清晰区域 OCR 覆盖
 
-从托盘菜单选择“截图翻译”，框选同一显示器内的区域后，程序在本地识别文字并调用当前翻译模型，将译文覆盖回原截图位置。按 `Esc` 或单击覆盖层即可关闭并恢复原画面；截图、OCR 文本和译文默认只保存在当前内存，不写入历史或日志。
+从托盘菜单选择“截图翻译”，框选同一显示器内的网页、IDE、文档段落或其他清晰文字区域后，程序在本地识别文字并调用当前翻译模型，将译文覆盖回原截图位置。按 `Esc` 或单击覆盖层即可关闭并恢复原画面；截图、OCR 文本和译文默认只保存在当前内存，不写入历史或日志。复杂整页图片、密集论文版面和背景复杂的漫画不属于正式支持范围，请缩小到单个清晰区域后再翻译。
 
 支持结构化流式输出的模型会在每个 `UnitId` 译文完整到达后立即显示对应区域，已显示卡片的位置保持稳定；流中断时保留已完成结果并明确标记部分完成，不伪造未返回的译文。模型不支持该格式或响应无法安全映射时，自动回退到一次批量请求，再按既有边界回退逐单元请求。
 
-程序优先使用已安装的 RapidOCR/ONNX 本地场景 OCR Worker，适合复杂背景、日文和倾斜文字；未安装本地模型或运行时缺失时自动回退 Windows 内置 OCR。标准版和完整版都可在设置页主动下载、校验和切换已适配模型；两版均不内置场景模型，应用不会在启动或截图时自动联网下载。源码环境可按需运行 `scripts\install-ocr-runtime.ps1` 安装隔离运行时。复杂背景擦除暂采用半透明遮罩卡片降级，低置信度或无法安全映射的结果不会自动覆盖。
+Windows OCR 始终可用；也可以在设置页主动下载并切换已适配的 RapidOCR/ONNX 本地场景 OCR，用于清晰的网页、IDE 和文档区域。应用不会在启动或截图时自动联网下载模型。URL、代码、路径和已经使用目标语言的文本会保留原样，不会发送给翻译 Provider。复杂图片增强、漫画背景擦除和整页自动排版已冻结为内部研究资产。
 
 ---
 
@@ -124,7 +124,7 @@ SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支
   - [三种 AI 体验，一个开放入口](#三种-ai-体验一个开放入口)
   - [功能展示](#功能展示)
     - [AI 划词翻译 · 红点引导](#ai-划词翻译--红点引导)
-    - [截图翻译 · 本地 OCR 覆盖](#截图翻译--本地-ocr-覆盖)
+    - [截图翻译 · 清晰区域 OCR 覆盖](#截图翻译--清晰区域-ocr-覆盖)
     - [解析追问 · 围绕结果继续理解](#解析追问--围绕结果继续理解)
     - [设置窗口 · 多模型与快捷键管理](#设置窗口--多模型与快捷键管理)
     - [AI 查词 · 本地词典打底，云端模型补全](#ai-查词--本地词典打底云端模型补全)
@@ -288,6 +288,9 @@ QuickTranslate/
 │   ├── OcrBlockAggregator.cs                           # OCR 行块确定性聚合
 │   ├── OcrLanguageSelector.cs                          # OCR 语言选择与降级
 │   ├── OcrTextNormalizer.cs                            # OCR 文本规范化
+│   ├── OcrReadingOrderSorter.cs                        # OCR 阅读顺序排序
+│   ├── ScreenshotTranslationEligibility.cs             # 截图翻译资格判定
+│   ├── ScreenshotTranslationSessionState.cs            # 截图翻译会话生命周期状态
 │   ├── ScreenshotTranslationCoordinator.cs             # 截图翻译 OCR 到译文协调
 │   ├── ScreenshotTranslationTiming.cs                  # 截图翻译分段耗时与计数
 │   ├── ScreenshotSelection.cs                          # 截图框选物理矩形与资源门禁
@@ -334,6 +337,15 @@ QuickTranslate/
 │   ├── WindowsMediaOcrService.cs                       # Windows 内置 OCR 适配器
 │   ├── RapidOcrWorkerService.cs                        # 隔离 RapidOCR/ONNX Worker 服务
 │   ├── ScreenshotOcrServiceFactory.cs                  # 截图 OCR 引擎选择与回退
+│   ├── ScreenshotLanguageRouter.cs                     # 截图源语言路由
+│   ├── ScreenshotSceneRouter.cs                        # 截图场景路由
+│   ├── MangaModelStatusService.cs                      # 漫画模型状态检查（内部研究）
+│   ├── MangaSceneRoutingService.cs                     # 漫画场景 Worker 路由（内部研究）
+│   ├── MangaTranslationOrchestrator.cs                 # 漫画翻译单元编排（内部研究）
+│   ├── MangaTranslationResult.cs                       # 漫画翻译结果模型（内部研究）
+│   ├── MangaWorkerClient.cs                            # 漫画 Worker 客户端（内部研究）
+│   ├── MangaWorkerRequestFactory.cs                    # 漫画 Worker 请求构建（内部研究）
+│   ├── MangaWorkerRuntimeResolver.cs                   # 漫画 Worker 运行时解析（内部研究）
 │   ├── OcrModelCatalog.cs                              # 官方 OCR 模型固定 revision 清单
 │   ├── OcrModelManager.cs                              # OCR 模型下载、校验与原子安装
 │   ├── IWordLookupService.cs                           # 查词服务接口

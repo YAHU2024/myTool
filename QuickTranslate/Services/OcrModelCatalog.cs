@@ -42,8 +42,8 @@ public static class OcrModelCatalog
         Create(
             "ppocrv6-small-cpu",
             "1.0.0",
-            "PP-OCRv6 Small（质量优先，实验性）",
-            "复杂场景质量候选；CPU 速度较慢，尚未达到生产性能门禁。",
+            "PP-OCRv6 Small（质量优先）",
+            "质量优先，CPU 速度较慢。",
             "PaddlePaddle/PP-OCRv6_small_det_onnx", "28fe5895c24fd108c19eb3e8479f4ab385fbfc62",
             new("det/inference.onnx", 9_880_512, "D73E0058B7A8086BBD57F3D10B8BCD4FF95363F67E06E2762B5E814FE9C9410E", null!),
             "PaddlePaddle/PP-OCRv6_small_rec_onnx", "b8f84f0b80c529de40b4fbb3544b84fa7233a513",
@@ -56,8 +56,8 @@ public static class OcrModelCatalog
         Create(
             "ppocrv6-tiny-cpu",
             "1.0.0",
-            "PP-OCRv6 Tiny（速度优先，实验性）",
-            "下载体积和 CPU 延迟较低，但复杂图片识别质量低于 Small。",
+            "PP-OCRv6 Tiny（速度优先）",
+            "速度优先，识别质量低于 Small。",
             "PaddlePaddle/PP-OCRv6_tiny_det_onnx", "2ba1506c0380b8f0b03dd142459aac66d4421f6c",
             new("det/inference.onnx", 1_780_590, "193BAB7A04FCA699A6C82E6ABB5B81BDB28177F0ABD4062552B04908DAFB19F8", null!),
             "PaddlePaddle/PP-OCRv6_tiny_rec_onnx", "2612ab37152ae0a677521bae4e1e3d4fb4cf7c30",

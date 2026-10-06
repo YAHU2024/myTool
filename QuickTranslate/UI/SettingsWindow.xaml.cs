@@ -487,16 +487,10 @@ namespace QuickTranslate.UI
 
         private void LoadScreenshotOcrSettings()
         {
-            EnhancedScreenshotTranslationCheckBox.IsChecked = _settings.EnhancedScreenshotTranslationEnabled;
-            MangaWorkerPythonPathTextBox.Text = _settings.MangaWorkerPythonPath;
-            MangaWorkerScriptPathTextBox.Text = _settings.MangaWorkerScriptPath;
-            MangaOcrModelDirectoryTextBox.Text = _settings.MangaOcrModelDirectory;
-            MangaInpaintingModelDirectoryTextBox.Text = _settings.MangaInpaintingModelDirectory;
-            RefreshMangaModelStatus();
             ScreenshotOcrEngineComboBox.ItemsSource = new[]
             {
                 new OcrEngineChoice("windows", "Windows OCR（内置兜底）"),
-                new OcrEngineChoice("rapidocr", "本地场景 OCR（实验性）")
+                new OcrEngineChoice("rapidocr", "本地场景 OCR（可选）")
             };
             ScreenshotOcrEngineComboBox.DisplayMemberPath = nameof(OcrEngineChoice.Name);
             ScreenshotOcrEngineComboBox.SelectedValuePath = nameof(OcrEngineChoice.Id);
@@ -523,8 +517,8 @@ namespace QuickTranslate.UI
         {
             var model = SelectedScreenshotOcrModel;
             ScreenshotOcrModelDescriptionText.Text = model is null
-                ? "未选择本地模型。"
-                : $"{model.Description} 下载大小 {FormatBytes(model.TotalSizeBytes)}，许可证：{model.License}。";
+                ? "未选择模型。"
+                : $"{model.Description} · {FormatBytes(model.TotalSizeBytes)}";
 
             var status = model is null || _ocrModelManager is null
                 ? null
@@ -536,14 +530,14 @@ namespace QuickTranslate.UI
             var runtimeAvailable = ScreenshotOcrServiceFactory.IsRapidOcrRuntimeAvailable();
             var statusText = transientStatus ?? (status switch
             {
-                null when _ocrModelManager is null => "模型管理器不可用；当前仅可使用 Windows OCR。",
-                { State: OcrModelInstallState.NotInstalled } when hasPartialDownload => "下载未完成，可继续下载或删除暂存文件。",
-                { State: OcrModelInstallState.NotInstalled } => "未安装，可下载后启用。",
-                { State: OcrModelInstallState.Corrupted } => "安装文件不完整或损坏，请重新下载。",
-                { State: OcrModelInstallState.Installed } when isActive => "当前生效；下次切换前仍会再次完整校验。",
-                { State: OcrModelInstallState.Installed } when isInUse => "正在校验模型并启动 Worker...",
-                { State: OcrModelInstallState.Installed } when IsRapidOcrSelected && !runtimeAvailable => "模型已安装，但本地 OCR 运行时缺失。源码运行请先执行 scripts\\install-ocr-runtime.ps1；发布版需使用包含 OCR 运行时的安装包。",
-                { State: OcrModelInstallState.Installed } => "已安装，切换前会完整校验。",
+                null when _ocrModelManager is null => "模型管理器不可用。",
+                { State: OcrModelInstallState.NotInstalled } when hasPartialDownload => "下载未完成。",
+                { State: OcrModelInstallState.NotInstalled } => "未安装。",
+                { State: OcrModelInstallState.Corrupted } => "文件损坏，请重新下载。",
+                { State: OcrModelInstallState.Installed } when isActive => "当前使用中。",
+                { State: OcrModelInstallState.Installed } when isInUse => "正在启动。",
+                { State: OcrModelInstallState.Installed } when IsRapidOcrSelected && !runtimeAvailable => "缺少本地 OCR 运行时。",
+                { State: OcrModelInstallState.Installed } => "已安装。",
                 _ => "状态未知。"
             });
             ScreenshotOcrStatusText.Text = statusText;
@@ -1016,11 +1010,9 @@ namespace QuickTranslate.UI
         /// </summary>
         private void ApplySettingsToModel()
         {
-            _settings.EnhancedScreenshotTranslationEnabled = EnhancedScreenshotTranslationCheckBox.IsChecked == true;
-            _settings.MangaWorkerPythonPath = MangaWorkerPythonPathTextBox.Text?.Trim() ?? string.Empty;
-            _settings.MangaWorkerScriptPath = MangaWorkerScriptPathTextBox.Text?.Trim() ?? string.Empty;
-            _settings.MangaOcrModelDirectory = MangaOcrModelDirectoryTextBox.Text?.Trim() ?? string.Empty;
-            _settings.MangaInpaintingModelDirectory = MangaInpaintingModelDirectoryTextBox.Text?.Trim() ?? string.Empty;
+            // The complex-image route is retained only as an internal research
+            // path. User settings always select the stable screenshot pipeline.
+            _settings.EnhancedScreenshotTranslationEnabled = false;
             if (ScreenshotOcrEngineComboBox.SelectedValue is string screenshotEngine)
             {
                 var selectedModelStatus = SelectedScreenshotOcrModel is { } selectedOcrModel
@@ -1150,35 +1142,6 @@ namespace QuickTranslate.UI
                     _settings.SavedConfigs.RemoveAt(_settings.SavedConfigs.Count - 1);
             }
 
-        }
-
-        private void EnhancedScreenshotTranslationCheckBox_Changed(object sender, RoutedEventArgs e)
-        {
-            if (!_isInitializing)
-                _isDirty = true;
-        }
-
-        private void RefreshMangaModelStatus()
-        {
-            var ocr = MangaModelStatusService.Inspect("Manga OCR", MangaOcrModelDirectoryTextBox.Text, "pytorch_model.bin");
-            var lama = MangaModelStatusService.Inspect("LaMa", MangaInpaintingModelDirectoryTextBox.Text, "lama-manga-dynamic.onnx");
-            MangaModelStatusText.Text = $"Manga OCR：{FormatMangaState(ocr)}；LaMa：{FormatMangaState(lama)}";
-        }
-
-        private static string FormatMangaState(MangaModelStatus status) => status.State switch
-        {
-            MangaModelInstallState.Installed => $"已安装（{status.TotalBytes / 1024 / 1024} MB）",
-            MangaModelInstallState.Invalid => $"损坏或不完整（{status.Reason}）",
-            _ => $"缺失（{status.Reason}）"
-        };
-
-        private void MangaModelPath_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            if (!_isInitializing)
-            {
-                _isDirty = true;
-                RefreshMangaModelStatus();
-            }
         }
 
         internal static string ResolveModelNameForSave(
