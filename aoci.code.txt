@@ -1,0 +1,360 @@
+#AOCI-CODE-VOLUME: 1
+
+===D:/YaHu/Documents/myTool/===
+.gitattributes[FC5T]: F:统一文本文件 LF 行尾并保持 AOCI 基线原始字节跨平台一致 | R:- | A:Git 检出属性 | S:二进制文件保持原样
+.gitignore[FC6S]: F:排除构建、密钥、缓存、运行时数据、生成站点素材与宿主配置 | R:code:QuickTranslate/QuickTranslate.csproj,code:.codex/config.toml | A:版本库边界 | S:settings.json 与 OCR/模型目录被视为本地敏感或生成数据
+CONTRIBUTING.md[SQ5M]: F:说明 Issue、开发环境、代码风格、提交、README 生成、分支保护与隐私约定 | R:code:scripts/update-readme-tree.py,code:scripts/sync-site-assets.py | A:贡献者指南 | S:日志不得包含原文、翻译输出、API Key 或 Prompt 正文
+LICENSE[SZ8M]: F:声明项目采用 MPL-2.0 并规定源码、可执行形式、专利、通知和终止条件 | R:- | A:许可边界 | S:分发可执行形式时必须同时提供源码获取方式
+README.en.md[SZ3T]: F:记录项目使用、维护或发布约定 | R:- | A:项目文档 | S:-
+README.md[SZ3T]: F:记录项目使用、维护或发布约定 | R:- | A:项目文档 | S:-
+
+===D:/YaHu/Documents/myTool/.codegraph/===
+.gitignore[XC3T]: F:限制 CodeGraph 目录仅保留忽略规则文件，隔离本机数据库、进程和日志产物 | R:- | A:CodeGraph 本机索引边界 | S:CodeGraph 数据库与套接字不进入版本库
+
+===D:/YaHu/Documents/myTool/.github/ISSUE_TEMPLATE/===
+bug_report.yml[SQ3T]: F:定义公开 Bug Issue 表单并按类别、复现、环境和隐私确认收集信息 | R:- | A:GitHub Issue 模板 | S:表单明确禁止提交 API Key、账号、原文、完整日志和敏感截图
+config.yml[SQ3T]: F:关闭空白 Issue 并提供帮助与私密漏洞报告入口 | R:- | A:GitHub Issue 配置 | S:安全漏洞使用 GitHub 私密报告而非公开 Issue
+feature_request.yml[SQ3T]: F:定义公开功能建议表单并按场景、方案和隐私确认收集信息 | R:- | A:GitHub Issue 模板 | S:表单要求确认公开内容不含密钥和个人信息
+
+===D:/YaHu/Documents/myTool/.github/===
+PULL_REQUEST_TEMPLATE.md[SQ3T]: F:规范 PR 变更、关联 Issue、类型、自测和备注栏位 | R:- | A:贡献流程 | S:自测项包含 dotnet build、dotnet test 与适用的 Windows 流程
+
+===D:/YaHu/Documents/myTool/.github/actions/build-and-test/===
+action.yml[OV7S]: F:复用 .NET 8 restore、build、test、覆盖率、漏洞和格式检查步骤 | R:code:QuickTranslate/QuickTranslate.csproj,code:QuickTranslate.Tests/QuickTranslate.Tests.csproj | A:CI composite action | S:格式检查 continue-on-error，仅警告不阻断
+
+===D:/YaHu/Documents/myTool/.github/workflows/===
+build.yml[OV8S]: F:在 Windows CI 执行构建测试并在手动发布时生成与签名安装包 | R:code:.github/actions/build-and-test/action.yml | A:GitHub build workflow | S:push/PR 构建与 workflow_dispatch 发布由条件分流
+pages.yml[OV6S]: F:在 main 推送或手动触发时同步站点素材并部署 GitHub Pages | R:code:scripts/sync-site-assets.py,code:site | A:Pages deployment | S:部署步骤包含素材同步、Pages 配置、artifact 上传和发布
+verify-readme.yml[TQ5S]: F:在 Ubuntu CI 运行 README 树一致性脚本 | R:code:scripts/update-readme-tree.py | A:Documentation verification | S:检查失败时 workflow 返回非零
+
+===D:/YaHu/Documents/myTool/QuickTranslate.Tests/===
+AnalysisConversationCoordinatorTests.cs[TB7S]: F:验证分析会话跟进问题的启动、完成、失败重试、取消、模式切换、刷新和十次提问上限 | R:code:QuickTranslate/Core/FloatingResultSessionCoordinator.cs | A:分析会话状态测试 | S:旧回调在取消或刷新后不得提交结果
+AnalysisConversationFormatterTests.cs[TB6T]: F:验证问题规范化、Unicode scalar 限制、摘要截断与只复制已完成回合 | R:code:QuickTranslate/Core/AnalysisConversationFormatter.cs | A:分析文本格式化测试 | S:摘要截断不得拆分代理对
+AnalysisPromptProfileTests.cs[TC7S]: F:验证内置与自定义分析 Prompt 的目标语言替换、核心任务顺序和旧配置迁移 | R:code:QuickTranslate/Services/AnalysisPromptCatalog.cs,code:QuickTranslate/Helpers/ConfigManager.cs | A:分析 Prompt 合约测试 | S:源文本按数据处理，后续消息按跟进问题处理且自定义要求位于核心任务之后
+ApiEndpointValidatorTests.cs[TC7S]: F:验证 HTTPS 公网、HTTP loopback、非 loopback/非 HTTP/空/相对 URL 拒绝及尾斜杠规范化 | R:code:QuickTranslate/Helpers/ApiEndpointValidator.cs | A:API endpoint validation tests | S:明文 HTTP 仅允许 loopback
+AuthenticodeVerifierTests.cs[TC6T]: F:验证缺失、未签名、空文件、参数异常、发布者描述和手工签名场景的 Authenticode 结果 | R:code:QuickTranslate/Helpers/AuthenticodeVerifier.cs | A:签名验证测试 | S:手工签名测试由环境变量驱动并可跳过
+AutoScrollControllerTests.cs[TU6T]: F:验证请求和内容增长时自动跟随底部、上移暂停、返回底部恢复及无效滚动指标处理 | R:code:QuickTranslate/Core/AutoScrollController.cs | A:滚动跟随测试 | S:接近底部阈值由 offset、viewport 和 extent 的数值关系决定
+BigModelModelCapabilitiesTests.cs[TC6T]: F:验证 BigModel 模型族的思考和 reasoning effort 能力映射 | R:code:QuickTranslate/Services/BigModelModelCapabilitiesResolver.cs | A:模型能力目录测试 | S:能力判断按文档化模型名称族而非未知名称推断
+ClipboardRestoreCoordinatorTests.cs[TC6T]: F:验证剪贴板恢复请求要求原文与复制序列完整，并使用有界重试退避 | R:code:QuickTranslate/Core/ClipboardRestoreCoordinator.cs | A:剪贴板恢复测试 | S:缺少文本、序列或请求标志时不排队
+CodeSyntaxHighlighterTests.cs[TU6T]: F:验证 C#/Python/别名高亮保留文本、拒绝不支持语言并跳过超大代码块 | R:code:QuickTranslate/Helpers/CodeSyntaxHighlighter.cs | A:代码高亮测试 | S:WPF TextBlock 测试必须在 STA 线程运行
+CompositeWordLookupServiceTests.cs[TB7T]: F:验证本地查词成功时不调用 AI，未找到时回退 AI，取消异常不回退 | R:code:QuickTranslate/Services/CompositeWordLookupService.cs | A:查词组合服务测试 | S:仅 WordLookupNotFoundException 触发回退
+ConfigManagerTests.cs[FC8S]: F:验证配置首次加载默认值、原子保存、备份、损坏保留、迁移与 OCR 设置规范化 | R:code:QuickTranslate/Helpers/ConfigManager.cs,code:QuickTranslate/Models/AppSettings.cs | A:配置持久化测试 | S:损坏设置保留原文件并返回默认值，API Key 仅测试临时目录
+ContentTypeDetectorTests.cs[TA7S]: F:验证文本、JSON、代码、命令和术语检测及详细诊断的置信度、阈值、性能与隐私脱敏 | R:code:QuickTranslate/Core/ContentTypeDetector.cs | A:内容类型检测测试 | S:诊断不得包含原始输入或敏感文本
+CrashRecoveryTrackerTests.cs[TR7S]: F:验证干净运行、未正常退出后的待处理事件、状态持久化和同一运行不重复提示 | R:code:QuickTranslate/Services/CrashRecoveryTracker.cs | A:崩溃恢复测试 | S:pending event 在处理前保持原 RunId 与 Pending 状态
+EdgeTtsClientTests.cs[TN7S]: F:验证 Edge TTS token、WebSocket URI、SSML、音频帧解析、取消、重试和 UTF-8 分块 | R:code:QuickTranslate/Services/EdgeTtsClient.cs,code:QuickTranslate/Services/TtsTextSelector.cs | A:Edge TTS 协议测试 | S:分块不得拆分多字节字符或未闭合 XML 实体
+EdgeTtsDispatcherTests.cs[TN6T]: F:验证 Edge TTS 在所属 Dispatcher 内联执行及异步释放不死锁且可重复调用 | R:code:QuickTranslate/Services/EdgeTtsService.cs | A:Edge TTS 调度测试 | S:拥有 Dispatcher 的线程路径不得依赖未运行的消息泵
+FakeAutoUpdaterAdapter.cs[TQ5T]: F:提供可控的更新检查适配器以触发成功、无更新、异常和迟到回调 | R:code:QuickTranslate/Services/IAutoUpdaterAdapter.cs | A:更新流程测试夹具 | S:假适配器不执行网络请求，只记录 Start 参数并手动触发事件
+FeedbackContentBuilderTests.cs[TB6T]: F:验证反馈字段白名单、功能建议类别、输入截断、敏感模式告警和 Markdown 复制格式 | R:code:QuickTranslate/Services/FeedbackContentBuilder.cs | A:反馈内容测试 | S:生成字段不得包含 API Key 等敏感值
+FeedbackLinkServiceTests.cs[TI5T]: F:验证问题、功能建议和崩溃恢复对应的 GitHub Issue 模板链接 | R:code:QuickTranslate/Services/FeedbackLinkService.cs | A:反馈链接测试 | S:问题模式固定使用 bug_report，功能建议固定使用 feature_request
+FeedbackWindowTests.cs[TU6T]: F:在真实 STA 窗口中验证反馈窗口共享样式、控件布局和诊断清除按钮 | R:code:QuickTranslate/UI/FeedbackWindow.xaml,code:QuickTranslate/UI/FeedbackWindow.xaml.cs | A:反馈窗口测试 | S:窗口测试在 CI 环境显式跳过并要求消息泵
+FloatingResultSessionCoordinatorTests.cs[TB8S]: F:验证浮动结果会话的模式状态、请求身份、切换恢复、刷新、回调拒绝、滚动状态和回声告警 | R:code:QuickTranslate/Core/FloatingResultSessionCoordinator.cs | A:浮动结果会话测试 | S:旧会话或旧请求回调不得改变当前状态
+FloatingStatusMessageTests.cs[TU6T]: F:验证浮动窗口状态消息的加载、错误、完成和取消展示文本 | R:code:QuickTranslate/UI/FloatingStatusMessage.cs | A:状态消息测试 | S:测试覆盖空消息与可见状态的确定性转换
+FloatingWindowFollowUpTests.cs[TU7S]: F:验证浮动窗口跟进问题输入、会话切换、取消和完成结果的 UI 协作 | R:code:QuickTranslate/UI/FloatingWindow.xaml.cs,code:QuickTranslate/Core/FloatingResultSessionCoordinator.cs | A:跟进交互测试 | S:跟进回调必须绑定当前请求身份
+FloatingWindowPlacementTests.cs[TU6T]: F:验证浮动窗口在工作区、屏幕边界和锚点变化下的放置计算 | R:code:QuickTranslate/UI/FloatingWindowPlacement.cs | A:窗口放置测试 | S:放置结果必须保持在可用屏幕工作区内
+HistoryExporterTests.cs[TP6S]: F:验证历史记录导出内容、路径选择和敏感数据边界 | R:code:QuickTranslate/Services/HistoryExporter.cs | A:历史导出测试 | S:导出使用受控文件路径并避免写入运行时临时文件
+LocalDictionaryWordLookupServiceIntegrationTests.cs[TB6T]: F:验证生成的 ECDICT 与 WordNet 数据库可被本地查词服务读取 | R:code:QuickTranslate/Services/LocalDictionaryWordLookupService.cs | A:本地词典集成测试 | S:测试依赖生成词典和 WordNet 数据库而非远程服务
+LocalDictionaryWordLookupServiceTests.cs[TB7S]: F:验证精确词条、分行释义、英文释义、词形回退和未找到异常 | R:code:QuickTranslate/Services/LocalDictionaryWordLookupService.cs | A:本地查词测试 | S:查词优先 ECDICT，再按词形和 WordNet 规则回退
+LoggingAndMetricsTests.cs[CO7S]: F:验证日志清理、关闭轨迹、异常上下文和指标限制不会记录原文或 Prompt | R:code:QuickTranslate/Helpers/Logger.cs,code:QuickTranslate/Services/LoggingAndMetrics.cs | A:日志与指标测试 | S:日志上下文只保留类型和阶段等安全摘要
+MangaModelStatusServiceTests.cs[DB6T]: F:验证漫画模型状态服务对模型目录、下载状态和失败结果的确定性映射 | R:code:QuickTranslate/Services/MangaModelStatusService.cs | A:漫画模型状态测试 | S:状态结果区分可用、缺失、下载中和错误
+MangaSceneRoutingServiceTests.cs[DB7S]: F:验证漫画场景按来源、文本块和模型配置选择路由并保持普通截图路径边界 | R:code:QuickTranslate/Services/MangaSceneRoutingService.cs | A:漫画场景路由测试 | S:复杂场景路由必须显式满足漫画能力条件才启用
+MangaTranslationOrchestratorTests.cs[DB8S]: F:验证漫画翻译编排的检测、OCR、翻译、修复、取消和失败收敛 | R:code:QuickTranslate/Services/MangaTranslationOrchestrator.cs | A:漫画翻译编排测试 | S:实验路径失败或超时不得破坏普通截图翻译流程
+MangaWorkerRequestFactoryTests.cs[IN7T]: F:验证漫画 Worker 请求的 JSONL 字段、BlockId、语言和图像载荷映射 | R:code:QuickTranslate/Services/MangaWorkerRequestFactory.cs | A:漫画 Worker 协议测试 | S:请求身份由 BlockId 稳定绑定且不得依赖显示顺序
+MangaWorkerRuntimeResolverTests.cs[IR7T]: F:验证漫画 Worker 运行时路径、版本目录和缺失依赖的解析结果 | R:code:QuickTranslate/Services/MangaWorkerRuntimeResolver.cs | A:漫画 Worker 运行时测试 | S:默认配置保持关闭且运行时缺失时返回明确不可用状态
+MarkdownRendererTests.cs[TU6T]: F:验证 Markdown 文本、代码块、链接和换行转换为安全的 WPF 展示结构 | R:code:QuickTranslate/UI/MarkdownRenderer.cs | A:Markdown 渲染测试 | S:代码块样式不应吞掉原始文本内容
+ModelSelectionTests.cs[TC8S]: F:验证模型选择器按内容类型保存独立配置、刷新设置、思考偏好和手动语义请求 | R:code:QuickTranslate/Core/ModelSelectionCoordinator.cs,code:QuickTranslate/Core/ModelProfileCatalog.cs | A:模型选择测试 | S:Code 与 Term 模式的当前模型配置彼此独立
+OcrBlockAggregatorTests.cs[DA7S]: F:验证 OCR 文本块按几何位置排序、分组段落、处理中英文空格并保持无序输入确定性 | R:code:QuickTranslate/Core/OcrBlockAggregator.cs | A:OCR 段落聚合测试 | S:不同列或足够远的行不得被合并为同一段落
+OcrBlockValidationTests.cs[DA7S]: F:验证 OCR 文本块文本、边界、唯一 ID、置信度、多边形和方向字段 | R:code:QuickTranslate/Core/OcrBlockValidator.cs | A:OCR 块校验测试 | S:多边形必须有合法范围、面积和点数
+OcrImageTests.cs[CZ7T]: F:验证 OCR 图像尺寸、stride、载荷长度、整数溢出和像素资源上限 | R:code:QuickTranslate/Models/OcrModels.cs | A:OCR 图像模型测试 | S:资源上限拒绝超大图像且不截断输入
+OcrLanguageSelectionTests.cs[DA6T]: F:验证 OCR 语言精确匹配、同基语言匹配、脚本区分、禁止回退和用户语言回退 | R:code:QuickTranslate/Core/OcrLanguageSelector.cs | A:OCR 语言选择测试 | S:简体与繁体中文脚本不会被视为同一语言
+OcrModelCatalogTests.cs[FL7T]: F:验证 OCR 模型目录数量、默认模型、官方 Hugging Face 固定版本、大小、许可证和 SHA-256 | R:code:QuickTranslate/Services/OcrModelCatalog.cs | A:OCR 模型目录测试 | S:远程模型必须绑定 40 位提交版本而不是 floating main
+OcrModelManagerTests.cs[DA7S]: F:验证 OCR 模型下载、缓存、校验、取消和损坏恢复行为 | R:code:QuickTranslate/Services/OcrModelManager.cs,code:QuickTranslate/Services/OcrModelCatalog.cs | A:OCR 模型管理测试 | S:模型文件必须通过目录中的 SHA-256 校验后才可使用
+OcrReadingOrderSorterTests.cs[DA7S]: F:验证 OCR 文本块按阅读方向和几何位置排序的结果 | R:code:QuickTranslate/Core/OcrReadingOrderSorter.cs | A:OCR 阅读顺序测试 | S:排序保持相同输入的确定性
+OcrTextNormalizerTests.cs[DA6T]: F:验证 OCR 文本空白、标点、换行和不可见字符规范化 | R:code:QuickTranslate/Core/OcrTextNormalizer.cs | A:OCR 文本规范化测试 | S:规范化不应改变可见文本的语义字符
+OpenAIScreenshotBatchTranslationTests.cs[IN7S]: F:验证 OpenAI 截图批量翻译请求、流式响应、块映射和取消 | R:code:QuickTranslate/Services/OpenAIScreenshotBatchTranslationService.cs | A:截图翻译协议测试 | S:批量结果按输入块身份绑定而非返回顺序
+OpenAITranslationServiceFollowUpTests.cs[IN7S]: F:验证 OpenAI 翻译服务跟进请求携带会话上下文并正确处理流式结果 | R:code:QuickTranslate/Services/OpenAITranslationService.cs | A:跟进翻译测试 | S:跟进请求不得泄漏非当前会话内容
+OpenAITranslationServicePromptTests.cs[IN6T]: F:验证 OpenAI 翻译 Prompt 的语言方向、内容类型和系统约束组合 | R:code:QuickTranslate/Services/OpenAITranslationService.cs,code:QuickTranslate/Core/TranslationDirectionResolver.cs | A:翻译 Prompt 测试 | S:用户内容按数据传递而不作为系统指令
+OpenAITranslationServiceStrictModeTests.cs[IN7S]: F:验证 OpenAI 严格模式的请求参数、响应解析、错误和取消边界 | R:code:QuickTranslate/Services/OpenAITranslationService.cs | A:严格翻译模式测试 | S:协议错误和取消必须停止当前请求而不回退为成功
+OpenAIWordLookupServiceTests.cs[IB7S]: F:验证 OpenAI 查词请求、结构化结果解析、失败和取消 | R:code:QuickTranslate/Services/OpenAIWordLookupService.cs | A:AI 查词测试 | S:输出来源必须标记为 AI 生成且不混入本地词典结果
+OverlayLayoutEngineTests.cs[TU7S]: F:验证翻译浮层在屏幕工作区、锚点和内容尺寸变化下的布局计算 | R:code:QuickTranslate/Core/OverlayLayoutEngine.cs | A:浮层布局测试 | S:布局必须裁剪到可用工作区且保持锚点方向
+ProviderHttpErrorTests.cs[IN6T]: F:验证提供商 HTTP 状态、响应正文和网络异常到用户错误的映射 | R:code:QuickTranslate/Services/ProviderHttpError.cs | A:提供商错误测试 | S:错误摘要不得包含 API Key 或完整响应敏感内容
+ProviderPresetCatalogTests.cs[FC6T]: F:验证提供商预设、默认端点、模型和别名目录 | R:code:QuickTranslate/Services/ProviderPresetCatalog.cs | A:提供商预设测试 | S:预设端点保持语义配置值与显示标签分离
+ProviderRequestPolicyTests.cs[IN7S]: F:验证提供商请求策略的端点、模型、超时、重试和敏感配置边界 | R:code:QuickTranslate/Services/ProviderRequestPolicy.cs | A:提供商请求策略测试 | S:明文 HTTP 端点遵循 loopback 限制
+QuickLookupWindowTests.cs[TU7S]: F:验证快速查词窗口的显示、关闭、复制、朗读和结果状态交互 | R:code:QuickTranslate/UI/QuickLookupWindow.xaml,code:QuickTranslate/UI/QuickLookupWindow.xaml.cs | A:快速查词窗口测试 | S:窗口状态变化不得覆盖当前查词请求结果
+QuickTranslate.Tests.csproj[FV6T]: F:声明 QuickTranslate xUnit 测试项目、WPF 测试目标、覆盖率和测试依赖 | R:code:QuickTranslate/QuickTranslate.csproj | A:测试项目配置 | S:测试项目使用 net8.0-windows 并启用 WPF 目标框架
+RapidOcrWorkerServiceTests.cs[IN7S]: F:验证 RapidOCR Worker 进程启动、JSONL 请求、响应解析、超时和崩溃收敛 | R:code:QuickTranslate/Services/RapidOcrWorkerService.cs | A:OCR Worker 集成测试 | S:Worker 标准输出保留协议数据，诊断走独立错误通道
+ReasoningSummaryAccumulatorTests.cs[DB6T]: F:验证流式 reasoning 片段累计、去重、截断和完成状态 | R:code:QuickTranslate/Core/ReasoningSummaryAccumulator.cs | A:推理摘要测试 | S:累计结果受长度上限约束并保持片段顺序
+RecentLookupBufferTests.cs[DB6T]: F:验证最近查词缓冲区的添加、去重、容量和顺序 | R:code:QuickTranslate/Core/RecentLookupBuffer.cs | A:最近查词测试 | S:缓冲区达到容量时淘汰最旧项目
+RecentSelectionCopyEvaluatorTests.cs[TU6T]: F:验证最近选中文本复制判定的时间、重复内容和窗口状态 | R:code:QuickTranslate/Core/RecentSelectionCopyEvaluator.cs | A:取词复制测试 | S:复制判定只接受当前有效选择上下文
+ScreenshotLanguageRouterTests.cs[DA6T]: F:验证截图 OCR 语言路由按来源语言、目标语言和引擎能力选择路径 | R:code:QuickTranslate/Core/ScreenshotLanguageRouter.cs | A:截图语言路由测试 | S:不支持的语言组合返回明确不可用而不猜测
+ScreenshotOcrServiceFactoryTests.cs[IN7S]: F:验证截图 OCR 服务工厂按配置选择 Windows、RapidOCR 和禁用实现 | R:code:QuickTranslate/Services/ScreenshotOcrServiceFactory.cs | A:截图 OCR 工厂测试 | S:未知或退役引擎设置归一化为安全默认值
+ScreenshotSceneRouterTests.cs[DB7S]: F:验证截图场景按清晰区域、复杂页面和不支持输入选择翻译路径 | R:code:QuickTranslate/Services/ScreenshotSceneRouter.cs | A:截图场景路由测试 | S:复杂整页捕获不会静默进入普通清晰区域路径
+ScreenshotSelectionTests.cs[TU7S]: F:验证截图选区起止点、反向拖拽、最小尺寸和屏幕边界 | R:code:QuickTranslate/Core/ScreenshotSelection.cs | A:截图选区测试 | S:选区坐标归一化后保持非负尺寸
+ScreenshotTranslationCoordinatorTests.cs[DB8S]: F:验证截图翻译协调器的捕获、OCR、翻译、覆盖层、取消和失败状态 | R:code:QuickTranslate/Core/ScreenshotTranslationCoordinator.cs | A:截图翻译协调测试 | S:取消必须关闭当前会话并阻止迟到结果更新界面
+ScreenshotTranslationEligibilityTests.cs[DB7S]: F:验证截图翻译资格按清晰区域、文本块、尺寸和退役功能开关判断 | R:code:QuickTranslate/Core/ScreenshotTranslationEligibility.cs | A:截图翻译资格测试 | S:复杂全页截图保持明确不支持状态
+ScreenshotTranslationFailureTests.cs[DB7S]: F:验证截图翻译失败类型、用户消息和可恢复性映射 | R:code:QuickTranslate/Services/ScreenshotTranslationFailure.cs | A:截图失败测试 | S:失败分类不得暴露敏感响应正文
+ScreenshotTranslationMappingTests.cs[DB7S]: F:验证 OCR 块到翻译结果的身份、文本和坐标映射 | R:code:QuickTranslate/Services/ScreenshotTranslationMapping.cs | A:截图结果映射测试 | S:映射按 BlockId 绑定而不依赖数组位置
+ScreenshotTranslationOverlayWindowTests.cs[TU7S]: F:验证截图翻译覆盖层窗口的块定位、样式、关闭和空结果状态 | R:code:QuickTranslate/UI/ScreenshotTranslationOverlayWindow.xaml.cs | A:截图覆盖层测试 | S:覆盖层关闭后不得继续接收迟到结果
+ScreenshotTranslationSessionStateTests.cs[DB7S]: F:验证截图翻译会话状态在开始、流式、完成、取消和失败间的转换 | R:code:QuickTranslate/Core/ScreenshotTranslationSessionState.cs | A:截图会话状态测试 | S:终态不可被重复完成或回退
+ScreenshotTranslationStreamParserTests.cs[IN7S]: F:验证截图翻译流事件的增量解析、块身份、完成标记和 malformed 输入 | R:code:QuickTranslate/Services/ScreenshotTranslationStreamParser.cs | A:截图流解析测试 | S:解析器只接受有界 JSONL 事件并拒绝越界载荷
+SettingsWindowModelSelectionTests.cs[TU7S]: F:验证设置窗口模型选择、提供商切换、显示标签和保存行为 | R:code:QuickTranslate/UI/SettingsWindow.xaml.cs,code:QuickTranslate/Core/ModelSelectionCoordinator.cs | A:设置模型选择测试 | S:显示标签变化不得改写语义配置值
+StreamingCompositionMetricsTests.cs[CO6T]: F:验证流式组合指标的增量、完成、取消和统计边界 | R:code:QuickTranslate/Core/StreamingCompositionMetrics.cs | A:流式指标测试 | S:指标记录不包含源文本或 Prompt 内容
+StreamingDispatcherMetricsTests.cs[CO6T]: F:验证流式 Dispatcher 指标的排队、执行、丢弃和延迟统计 | R:code:QuickTranslate/Core/StreamingDispatcherMetrics.cs | A:流式调度指标测试 | S:统计状态更新保持线程安全
+StreamingMarkdownRendererTests.cs[TU7S]: F:验证流式 Markdown 增量渲染、代码块和未完成标记的展示 | R:code:QuickTranslate/Helpers/StreamingMarkdownRenderer.cs | A:流式 Markdown 测试 | S:增量刷新不得重复或丢失已提交文本
+StreamingPresentationPumpTests.cs[TU7S]: F:验证流式展示泵的节流、刷新、取消和最终提交 | R:code:QuickTranslate/Core/StreamingPresentationPump.cs | A:流式展示测试 | S:取消后泵不得继续提交迟到批次
+StreamingRuntimeMetricsTests.cs[CO6T]: F:验证流式运行时指标的请求、首字节、完成、取消和错误计数 | R:code:QuickTranslate/Core/StreamingRuntimeMetrics.cs | A:流式运行指标测试 | S:指标只记录结构化摘要而不记录输入正文
+TerminalDetectorTests.cs[DA6T]: F:验证终端内容、命令提示符和普通文本的确定性识别 | R:code:QuickTranslate/Core/TerminalDetector.cs | A:终端检测测试 | S:检测诊断不得回显完整敏感输入
+TranslationCacheRefreshTests.cs[DP7S]: F:验证翻译缓存刷新、过期、并发请求和失败后的重建 | R:code:QuickTranslate/Services/TranslationCacheService.cs | A:翻译缓存刷新测试 | S:缓存刷新不应返回已失效版本
+TranslationCacheServiceTests.cs[DP7S]: F:验证翻译缓存键、命中、缺失、持久化和容量边界 | R:code:QuickTranslate/Services/TranslationCacheService.cs | A:翻译缓存测试 | S:缓存键包含影响结果的模型、语言和内容策略
+TranslationDirectionResolverTests.cs[DA7S]: F:验证源语言检测、目标语言、关系、置信度和用户回退方向 | R:code:QuickTranslate/Core/TranslationDirectionResolver.cs | A:翻译方向测试 | S:不确定检测使用显式用户选择回退
+TranslationEchoDetectorTests.cs[DA6T]: F:验证翻译结果与源文本回声的规范化、阈值和告警判断 | R:code:QuickTranslate/Services/TranslationEchoDetector.cs | A:翻译回声测试 | S:回声告警不等于翻译失败且不得丢弃原结果
+TranslationLifecycleTests.cs[DB8S]: F:验证翻译请求生命周期的开始、流式、完成、取消、失败和迟到回调 | R:code:QuickTranslate/Core/LatestRequestCoordinator.cs,code:QuickTranslate/Core/LatestPresentationCoordinator.cs | A:翻译生命周期测试 | S:当前请求身份是接受结果的唯一条件
+TranslationRouteResolverTests.cs[DA7S]: F:验证翻译路由按内容类型、提供商能力和截图场景选择服务 | R:code:QuickTranslate/Core/TranslationRouteResolver.cs | A:翻译路由测试 | S:不支持的能力组合返回明确路由失败
+TranslationTriggerModeTests.cs[TU6T]: F:验证快捷键、自动复制、手动和禁用触发模式的解析与优先级 | R:code:QuickTranslate/Models/TranslationTriggerMode.cs | A:翻译触发模式测试 | S:显示标签与持久化枚举值分离
+TrayClickCoordinatorTests.cs[TU7S]: F:验证托盘点击的单击、双击、延迟、取消和窗口聚焦协调 | R:code:QuickTranslate/Core/TrayClickCoordinator.cs | A:托盘点击测试 | S:迟到点击事件不得重复打开窗口
+TrayPanelPlacementTests.cs[TU6T]: F:验证托盘面板相对工作区、任务栏和 DPI 的放置计算 | R:code:QuickTranslate/Core/TrayPanelPlacement.cs | A:托盘面板布局测试 | S:面板位置必须限制在当前工作区
+TtsPlaybackCoordinatorTests.cs[TN7S]: F:验证 TTS 播放所有者、停止、取消、完成和迟到服务回调 | R:code:QuickTranslate/Core/TtsPlaybackCoordinator.cs | A:TTS 播放协调测试 | S:只有当前播放所有者可以结束或替换播放状态
+TtsSpeakExceptionTests.cs[TN6T]: F:验证 TTS 说话异常的分类、消息和取消语义 | R:code:QuickTranslate/Services/TtsSpeakException.cs | A:TTS 异常测试 | S:取消异常保持 OperationCanceled 语义而非普通失败
+TtsTextSelectorTests.cs[TN6T]: F:验证 TTS 文本选择、截断、SSML 转义和语音选择 | R:code:QuickTranslate/Services/TtsTextSelector.cs | A:TTS 文本测试 | S:SSML 特殊字符必须转义后才发送
+UiaCircuitBreakerTests.cs[TZ3T]: F:验证相关组件的行为与边界条件 | R:- | A:测试验证 | S:-
+UpdateAvailableWindowTests.cs[TZ3T]: F:验证相关组件的行为与边界条件 | R:- | A:测试验证 | S:-
+UpdateServiceTests.cs[TZ3T]: F:验证相关组件的行为与边界条件 | R:- | A:测试验证 | S:-
+WindowsMediaOcrServiceTests.cs[TZ3T]: F:验证相关组件的行为与边界条件 | R:- | A:测试验证 | S:-
+WordLookupPromptBuilderTests.cs[TZ3T]: F:验证相关组件的行为与边界条件 | R:- | A:测试验证 | S:-
+WordLookupSessionCoordinatorTests.cs[TZ3T]: F:验证相关组件的行为与边界条件 | R:- | A:测试验证 | S:-
+WordLookupTextFormatterTests.cs[TZ3T]: F:验证相关组件的行为与边界条件 | R:- | A:测试验证 | S:-
+
+===D:/YaHu/Documents/myTool/QuickTranslate/===
+App.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+App.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+AssemblyInfo.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+MainWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+MainWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+QuickTranslate.csproj[FV3T]: F:声明项目构建与测试配置 | R:- | A:构建配置 | S:-
+app.manifest[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+
+===D:/YaHu/Documents/myTool/QuickTranslate/Core/===
+AnalysisConversationFormatter.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+AutoScrollController.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+BrowserDetector.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ClipboardHelper.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ClipboardRestoreCoordinator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ContentTypeDetector.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+CopyShortcut.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+FloatingResultSessionCoordinator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+GlobalKeyboardHook.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+LatestPresentationCoordinator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+LatestRequestCoordinator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ModelProfileCatalog.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ModelSelectionCoordinator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+OcrBlockAggregator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+OcrBlockValidator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+OcrLanguageSelector.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+OcrReadingOrderSorter.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+OcrTextNormalizer.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+OverlayLayoutEngine.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ReasoningSummaryAccumulator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+RecentLookupBuffer.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+RecentSelectionCopyEvaluator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ScreenshotSelection.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ScreenshotTranslationCoordinator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ScreenshotTranslationEligibility.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ScreenshotTranslationSessionState.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ScreenshotTranslationTiming.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+SelectionCapturePolicy.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+SelectionDetector.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+SelectionLocator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+StreamingCompositionMetrics.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+StreamingDispatcherMetrics.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+StreamingPresentationPump.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+StreamingRuntimeMetrics.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TerminalDetector.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TranslationDirectionResolver.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TranslationRouteResolver.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TrayClickCoordinator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TtsPlaybackCoordinator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+UiaCircuitBreaker.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+WordLookupSessionCoordinator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+WordLookupTextFormatter.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+
+===D:/YaHu/Documents/myTool/QuickTranslate/Database/===
+TranslationDbContext.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TranslationRecord.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+
+===D:/YaHu/Documents/myTool/QuickTranslate/Helpers/===
+ApiEndpointValidator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+AuthenticodeVerifier.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+CodeSyntaxHighlighter.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ConfigManager.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+DpiHelper.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+LogEvent.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+Logger.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+MarkdownRenderer.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+StreamingMarkdownRenderer.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+Win32Api.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+
+===D:/YaHu/Documents/myTool/QuickTranslate/Models/===
+AnalysisFollowUpRequest.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+AnalysisPromptProfile.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+AppSettings.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+FeedbackModels.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+FloatingResultSession.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+OcrModels.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ProviderPreset.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ScreenshotOverlayModels.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ThinkingModePreference.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TranslationDirectionDecision.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TranslationRequest.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TranslationRequestContext.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TranslationTriggerMode.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+WordLookupModels.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+
+===D:/YaHu/Documents/myTool/QuickTranslate/Services/===
+AnalysisPromptCatalog.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+BigModelModelCapabilities.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+CompositeWordLookupService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+CrashRecoveryTracker.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+DeepSeekModelCapabilities.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+EdgeTtsClient.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+EdgeTtsService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+FeedbackContentBuilder.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+FeedbackLinkService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+GdiScreenshotCaptureService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+HistoryExporter.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+IOcrService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+IScreenshotBatchStreamingTranslationService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+IScreenshotBatchTranslationService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+IScreenshotCaptureService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ITranslationService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ITtsService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+IWordLookupEnrichmentService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+IWordLookupService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+LocalDictionaryWordLookupService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+MangaModelStatusService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+MangaSceneRoutingService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+MangaTranslationOrchestrator.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+MangaTranslationResult.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+MangaWorkerClient.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+MangaWorkerRequestFactory.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+MangaWorkerRuntimeResolver.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+OcrModelCatalog.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+OcrModelManager.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+OpenAIModelCapabilities.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+OpenAITranslationService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+OpenAIWordLookupService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+PromptInputContract.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ProviderHttpError.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ProviderKind.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ProviderModelCapabilities.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ProviderRequestPolicy.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+RapidOcrWorkerService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ScreenshotLanguageRouter.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ScreenshotOcrServiceFactory.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ScreenshotSceneRouter.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ScreenshotTranslationFailure.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ScreenshotTranslationMapping.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ScreenshotTranslationStreamParser.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+SiliconFlowModelCapabilities.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TranslationCacheService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TranslationEchoDetector.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TranslationMetrics.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TranslationPromptBuilder.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TranslationStreamEvent.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TtsSpeakException.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TtsTextSelector.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+UpdateService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+WindowsMediaOcrService.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+WordLookupPromptBuilder.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+WordPartOfSpeechNormalizer.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+
+===D:/YaHu/Documents/myTool/QuickTranslate/UI/===
+CrashRecoveryPromptWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+CrashRecoveryPromptWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+DownloadUpdateWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+DownloadUpdateWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+FeedbackWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+FeedbackWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+FloatingStatusMessage.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+FloatingWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+FloatingWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+FloatingWindowAnchor.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+FloatingWindowPlacement.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+HistoryWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+HistoryWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+LogEntryReader.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+LogViewerWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+LogViewerWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+MarkdownInteraction.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+ModelSelectorControl.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+ModelSelectorControl.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+QuickLookupWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+QuickLookupWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+RedDotWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+RedDotWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+ScreenshotSelectionWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+ScreenshotSelectionWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+ScreenshotTranslationOverlayWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+ScreenshotTranslationOverlayWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+ScreenshotTranslationProgressWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+ScreenshotTranslationProgressWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+SettingsWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+SettingsWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+SharedSettingsStyles.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+SharedToolWindowStyles.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+ThoughtBlockView.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TransientButtonFeedback.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TrayIconManager.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+TrayPanelPlacement.cs[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+UpdateAvailableWindow.xaml[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+UpdateAvailableWindow.xaml.cs[TU3T]: F:定义 WPF 用户界面结构或资源 | R:- | A:用户界面 | S:-
+
+===D:/YaHu/Documents/myTool/docs/===
+LOGGING.md[SZ3T]: F:记录项目使用、维护或发布约定 | R:- | A:项目文档 | S:-
+PR_MERGE_GUIDE.md[SZ3T]: F:记录项目使用、维护或发布约定 | R:- | A:项目文档 | S:-
+RELEASE.md[SZ3T]: F:记录项目使用、维护或发布约定 | R:- | A:项目文档 | S:-
+RELEASE_NOTES_NEXT.md[SZ3T]: F:记录项目使用、维护或发布约定 | R:- | A:项目文档 | S:-
+THIRD_PARTY_NOTICES.md[SZ3T]: F:记录项目使用、维护或发布约定 | R:- | A:项目文档 | S:-
+release-acceptance-template.md[SZ3T]: F:记录项目使用、维护或发布约定 | R:- | A:项目文档 | S:-
+
+===D:/YaHu/Documents/myTool/installer/===
+QuickTranslate-setup-full.iss[FC3T]: F:声明项目工具、构建或发布配置 | R:- | A:工程配置 | S:-
+QuickTranslate-setup.iss[FC3T]: F:声明项目工具、构建或发布配置 | R:- | A:工程配置 | S:-
+WebView2Runtime.iss[FC3T]: F:声明项目工具、构建或发布配置 | R:- | A:工程配置 | S:-
+version.xml[FC3T]: F:声明项目工具、构建或发布配置 | R:- | A:工程配置 | S:-
+
+===D:/YaHu/Documents/myTool/scripts/===
+build-ocr-ablation-fixtures.py[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+build-word-dictionary-mini.py[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+install-ocr-runtime.ps1[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+manga-worker.py[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+ocr-worker.py[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+package-ocr-bundle.ps1[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+prepare-word-dictionary.ps1[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+run-comic-detection-ocr-spike.py[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+run-comic-detector-spike.py[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+run-ocr-ablation.py[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+run-ocr-fixture-report.ps1[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+run-ocr-orientation-spike.py[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+run-ocr-worker-benchmark.ps1[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+run-rapid-ocr-worker-smoke.ps1[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+run-scene-ocr-spike.py[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+setup-git-hooks.ps1[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+sync-site-assets.py[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+test-authenticode.ps1[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+test-manga-worker-protocol.py[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+update-readme-tree.py[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+validate-ocr-fixtures.py[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+
+===D:/YaHu/Documents/myTool/scripts/release/===
+bump-version.ps1[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+make-checksums.ps1[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+preflight.ps1[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+verify-setup.ps1[DA3T]: F:提供项目自动化、构建或验证脚本 | R:- | A:工程脚本 | S:-
+
+===D:/YaHu/Documents/myTool/site/assets/css/===
+style.css[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+
+===D:/YaHu/Documents/myTool/site/assets/js/===
+main.js[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
+
+===D:/YaHu/Documents/myTool/site/===
+index.html[CZ3T]: F:实现项目中的受管理代码行为 | R:- | A:代码实现 | S:-
