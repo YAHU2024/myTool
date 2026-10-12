@@ -67,6 +67,95 @@ public sealed class ScreenshotTranslationCoordinatorTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_RecognizedChineseIsNoTranslationNeededWithoutCallingProvider()
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            new[] { new OcrTextBlock("b0001", "这是已经使用中文的文字。", new OcrBounds(0, 0, 90, 12)) },
+            "zh-Hans-CN", false, 0, TimeSpan.Zero));
+        var coordinator = new ScreenshotTranslationCoordinator(ocr);
+        var providerCalled = false;
+        var unitsReady = false;
+
+        var result = await coordinator.ExecuteAsync(
+            ValidImage(),
+            (_, _) =>
+            {
+                providerCalled = true;
+                return Task.FromResult<IReadOnlyList<TranslatedTextUnit>>(Array.Empty<TranslatedTextUnit>());
+            },
+            shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
+                .Evaluate(unit.SourceText, "简体中文").ShouldTranslate,
+            onUnitsReady: _ => unitsReady = true);
+
+        Assert.Equal(ScreenshotTranslationPipelineStatus.NoTranslationNeeded, result.Status);
+        Assert.Equal(1, result.Timings.NormalizedBlockCount);
+        Assert.Equal(1, result.Timings.AggregatedParagraphCount);
+        Assert.Empty(result.Units);
+        Assert.False(providerCalled);
+        Assert.False(unitsReady);
+    }
+
+    [Theory]
+    [InlineData("https://example.com")]
+    [InlineData("---")]
+    public async Task ExecuteAsync_PreservedOrSkippedContentIsNotMisreportedAsUnrecognized(string text)
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            new[] { new OcrTextBlock("b0001", text, new OcrBounds(0, 0, 90, 12)) },
+            "en-US", false, 0, TimeSpan.Zero));
+        var result = await new ScreenshotTranslationCoordinator(ocr).ExecuteAsync(
+            ValidImage(),
+            (_, _) => throw new InvalidOperationException("Provider must not be called."),
+            shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
+                .Evaluate(unit.SourceText, "简体中文").ShouldTranslate);
+
+        Assert.Equal(ScreenshotTranslationPipelineStatus.NoTranslationNeeded, result.Status);
+        Assert.Empty(result.Units);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteWithUnitsAsync_DistinguishesEmptyInputFromFilteredInput(bool hasUnits)
+    {
+        var ocrResult = new OcrResult(
+            new[] { new OcrTextBlock("b0001", "中文文字", new OcrBounds(0, 0, 90, 12)) },
+            "zh-Hans-CN", false, 0, TimeSpan.Zero);
+        var units = hasUnits
+            ? new[] { new ScreenshotTranslationUnit("u0001", "中文文字", ocrResult.Blocks, new OcrBounds(0, 0, 90, 12)) }
+            : Array.Empty<ScreenshotTranslationUnit>();
+        var result = await new ScreenshotTranslationCoordinator(new FakeOcrService(ocrResult)).ExecuteWithUnitsAsync(
+            ocrResult,
+            units,
+            (_, _) => throw new InvalidOperationException("Provider must not be called."),
+            TimeSpan.Zero,
+            shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
+                .Evaluate(unit.SourceText, "简体中文").ShouldTranslate);
+
+        Assert.Equal(hasUnits ? ScreenshotTranslationPipelineStatus.NoTranslationNeeded : ScreenshotTranslationPipelineStatus.NoText,
+            result.Status);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CancellationDuringFilteringIsNotReportedAsNoTranslationNeeded()
+    {
+        var ocrResult = new OcrResult(
+            new[] { new OcrTextBlock("b0001", "中文文字", new OcrBounds(0, 0, 90, 12)) },
+            "zh-Hans-CN", false, 0, TimeSpan.Zero);
+        using var cancellation = new CancellationTokenSource();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new ScreenshotTranslationCoordinator(new FakeOcrService(ocrResult)).ExecuteAsync(
+                ValidImage(),
+                (_, _) => throw new InvalidOperationException("Provider must not be called."),
+                cancellationToken: cancellation.Token,
+                shouldTranslate: _ =>
+                {
+                    cancellation.Cancel();
+                    return false;
+                }));
+    }
+
+    [Fact]
     public async Task ExecuteAsync_ReportsMappingRejectionAndPreservesUnits()
     {
         var ocr = new FakeOcrService(new OcrResult(

@@ -774,11 +774,6 @@ public partial class App : Application
             selectedOcrEngine = capability.EngineId;
             if (!capability.IsAvailable)
                 throw new OcrEngineUnavailableException(capability.UnavailableReason);
-            _trayIcon?.ShowBalloonTip(
-                "截图翻译",
-                "正在本地识别并翻译，请稍候…",
-                System.Windows.Forms.ToolTipIcon.Info);
-
             stage = "ocr";
             pipelineStatus = "running";
             var overlayImage = image;
@@ -1229,7 +1224,22 @@ public partial class App : Application
             {
                 _trayIcon?.ShowBalloonTip(
                     "截图翻译",
-                    "未识别到可翻译文字。",
+                    "未识别到文字，请框选清晰的文字区域。",
+                    System.Windows.Forms.ToolTipIcon.Info);
+                return;
+            }
+
+            if (pipeline.Status == ScreenshotTranslationPipelineStatus.NoTranslationNeeded)
+            {
+                stage = "eligibility";
+                var counts = screenshotDiagnostics.Snapshot();
+                var targetLanguageCount = counts.ReasonCounts.GetValueOrDefault(
+                    nameof(ScreenshotTranslationEligibilityReason.TargetLanguageMatch));
+                _trayIcon?.ShowBalloonTip(
+                    "截图翻译",
+                    targetLanguageCount == counts.EvaluatedCount && targetLanguageCount > 0
+                        ? "当前文字已是目标语言，无需翻译。"
+                        : "识别到的内容无需翻译，已保留原样。",
                     System.Windows.Forms.ToolTipIcon.Info);
                 return;
             }

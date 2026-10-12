@@ -51,7 +51,7 @@
 
 1. 搜索 `screenshot.session_started`，用同一 `session_id` 串起一次截图；`trigger` 区分托盘和快捷键，`ocr_generation` 是实际使用的 OCR 引擎代次。
 2. 先看 `screenshot.ocr_prepared`：`raw_block_count`、`normalized_block_count`、`aggregated_paragraph_count` 和 `translation_unit_count` 分别表示原始块、规范化块、聚合段落和进入翻译的单元数。`eligibility_*` 统计只记录数量和原因，不记录 OCR 文本。
-3. `translation_unit_count=0` 可能是没有文本，也可能是所有内容被保留或跳过；结合 `eligibility_reason_counts` 判断。不要把 `screenshot.pipeline_completed` 中的零计数直接当作 OCR 失败。
+3. `translation_unit_count=0` 可能是没有文本，也可能是所有内容被保留或跳过；结合 `eligibility_reason_counts` 判断。`pipeline_completed.status=NoText` 表示没有形成 OCR 段落，`NoTranslationNeeded` 表示识别到了内容但全部保留或跳过。不要把零计数直接当作 OCR 失败。
 4. `screenshot.translation_started` 与 `screenshot.translation_ended` 记录翻译请求的开始、结束、请求数和完成数。若进程突然退出，缺少结束事件是正常现象。
 5. 取消来源写在 `cancellation_reason`：`User`、`OverlayClosed`、`OcrEngineSwitch`、`ApplicationExit` 或 `PipelineTimeout`。同一会话的第一次取消原因优先，窗口清理不会覆盖它；`attempt_id` 用于区分同一截图的重试。
 6. `requested_ocr_generation` 与 `active_ocr_generation` 可用于判断设置切换是否在截图过程中发生。日志不会记录截图图像、OCR 原文、译文或 API 凭据。

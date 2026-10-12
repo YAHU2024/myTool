@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Threading;
 using QuickTranslate.Core;
 using QuickTranslate.Helpers;
 
@@ -10,6 +11,7 @@ public partial class ScreenshotTranslationProgressWindow : Window
 {
     private readonly ScreenshotRegion _region;
     private readonly Point _dpiScale;
+    private readonly DispatcherTimer _showTimer;
 
     public ScreenshotTranslationProgressWindow(ScreenshotRegion region)
     {
@@ -18,6 +20,15 @@ public partial class ScreenshotTranslationProgressWindow : Window
         _region = region;
         _dpiScale = DpiHelper.GetScaleForPhysicalPoint(new Point(region.Left, region.Top));
         InitializeComponent();
+        // The window owns this one-shot timer; closing before the delay expires
+        // must prevent an already-completed session from showing stale progress.
+        _showTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher);
+        _showTimer.Tick += ShowTimer_Tick;
+        Closed += (_, _) =>
+        {
+            _showTimer.Stop();
+            _showTimer.Tick -= ShowTimer_Tick;
+        };
     }
 
     public event Action? CancelRequested;
@@ -39,8 +50,15 @@ public partial class ScreenshotTranslationProgressWindow : Window
         StatusText.Text = message.Trim();
     }
 
-    public void ShowProgress()
+    public void ShowProgress(TimeSpan? delay = null)
     {
+        _showTimer.Interval = delay ?? TimeSpan.FromMilliseconds(250);
+        _showTimer.Start();
+    }
+
+    private void ShowTimer_Tick(object? sender, EventArgs e)
+    {
+        _showTimer.Stop();
         Show();
         UpdateLayout();
         var work = Win32Api.GetPhysicalWorkAreaAtPoint(new Point(_region.Left, _region.Top));

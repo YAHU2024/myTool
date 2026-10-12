@@ -7,6 +7,7 @@ namespace QuickTranslate.Core;
 public enum ScreenshotTranslationPipelineStatus
 {
     NoText,
+    NoTranslationNeeded,
     Completed,
     TranslationMappingRejected
 }
@@ -115,10 +116,14 @@ public sealed class ScreenshotTranslationCoordinator
             AggregatedParagraphCount = paragraphs.Count
         };
         onPrepared?.Invoke(preparedTimings);
+        cancellationToken.ThrowIfCancellationRequested();
         if (units.Length == 0)
         {
             var emptyMapping = ScreenshotTranslationMapper.Map(units, Array.Empty<TranslatedTextUnit>());
-            return new(ScreenshotTranslationPipelineStatus.NoText, ocrResult, units, emptyMapping)
+            var emptyStatus = paragraphs.Count == 0
+                ? ScreenshotTranslationPipelineStatus.NoText
+                : ScreenshotTranslationPipelineStatus.NoTranslationNeeded;
+            return new(emptyStatus, ocrResult, units, emptyMapping)
             {
                 Timings = preparedTimings
             };
@@ -180,10 +185,14 @@ public sealed class ScreenshotTranslationCoordinator
             AggregatedParagraphCount = aggregatedParagraphCount
         };
         onPrepared?.Invoke(preparedTimings);
+        cancellationToken.ThrowIfCancellationRequested();
         if (units.Count == 0)
         {
             var empty = ScreenshotTranslationMapper.Map(units, Array.Empty<TranslatedTextUnit>());
-            return new(ScreenshotTranslationPipelineStatus.NoText, ocrResult, units, empty)
+            var emptyStatus = aggregatedParagraphCount == 0
+                ? ScreenshotTranslationPipelineStatus.NoText
+                : ScreenshotTranslationPipelineStatus.NoTranslationNeeded;
+            return new(emptyStatus, ocrResult, units, empty)
             {
                 Timings = preparedTimings
             };

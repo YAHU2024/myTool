@@ -18,7 +18,7 @@
             Padding="16,12">
         <StackPanel Orientation="Horizontal">
             <TextBlock x:Name="StatusText"
-                       Text="正在识别并翻译…"
+                       Text="正在识别文字…"
                        Foreground="White"
                        FontSize="14"
                        FontFamily="Microsoft YaHei UI"
