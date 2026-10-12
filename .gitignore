@@ -77,7 +77,3 @@ AGENTS.md.backup.*
 site/assets/img/*
 !site/assets/img/.gitkeep
 !site/assets/img/brand-logo.ico
-
-# AOCI agent host integration (machine-bound; do not commit)
-.codex/config.toml
-.codex/config.toml.backup.*
