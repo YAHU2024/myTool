@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <item>
-  <version>1.9.3</version>
-  <url>https://github.com/YAHU2024/myTool/releases/download/v1.9.3/QuickTranslate-Setup-1.9.3-win-x64-full.exe</url>
-  <changelog>https://github.com/YAHU2024/myTool/releases/tag/v1.9.3</changelog>
+  <version>1.9.4</version>
+  <url>https://github.com/YAHU2024/myTool/releases/download/v1.9.4/QuickTranslate-Setup-1.9.4-win-x64-full.exe</url>
+  <changelog>https://github.com/YAHU2024/myTool/releases/tag/v1.9.4</changelog>
   <args>/SILENT /SUPPRESSMSGBOXES /NORESTART</args>
-  <checksum algorithm="SHA256">C1A36F3312F56A44A54CE31AD45D4D668ECBAFBCF782DD51287CCE5BA3EA1D09</checksum>
+  <checksum algorithm="SHA256">5C7ECFF2A898DD4A9CFEE178A65E8F96BC0F825E18911297949CBC10CD4CC1EE</checksum>
   <mandatory>false</mandatory>
   <!--
     signer element: defines the expected Authenticode certificate subject
