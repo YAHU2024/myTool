@@ -222,11 +222,13 @@ public sealed class RapidOcrWorkerServiceTests
             var powershell = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.System),
                 "WindowsPowerShell", "v1.0", "powershell.exe");
+            // CI 托管运行器上 PowerShell 冷启动可达数秒，默认预算需覆盖两次连续拉起
+            // （mismatch 场景 Worker 失效后会重启）；依赖短超时的测试请显式传参。
             return new RapidOcrWorkerService(new RapidOcrWorkerOptions(
                 powershell,
                 ScriptPath,
-                startupTimeout ?? TimeSpan.FromSeconds(3),
-                TimeSpan.FromSeconds(3),
+                startupTimeout ?? TimeSpan.FromSeconds(15),
+                TimeSpan.FromSeconds(15),
                 ModelId: modelId));
         }
 
