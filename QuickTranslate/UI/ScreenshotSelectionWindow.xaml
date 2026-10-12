@@ -11,6 +11,7 @@
         Background="#62000000"
         Focusable="True"
         PreviewKeyDown="Window_PreviewKeyDown"
+        PreviewMouseRightButtonDown="Window_PreviewMouseRightButtonDown"
         MouseLeftButtonDown="Window_MouseLeftButtonDown"
         MouseMove="Window_MouseMove"
         MouseLeftButtonUp="Window_MouseLeftButtonUp">
@@ -38,7 +39,7 @@
                    Foreground="White"
                    FontSize="14"
                    FontFamily="Microsoft YaHei UI"
-                   Text="拖动鼠标框选截图区域，按 Esc 取消"
+                   Text="拖动鼠标框选截图区域，按 Esc 或右键取消"
                    IsHitTestVisible="False" />
     </Canvas>
 </Window>

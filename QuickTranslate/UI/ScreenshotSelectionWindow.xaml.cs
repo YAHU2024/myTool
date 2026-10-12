@@ -14,7 +14,7 @@ namespace QuickTranslate.UI;
 public partial class ScreenshotSelectionWindow : Window
 {
     private static readonly TimeSpan SelectionTimeout = TimeSpan.FromSeconds(60);
-    private const string DefaultHint = "拖动鼠标框选截图区域，按 Esc 取消";
+    private const string DefaultHint = "拖动鼠标框选截图区域，按 Esc 或右键取消";
     private readonly ScreenshotRegion _monitorRegion;
     private readonly Models.OcrResourceLimits _resourceLimits;
     private readonly Point _dpiScale;
@@ -145,6 +145,12 @@ public partial class ScreenshotSelectionWindow : Window
             CancelSelection();
             e.Handled = true;
         }
+    }
+
+    private void Window_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        CancelSelection();
     }
 
     private void UpdateSelectionVisual()
