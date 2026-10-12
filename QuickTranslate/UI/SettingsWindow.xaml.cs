@@ -32,6 +32,11 @@ namespace QuickTranslate.UI
         // 快捷键录入状态
         private bool _isCapturingHotKey = false;
         private bool _isCapturingQuickLookupHotKey = false;
+        private bool _isCapturingScreenshotHotKey;
+        private byte _screenshotHotKeyVK;
+        private bool _screenshotHotKeyAlt;
+        private bool _screenshotHotKeyCtrl;
+        private bool _screenshotHotKeyShift;
 
         public SettingsWindow(
             AppSettings settings,
@@ -103,6 +108,12 @@ namespace QuickTranslate.UI
             // 快捷键显示
             UpdateHotKeyDisplay();
             UpdateQuickLookupHotKeyDisplay();
+            _screenshotHotKeyVK = _settings.ScreenshotHotKeyVK;
+            _screenshotHotKeyAlt = _settings.ScreenshotHotKeyRequireAlt;
+            _screenshotHotKeyCtrl = _settings.ScreenshotHotKeyRequireCtrl;
+            _screenshotHotKeyShift = _settings.ScreenshotHotKeyRequireShift;
+            UpdateScreenshotHotKeyDisplay();
+            ScreenshotHotKeyEnabledCheckBox.IsChecked = _settings.ScreenshotHotKeyEnabled;
 
             // 快速查词快捷键开关
             QuickLookupHotKeyEnabledCheckBox.IsChecked = _settings.QuickLookupHotKeyEnabled;
@@ -177,6 +188,8 @@ namespace QuickTranslate.UI
         /// </summary>
         private static string GetKeyName(byte vk)
         {
+            if (vk is >= 0x70 and <= 0x87)
+                return $"F{vk - 0x70 + 1}";
             return vk switch
             {
                 0x51 => "Q",
@@ -636,6 +649,8 @@ namespace QuickTranslate.UI
             try
             {
                 await manager.VerifyInstalledAsync(model, cts.Token);
+                if (!ValidateScreenshotHotKey())
+                    return;
                 ScreenshotOcrEngineComboBox.SelectedValue = "rapidocr";
                 ApplySettingsToModel();
                 ConfigManager.Save(_settings);
@@ -944,6 +959,8 @@ namespace QuickTranslate.UI
                 return;
             if (!ValidateApiBaseUrl())
                 return;
+            if (!ValidateScreenshotHotKey())
+                return;
             ApplySettingsToModel();
             ConfigManager.Save(_settings);
             _onSettingsSaved?.Invoke(_settings);
@@ -986,6 +1003,11 @@ namespace QuickTranslate.UI
                         e.Cancel = true;
                         return;
                     }
+                    if (!ValidateScreenshotHotKey())
+                    {
+                        e.Cancel = true;
+                        return;
+                    }
                     ApplySettingsToModel();
                     ConfigManager.Save(_settings);
                     _onSettingsSaved?.Invoke(_settings);
@@ -1002,6 +1024,7 @@ namespace QuickTranslate.UI
             // later settings visit can resume; it never promotes an incomplete
             // model to the active engine.
             _ocrDownloadCts?.Cancel();
+            StopScreenshotHotKeyCapture();
             base.OnClosing(e);
         }
 
@@ -1114,6 +1137,11 @@ namespace QuickTranslate.UI
             _settings.CheckForUpdateOnStartup = CheckUpdateOnStartupCheckBox.IsChecked ?? true;
 
             _settings.QuickLookupHotKeyEnabled = QuickLookupHotKeyEnabledCheckBox.IsChecked ?? false;
+            _settings.ScreenshotHotKeyEnabled = ScreenshotHotKeyEnabledCheckBox.IsChecked == true;
+            _settings.ScreenshotHotKeyVK = _screenshotHotKeyVK;
+            _settings.ScreenshotHotKeyRequireAlt = _screenshotHotKeyAlt;
+            _settings.ScreenshotHotKeyRequireCtrl = _screenshotHotKeyCtrl;
+            _settings.ScreenshotHotKeyRequireShift = _screenshotHotKeyShift;
 
             // 保存到已保存配置列表
             if (!string.IsNullOrWhiteSpace(model))
@@ -1322,7 +1350,7 @@ namespace QuickTranslate.UI
         /// </summary>
         private void ChangeHotKeyButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_isCapturingQuickLookupHotKey)
+            if (_isCapturingQuickLookupHotKey || _isCapturingScreenshotHotKey)
                 return; // 快速查词快捷键正在录入，忽略
 
             if (_isCapturingHotKey)
@@ -1418,7 +1446,7 @@ namespace QuickTranslate.UI
         /// </summary>
         private void ChangeQuickLookupHotKeyButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_isCapturingHotKey)
+            if (_isCapturingHotKey || _isCapturingScreenshotHotKey)
                 return; // 划词翻译快捷键正在录入，忽略
 
             if (_isCapturingQuickLookupHotKey)
@@ -1486,6 +1514,117 @@ namespace QuickTranslate.UI
                 System.Windows.Media.Color.FromRgb(0xE0, 0xE0, 0xE0));
 
             this.PreviewKeyDown -= QuickLookupHotKey_KeyDown;
+        }
+
+        private void UpdateScreenshotHotKeyDisplay()
+        {
+            var parts = new List<string>();
+            if (_screenshotHotKeyCtrl) parts.Add("Ctrl");
+            if (_screenshotHotKeyAlt) parts.Add("Alt");
+            if (_screenshotHotKeyShift) parts.Add("Shift");
+            parts.Add(GetKeyName(_screenshotHotKeyVK));
+            ScreenshotHotKeyDisplayText.Text = string.Join("+", parts);
+        }
+
+        private void ChangeScreenshotHotKeyButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isCapturingHotKey || _isCapturingQuickLookupHotKey)
+                return;
+            if (_isCapturingScreenshotHotKey)
+            {
+                StopScreenshotHotKeyCapture();
+                return;
+            }
+            _isCapturingScreenshotHotKey = true;
+            ChangeScreenshotHotKeyButton.Content = "取消";
+            ScreenshotHotKeyCaptureHint.Visibility = Visibility.Visible;
+            ScreenshotHotKeyDisplayText.Foreground = ScreenshotHotKeyCaptureHint.Foreground;
+            PreviewKeyDown += ScreenshotHotKey_KeyDown;
+        }
+
+        private void ScreenshotHotKey_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (!_isCapturingScreenshotHotKey)
+                return;
+            var key = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
+            e.Handled = true;
+            if (key == System.Windows.Input.Key.Escape)
+            {
+                StopScreenshotHotKeyCapture();
+                return;
+            }
+            if (key is System.Windows.Input.Key.LeftCtrl or System.Windows.Input.Key.RightCtrl or
+                System.Windows.Input.Key.LeftAlt or System.Windows.Input.Key.RightAlt or
+                System.Windows.Input.Key.LeftShift or System.Windows.Input.Key.RightShift or
+                System.Windows.Input.Key.LWin or System.Windows.Input.Key.RWin)
+                return;
+
+            var modifiers = System.Windows.Input.Keyboard.Modifiers;
+            if (modifiers == System.Windows.Input.ModifierKeys.None ||
+                modifiers.HasFlag(System.Windows.Input.ModifierKeys.Windows))
+            {
+                ScreenshotHotKeyCaptureHint.Text = "请使用 Ctrl、Alt 或 Shift 组合";
+                return;
+            }
+            var vk = System.Windows.Input.KeyInterop.VirtualKeyFromKey(key);
+            if (vk <= 0 || vk > byte.MaxValue)
+                return;
+            _screenshotHotKeyVK = (byte)vk;
+            _screenshotHotKeyAlt = modifiers.HasFlag(System.Windows.Input.ModifierKeys.Alt);
+            _screenshotHotKeyCtrl = modifiers.HasFlag(System.Windows.Input.ModifierKeys.Control);
+            _screenshotHotKeyShift = modifiers.HasFlag(System.Windows.Input.ModifierKeys.Shift);
+            UpdateScreenshotHotKeyDisplay();
+            StopScreenshotHotKeyCapture();
+            _isDirty = true;
+        }
+
+        private void StopScreenshotHotKeyCapture()
+        {
+            _isCapturingScreenshotHotKey = false;
+            ChangeScreenshotHotKeyButton.Content = "修改";
+            ScreenshotHotKeyCaptureHint.Text = "请按下新的快捷键组合";
+            ScreenshotHotKeyCaptureHint.Visibility = Visibility.Collapsed;
+            ScreenshotHotKeyDisplayText.Foreground = HotKeyDisplayText.Foreground;
+            PreviewKeyDown -= ScreenshotHotKey_KeyDown;
+        }
+
+        private bool ValidateScreenshotHotKey()
+        {
+            if (ScreenshotHotKeyEnabledCheckBox.IsChecked != true)
+                return true;
+            var conflict = GetScreenshotHotKeyConflict(
+                _settings,
+                _screenshotHotKeyVK,
+                _screenshotHotKeyAlt,
+                _screenshotHotKeyCtrl,
+                _screenshotHotKeyShift,
+                QuickLookupHotKeyEnabledCheckBox.IsChecked == true,
+                TranslationTriggerModeComboBox.SelectedValue is TranslationTriggerMode mode
+                    ? mode : _settings.TranslationTriggerMode);
+            if (conflict is null)
+                return true;
+            MessageBox.Show($"截图翻译快捷键与{conflict}冲突，请修改其中一个。",
+                "快捷键设置", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        internal static string? GetScreenshotHotKeyConflict(
+            AppSettings settings, byte vk, bool alt, bool ctrl, bool shift,
+            bool lookupEnabled, TranslationTriggerMode translationMode)
+        {
+            // Existing hooks accept additional modifiers. A subset of the
+            // screenshot gesture can therefore trigger both actions.
+            bool Matches(byte otherVK, bool otherAlt, bool otherCtrl, bool otherShift) =>
+                vk == otherVK && (!otherAlt || alt) && (!otherCtrl || ctrl) && (!otherShift || shift);
+            if (TranslationTriggerModes.CanTriggerHotKey(translationMode) &&
+                Matches(settings.HotKeyVK, settings.HotKeyRequireAlt,
+                    settings.HotKeyRequireCtrl, settings.HotKeyRequireShift))
+                return "划词翻译快捷键";
+            if (lookupEnabled && Matches(settings.QuickLookupHotKeyVK,
+                settings.QuickLookupHotKeyRequireAlt, settings.QuickLookupHotKeyRequireCtrl,
+                settings.QuickLookupHotKeyRequireShift))
+                return "快速查词快捷键";
+            return null;
         }
 
         private async void CheckUpdateButton_Click(object sender, RoutedEventArgs e)

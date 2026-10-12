@@ -36,6 +36,7 @@ public partial class App : Application
 
     private GlobalKeyboardHook? _keyboardHook;
     private GlobalKeyboardHook? _quickLookupHook;
+    private GlobalKeyboardHook? _screenshotHook;
     private SelectionDetector? _selectionDetector;
     private OpenAITranslationService? _translationService;
     private ITtsService? _ttsService;
@@ -285,6 +286,10 @@ public partial class App : Application
             _quickLookupHook.Start();
         }
 
+        _screenshotHook = new GlobalKeyboardHook { RequireExactModifiers = true };
+        _screenshotHook.HotKeyPressed += OnScreenshotHotKeyPressed;
+        ApplyScreenshotHotKeyConfiguration(_settings);
+
         // 启动文本选择检测器
         _selectionDetector = new SelectionDetector();
         _selectionDetector.SelectionCompleted += OnSelectionCompleted;
@@ -516,13 +521,21 @@ public partial class App : Application
 
     private void OnScreenshotTranslationRequested()
     {
-        Dispatcher.BeginInvoke(StartScreenshotCapture);
+        Dispatcher.BeginInvoke(() => StartScreenshotCapture("tray"));
+    }
+
+    private void OnScreenshotHotKeyPressed()
+    {
+        if (_isExiting || _settings?.ScreenshotHotKeyEnabled != true ||
+            _settingsWindow is { IsVisible: true })
+            return;
+        Dispatcher.BeginInvoke(() => StartScreenshotCapture("hotkey"));
     }
 
     /// <summary>
     /// 从托盘进入单显示器截图框选。选区和捕获均使用物理像素，窗口只负责绘制遮罩。
     /// </summary>
-    private void StartScreenshotCapture()
+    private void StartScreenshotCapture(string trigger)
     {
         if (_isExiting || _screenshotWindow is { IsVisible: true } ||
             _screenshotProgressWindow is { IsVisible: true } ||
@@ -574,12 +587,13 @@ public partial class App : Application
             window = new ScreenshotSelectionWindow(monitorRegion);
             _screenshotWindow = window;
             window.SelectionCompleted += region =>
-                OnScreenshotSelectionCompleted(window, restoreState, region);
+                OnScreenshotSelectionCompleted(window, restoreState, region, trigger);
             window.Cancelled += () =>
                 OnScreenshotSelectionCancelled(window, restoreState);
             window.ShowSelection();
             Logger.Info("Screenshot", "screenshot.selection_started", new
             {
+                trigger,
                 monitor_width = monitorRegion.Width,
                 monitor_height = monitorRegion.Height
             });
@@ -610,7 +624,8 @@ public partial class App : Application
     private async void OnScreenshotSelectionCompleted(
         ScreenshotSelectionWindow window,
         ScreenshotUiState restoreState,
-        ScreenshotRegion region)
+        ScreenshotRegion region,
+        string trigger)
     {
         var pipelineWatch = Stopwatch.StartNew();
         var captureElapsed = TimeSpan.Zero;
@@ -3015,6 +3030,7 @@ public partial class App : Application
         OnSelectionCancelled();
         ApplyHotKeyConfiguration(settings);
         ApplyQuickLookupHotKeyConfiguration(settings);
+        ApplyScreenshotHotKeyConfiguration(settings);
         _trayIcon?.SetPaused(TranslationTriggerModes.IsPaused(settings.TranslationTriggerMode));
 
         RefreshFloatingModelSelector();
@@ -3653,6 +3669,30 @@ public partial class App : Application
         });
     }
 
+    private void ApplyScreenshotHotKeyConfiguration(AppSettings settings)
+    {
+        if (_screenshotHook is not { } hook)
+            return;
+        hook.Stop();
+        hook.HotKey = settings.ScreenshotHotKeyVK;
+        hook.RequireAlt = settings.ScreenshotHotKeyRequireAlt;
+        hook.RequireCtrl = settings.ScreenshotHotKeyRequireCtrl;
+        hook.RequireShift = settings.ScreenshotHotKeyRequireShift;
+        if (!settings.ScreenshotHotKeyEnabled || _isExiting)
+            return;
+        var conflict = SettingsWindow.GetScreenshotHotKeyConflict(
+            settings, hook.HotKey, hook.RequireAlt, hook.RequireCtrl, hook.RequireShift,
+            settings.QuickLookupHotKeyEnabled, settings.TranslationTriggerMode);
+        if (conflict is not null)
+        {
+            Dispatcher.BeginInvoke(new Action(() => _trayIcon?.ShowBalloonTip(
+                "截图快捷键未启用", $"与{conflict}冲突，请在设置中修改。",
+                System.Windows.Forms.ToolTipIcon.Warning)));
+            return;
+        }
+        hook.Start();
+    }
+
     /// <summary>
     /// 保存翻译历史记录
     /// </summary>
@@ -3791,6 +3831,7 @@ public partial class App : Application
         }
         _keyboardHook?.Dispose();
         _quickLookupHook?.Dispose();
+        _screenshotHook?.Dispose();
         _selectionDetector?.Dispose();
         if (_screenshotOcrService is IDisposable screenshotOcrDisposable)
             screenshotOcrDisposable.Dispose();

@@ -15,6 +15,8 @@ namespace QuickTranslate.Helpers
         public const int WH_MOUSE_LL = 14;
         public const int WM_KEYDOWN = 0x0100;
         public const int WM_KEYUP = 0x0101;
+        public const int WM_SYSKEYDOWN = 0x0104;
+        public const int WM_SYSKEYUP = 0x0105;
         public const int WM_LBUTTONDOWN = 0x0201;
         public const int WM_LBUTTONUP = 0x0202;
         public const int WM_MOUSEMOVE = 0x0200;
@@ -179,6 +181,12 @@ namespace QuickTranslate.Helpers
 
         [DllImport("user32.dll")]
         public static extern void PostThreadMessage(uint idThread, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll")]
+        public static extern uint GetCurrentThreadId();
+
+        [DllImport("user32.dll")]
+        public static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint min, uint max, uint remove);
 
         // ── 原生定时器（钩子线程内使用） ──
         public const uint WM_TIMER = 0x0113;

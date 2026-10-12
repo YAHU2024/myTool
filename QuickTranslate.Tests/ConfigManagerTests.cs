@@ -117,6 +117,43 @@ public class ConfigManagerTests : IDisposable
     }
 
     [Fact]
+    public void Load_DefaultsScreenshotHotKeyToEnabledAltS_WhenFieldsAreMissing()
+    {
+        Directory.CreateDirectory(_testDir);
+        File.WriteAllText(ConfigPath, "{\"ModelName\":\"legacy-model\"}");
+
+        var settings = CreateManager().LoadInternal();
+
+        Assert.Equal((byte)0x53, settings.ScreenshotHotKeyVK);
+        Assert.True(settings.ScreenshotHotKeyRequireAlt);
+        Assert.False(settings.ScreenshotHotKeyRequireCtrl);
+        Assert.False(settings.ScreenshotHotKeyRequireShift);
+        Assert.True(settings.ScreenshotHotKeyEnabled);
+    }
+
+    [Fact]
+    public void SaveAndLoad_PersistsCustomDisabledScreenshotHotKey()
+    {
+        var manager = CreateManager();
+        manager.SaveInternal(new AppSettings
+        {
+            ScreenshotHotKeyVK = 0x4B,
+            ScreenshotHotKeyRequireAlt = false,
+            ScreenshotHotKeyRequireCtrl = true,
+            ScreenshotHotKeyRequireShift = true,
+            ScreenshotHotKeyEnabled = false
+        });
+
+        var loaded = manager.LoadInternal();
+
+        Assert.Equal((byte)0x4B, loaded.ScreenshotHotKeyVK);
+        Assert.False(loaded.ScreenshotHotKeyRequireAlt);
+        Assert.True(loaded.ScreenshotHotKeyRequireCtrl);
+        Assert.True(loaded.ScreenshotHotKeyRequireShift);
+        Assert.False(loaded.ScreenshotHotKeyEnabled);
+    }
+
+    [Fact]
     public void Save_CreatesFile_OnFirstLaunch()
     {
         var mgr = CreateManager();

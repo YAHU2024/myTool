@@ -179,6 +179,13 @@ namespace QuickTranslate.Models
         /// </summary>
         public bool QuickLookupHotKeyEnabled { get; set; } = false;
 
+        /// <summary>截图翻译快捷键，默认启用 Alt+S。</summary>
+        public byte ScreenshotHotKeyVK { get; set; } = 0x53;
+        public bool ScreenshotHotKeyRequireAlt { get; set; } = true;
+        public bool ScreenshotHotKeyRequireCtrl { get; set; } = false;
+        public bool ScreenshotHotKeyRequireShift { get; set; } = false;
+        public bool ScreenshotHotKeyEnabled { get; set; } = true;
+
         /// <summary>
         /// 是否启用语言自动检测（根据源语言自动决定翻译方向）
         /// </summary>
