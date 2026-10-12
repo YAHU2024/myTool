@@ -544,7 +544,7 @@ def scan_new(root_dir, mapping, ignore, recursive=False):
     if not recursive:
         actual = set()
         for name in os.listdir(root_dir):
-            if name in ignore or name in covered:
+            if name in ignore or name in covered or name.startswith("AGENTS.md.backup."):
                 continue
             if name.startswith(".") and name not in {".github", ".gitignore"}:
                 continue

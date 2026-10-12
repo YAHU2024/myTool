@@ -77,3 +77,6 @@ AGENTS.md.backup.*
 site/assets/img/*
 !site/assets/img/.gitkeep
 !site/assets/img/brand-logo.ico
+
+# Tool output directories (may contain sensitive data)
+.firecrawl/
