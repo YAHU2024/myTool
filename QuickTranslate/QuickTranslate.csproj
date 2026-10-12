@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -16,6 +16,8 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\QuickTranslate.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- WPF uses the explicit PerMonitorV2 manifest below; suppress the WinForms analyzer warning. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -29,9 +31,25 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\scripts\manga-worker.py"
+          Link="scripts\manga-worker.py"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\docs\THIRD_PARTY_NOTICES.md"
           Link="THIRD_PARTY_NOTICES.md"
           CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <!--
+      The local OCR runtime is installed outside Git because it contains an
+      isolated Python environment and native ONNX binaries. When present, keep
+      the same ocr-runtime/ layout in publish output. Debug runs discover the
+      repository runtime through ScreenshotOcrServiceFactory, while tests and
+      ordinary builds avoid copying hundreds of MB. A checkout without the
+      optional runtime remains buildable and continues to use Windows OCR.
+    -->
+    <None Include="..\ocr-runtime\**"
+          Condition="Exists('$(MSBuildProjectDirectory)\..\ocr-runtime')"
+          Link="ocr-runtime\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
     <None Update="Data\word-dictionary.db"
           Condition="Exists('$(MSBuildProjectDirectory)\Data\word-dictionary.db')"

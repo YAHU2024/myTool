@@ -47,6 +47,15 @@
 6. 如果出现原文回显，搜索 `translation.echo_`。翻译内容保持正常流式显示；`echo_confirmed` 表示完整响应结束后检测到与原文高度一致，正文仍保留供用户判断，但不会缓存或写入历史。应用不会因此自动重试或切换模型。
 7. 用户从悬浮窗切换模型时搜索 `translation.model_switch_requested`。事件记录模式、切换前后的模型和供应商，以及切换时请求是否仍在运行。
 
+截图翻译没有结果或取消：
+
+1. 搜索 `screenshot.session_started`，用同一 `session_id` 串起一次截图；`trigger` 区分托盘和快捷键，`ocr_generation` 是实际使用的 OCR 引擎代次。
+2. 先看 `screenshot.ocr_prepared`：`raw_block_count`、`normalized_block_count`、`aggregated_paragraph_count` 和 `translation_unit_count` 分别表示原始块、规范化块、聚合段落和进入翻译的单元数。`eligibility_*` 统计只记录数量和原因，不记录 OCR 文本。
+3. `translation_unit_count=0` 可能是没有文本，也可能是所有内容被保留或跳过；结合 `eligibility_reason_counts` 判断。`pipeline_completed.status=NoText` 表示没有形成 OCR 段落，`NoTranslationNeeded` 表示识别到了内容但全部保留或跳过。不要把零计数直接当作 OCR 失败。
+4. `screenshot.translation_started` 与 `screenshot.translation_ended` 记录翻译请求的开始、结束、请求数和完成数。若进程突然退出，缺少结束事件是正常现象。
+5. 取消来源写在 `cancellation_reason`：`User`、`OverlayClosed`、`OcrEngineSwitch`、`ApplicationExit` 或 `PipelineTimeout`。同一会话的第一次取消原因优先，窗口清理不会覆盖它；`attempt_id` 用于区分同一截图的重试。
+6. `requested_ocr_generation` 与 `active_ocr_generation` 可用于判断设置切换是否在截图过程中发生。日志不会记录截图图像、OCR 原文、译文或 API 凭据。
+
 快速查词没有结果：
 
 1. 搜索模块 `WordLookupService` 或事件 `lookup.`。
@@ -445,6 +454,15 @@ dotnet test .\QuickTranslate.Tests\QuickTranslate.Tests.csproj --no-restore -p:B
 | translation.presented | Info | operation, content_type, model, provider, result_len, duration_ms, stream/UI/Dispatcher/Markdown/GC/composition timing fields listed above |
 | analysis.follow_up.completed | Info | turn, answer_len, duration_ms, request_id, stream_chunk_count, first_chunk_ms, average_chunk_gap_ms, max_chunk_gap_ms, stalled_chunk_count |
 | analysis.follow_up.presented | Info | turn, request_id, stream/UI/Dispatcher/Markdown/GC/composition timing fields listed above |
+| screenshot.pipeline_completed | Info | status, terminal_stage, failure_type, engine, capture/ocr/translation/mapping/overlay/total elapsed ms, OCR/translation counts, translation_request_count, translation_streaming_used, translation_streaming_fallback, first_translation_presented_ms, translation_completed_unit_count, cancelled |
+| screenshot.overlay_presented | Info | unit_id, completed_count, unit_count, placed_count, degraded_count, skipped_count, engine |
+| screenshot_batch_stream.started | Info | unit_count, text_len, requested_target_language |
+| screenshot_batch_stream.completed | Info | unit_count, mapped_count, duration_ms, stream_chunk_count, first_chunk_ms |
+| screenshot.capture_failed | Warn | exception_type, inner_exception_type, hresult, http_status_code, failure_stage, failure_kind, completed_unit_count, expected_unit_count, width, height |
+
+截图翻译的结构化流式日志只记录单元计数、阶段耗时、稳定 `UnitId` 和回退状态，不记录 OCR
+文本、译文、图片、Prompt 或 SSE 正文。`translation_streaming_fallback` 仅表示结构化流格式
+不兼容而触发了受控回退；网络、鉴权、配额和取消错误不会因为流式失败而自动重试。
 
 这些字段只包含枚举、语言名称、计数和毫秒值。它们不记录 chunk 正文、累计结果、问题、回答、Prompt、API Key、Authorization 头或供应商响应体。方向判断完全在本地完成；自动判断关闭时实际目标始终等于用户选择的目标。拉丁文字语言之间无法仅凭文字系统可靠区分，因此保持 `Unknown` 并使用请求目标，不自动切换到备选语言。
 
@@ -511,7 +529,7 @@ Each of the stages above also appends one best-effort line to `shutdown-trace.lo
 [yyyy-MM-dd HH:mm:ss.fff] tray.exit.requested dispatcher_access=False thread_id=12
 ```
 
-Existing VEH / ConsoleCtrl / `Dispatcher.ShutdownFinished` / `ProcessExit` writers may still append raw lines to the same file.
+The DEBUG-only ConsoleCtrl / `Dispatcher.ShutdownFinished` / `ProcessExit` writers may still append raw lines to the same file. The application deliberately does not install a managed vectored exception handler: executing managed code or file I/O from a VEH callback can destabilize the CLR during a native failure. Native crash evidence is collected by Windows Error Reporting instead.
 
 ### How to read a hang
 

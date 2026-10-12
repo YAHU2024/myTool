@@ -1,0 +1,297 @@
+using QuickTranslate.Core;
+using QuickTranslate.Models;
+using QuickTranslate.Services;
+using Xunit;
+
+namespace QuickTranslate.Tests;
+
+public sealed class ScreenshotTranslationCoordinatorTests
+{
+    [Fact]
+    public async Task ExecuteAsync_UsesFakeOcrAndFakeTranslatorWithoutGuessingOrder()
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            new[]
+            {
+                new OcrTextBlock("b0002", "地", new OcrBounds(20, 0, 10, 10)),
+                new OcrTextBlock("b0001", "本", new OcrBounds(0, 0, 10, 10)),
+                new OcrTextBlock("b0003", "line two", new OcrBounds(0, 40, 70, 10))
+            },
+            "zh-Hans-CN",
+            false,
+            0,
+            TimeSpan.FromMilliseconds(1)));
+        var coordinator = new ScreenshotTranslationCoordinator(ocr);
+        var image = ValidImage();
+
+        var result = await coordinator.ExecuteAsync(
+            image,
+            (units, _) => Task.FromResult<IReadOnlyList<TranslatedTextUnit>>(
+                units.Reverse().Select(unit => new TranslatedTextUnit(unit.UnitId, $"T:{unit.SourceText}")).ToArray()));
+
+        Assert.Equal(ScreenshotTranslationPipelineStatus.Completed, result.Status);
+        Assert.True(result.Mapping.Accepted);
+        Assert.Equal(new[] { "u0001", "u0002" }, result.Mapping.MappedUnits.Select(unit => unit.UnitId));
+        Assert.Equal(3, result.Timings.OcrBlockCount);
+        Assert.Equal(3, result.Timings.NormalizedBlockCount);
+        Assert.Equal(2, result.Timings.AggregatedParagraphCount);
+        Assert.Equal(2, result.Timings.TranslationUnitCount);
+        Assert.True(result.Timings.OcrElapsed >= TimeSpan.Zero);
+        Assert.True(result.Timings.TranslationElapsed >= TimeSpan.Zero);
+        Assert.True(result.Timings.MappingElapsed >= TimeSpan.Zero);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DoesNotCallTranslatorWhenOcrFindsNoText()
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            Array.Empty<OcrTextBlock>(), "zh-Hans-CN", false, 0, TimeSpan.Zero));
+        var coordinator = new ScreenshotTranslationCoordinator(ocr);
+        var called = false;
+
+        var result = await coordinator.ExecuteAsync(
+            ValidImage(),
+            (_, _) =>
+            {
+                called = true;
+                return Task.FromResult<IReadOnlyList<TranslatedTextUnit>>(Array.Empty<TranslatedTextUnit>());
+            });
+
+        Assert.Equal(ScreenshotTranslationPipelineStatus.NoText, result.Status);
+        Assert.False(called);
+        Assert.True(result.Mapping.Accepted);
+        Assert.Equal(0, result.Timings.OcrBlockCount);
+        Assert.Equal(0, result.Timings.NormalizedBlockCount);
+        Assert.Equal(0, result.Timings.AggregatedParagraphCount);
+        Assert.Equal(0, result.Timings.TranslationUnitCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RecognizedChineseIsNoTranslationNeededWithoutCallingProvider()
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            new[] { new OcrTextBlock("b0001", "这是已经使用中文的文字。", new OcrBounds(0, 0, 90, 12)) },
+            "zh-Hans-CN", false, 0, TimeSpan.Zero));
+        var coordinator = new ScreenshotTranslationCoordinator(ocr);
+        var providerCalled = false;
+        var unitsReady = false;
+
+        var result = await coordinator.ExecuteAsync(
+            ValidImage(),
+            (_, _) =>
+            {
+                providerCalled = true;
+                return Task.FromResult<IReadOnlyList<TranslatedTextUnit>>(Array.Empty<TranslatedTextUnit>());
+            },
+            shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
+                .Evaluate(unit.SourceText, "简体中文").ShouldTranslate,
+            onUnitsReady: _ => unitsReady = true);
+
+        Assert.Equal(ScreenshotTranslationPipelineStatus.NoTranslationNeeded, result.Status);
+        Assert.Equal(1, result.Timings.NormalizedBlockCount);
+        Assert.Equal(1, result.Timings.AggregatedParagraphCount);
+        Assert.Empty(result.Units);
+        Assert.False(providerCalled);
+        Assert.False(unitsReady);
+    }
+
+    [Theory]
+    [InlineData("https://example.com")]
+    [InlineData("---")]
+    public async Task ExecuteAsync_PreservedOrSkippedContentIsNotMisreportedAsUnrecognized(string text)
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            new[] { new OcrTextBlock("b0001", text, new OcrBounds(0, 0, 90, 12)) },
+            "en-US", false, 0, TimeSpan.Zero));
+        var result = await new ScreenshotTranslationCoordinator(ocr).ExecuteAsync(
+            ValidImage(),
+            (_, _) => throw new InvalidOperationException("Provider must not be called."),
+            shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
+                .Evaluate(unit.SourceText, "简体中文").ShouldTranslate);
+
+        Assert.Equal(ScreenshotTranslationPipelineStatus.NoTranslationNeeded, result.Status);
+        Assert.Empty(result.Units);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteWithUnitsAsync_DistinguishesEmptyInputFromFilteredInput(bool hasUnits)
+    {
+        var ocrResult = new OcrResult(
+            new[] { new OcrTextBlock("b0001", "中文文字", new OcrBounds(0, 0, 90, 12)) },
+            "zh-Hans-CN", false, 0, TimeSpan.Zero);
+        var units = hasUnits
+            ? new[] { new ScreenshotTranslationUnit("u0001", "中文文字", ocrResult.Blocks, new OcrBounds(0, 0, 90, 12)) }
+            : Array.Empty<ScreenshotTranslationUnit>();
+        var result = await new ScreenshotTranslationCoordinator(new FakeOcrService(ocrResult)).ExecuteWithUnitsAsync(
+            ocrResult,
+            units,
+            (_, _) => throw new InvalidOperationException("Provider must not be called."),
+            TimeSpan.Zero,
+            shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
+                .Evaluate(unit.SourceText, "简体中文").ShouldTranslate);
+
+        Assert.Equal(hasUnits ? ScreenshotTranslationPipelineStatus.NoTranslationNeeded : ScreenshotTranslationPipelineStatus.NoText,
+            result.Status);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CancellationDuringFilteringIsNotReportedAsNoTranslationNeeded()
+    {
+        var ocrResult = new OcrResult(
+            new[] { new OcrTextBlock("b0001", "中文文字", new OcrBounds(0, 0, 90, 12)) },
+            "zh-Hans-CN", false, 0, TimeSpan.Zero);
+        using var cancellation = new CancellationTokenSource();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new ScreenshotTranslationCoordinator(new FakeOcrService(ocrResult)).ExecuteAsync(
+                ValidImage(),
+                (_, _) => throw new InvalidOperationException("Provider must not be called."),
+                cancellationToken: cancellation.Token,
+                shouldTranslate: _ =>
+                {
+                    cancellation.Cancel();
+                    return false;
+                }));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ReportsMappingRejectionAndPreservesUnits()
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            new[] { new OcrTextBlock("b0001", "text", new OcrBounds(0, 0, 20, 10)) },
+            "zh-Hans-CN", false, 0, TimeSpan.Zero));
+        var coordinator = new ScreenshotTranslationCoordinator(ocr);
+
+        var result = await coordinator.ExecuteAsync(
+            ValidImage(),
+            (_, _) => Task.FromResult<IReadOnlyList<TranslatedTextUnit>>(
+                new[] { new TranslatedTextUnit("wrong-id", "错位") }));
+
+        Assert.Equal(ScreenshotTranslationPipelineStatus.TranslationMappingRejected, result.Status);
+        Assert.Equal("unexpected_id", result.Mapping.Reason);
+        Assert.Single(result.Units);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PropagatesCancellationBeforeTranslation()
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            new[] { new OcrTextBlock("b0001", "text", new OcrBounds(0, 0, 20, 10)) },
+            "zh-Hans-CN", false, 0, TimeSpan.Zero));
+        var coordinator = new ScreenshotTranslationCoordinator(ocr);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var translatorCalled = false;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => coordinator.ExecuteAsync(
+            ValidImage(),
+            (_, _) =>
+            {
+                translatorCalled = true;
+                return Task.FromResult<IReadOnlyList<TranslatedTextUnit>>(Array.Empty<TranslatedTextUnit>());
+            },
+            cancellationToken: cancellation.Token));
+
+        Assert.False(translatorCalled);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_NotifiesUnitsBeforeTranslationAndPublishesReturnedUnits()
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            new[] { new OcrTextBlock("b0001", "text", new OcrBounds(0, 0, 20, 10)) },
+            "zh-Hans-CN", false, 0, TimeSpan.Zero));
+        var coordinator = new ScreenshotTranslationCoordinator(ocr);
+        var callbacks = new List<string>();
+
+        await coordinator.ExecuteAsync(
+            ValidImage(),
+            (units, _) =>
+            {
+                Assert.Equal("u0001", units[0].UnitId);
+                callbacks.Add("translate");
+                return Task.FromResult<IReadOnlyList<TranslatedTextUnit>>(
+                    new[] { new TranslatedTextUnit("u0001", "译文") });
+            },
+            onUnitsReady: units => callbacks.Add($"ready:{units.Count}"),
+            onUnitTranslated: unit => callbacks.Add($"done:{unit.UnitId}"));
+
+        Assert.Equal(new[] { "ready:1", "translate", "done:u0001" }, callbacks);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_FiltersUnitsThatShouldRemainOnScreen()
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            new[]
+            {
+                new OcrTextBlock("b0001", "https://example.com", new OcrBounds(0, 0, 90, 12)),
+                new OcrTextBlock("b0002", "This sentence needs translation.", new OcrBounds(0, 30, 90, 12))
+            },
+            "en-US",
+            false,
+            0,
+            TimeSpan.Zero));
+        var coordinator = new ScreenshotTranslationCoordinator(ocr);
+
+        var result = await coordinator.ExecuteAsync(
+            ValidImage(),
+            (units, _) => Task.FromResult<IReadOnlyList<TranslatedTextUnit>>(
+                units.Select(unit => new TranslatedTextUnit(unit.UnitId, "译文")).ToArray()),
+            shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
+                .Evaluate(unit.SourceText, "简体中文")
+                .ShouldTranslate);
+
+        var unit = Assert.Single(result.Units);
+        Assert.Equal("This sentence needs translation.", unit.SourceText);
+        Assert.Equal(1, result.Timings.TranslationUnitCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ReportsPreparedCountsWhenTranslationFails()
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            new[]
+            {
+                new OcrTextBlock("b0001", "https://example.com", new OcrBounds(0, 0, 90, 12)),
+                new OcrTextBlock("b0002", "Translate this sentence.", new OcrBounds(0, 30, 90, 12))
+            }, "en-US", false, 0, TimeSpan.Zero));
+        var coordinator = new ScreenshotTranslationCoordinator(ocr);
+        ScreenshotTranslationStageTimings? prepared = null;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ExecuteAsync(
+            ValidImage(),
+            (_, _) => throw new InvalidOperationException("provider"),
+            shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
+                .Evaluate(unit.SourceText, "简体中文").ShouldTranslate,
+            onPrepared: timings => prepared = timings));
+
+        Assert.NotNull(prepared);
+        Assert.Equal(2, prepared!.RawBlockCount);
+        Assert.Equal(2, prepared.NormalizedBlockCount);
+        Assert.Equal(2, prepared.AggregatedParagraphCount);
+        Assert.Equal(1, prepared.TranslationUnitCount);
+    }
+
+    private static OcrImage ValidImage() => new(100, 100, 400, new byte[40_000]);
+
+    private sealed class FakeOcrService : IOcrService
+    {
+        private readonly OcrResult _result;
+
+        public FakeOcrService(OcrResult result) => _result = result;
+
+        public OcrCapability Probe() => OcrCapability.Available(new[] { _result.UsedLanguageTag }, 10_000);
+
+        public Task<OcrResult> RecognizeAsync(
+            OcrImage image,
+            OcrRecognitionOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            image.Validate();
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(_result);
+        }
+    }
+}

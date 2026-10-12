@@ -30,7 +30,8 @@ public enum TranslationDirectionPreference
 {
     Auto,
     RequestedTarget,
-    FallbackTarget
+    FallbackTarget,
+    FixedRequestedTarget
 }
 
 public enum TranslationDirectionReason
@@ -42,7 +43,8 @@ public enum TranslationDirectionReason
     SourceLanguageUnknown,
     TargetLanguageUnsupported,
     UserSelectedTarget,
-    UserSelectedFallback
+    UserSelectedFallback,
+    ScreenshotFixedTarget
 }
 
 public sealed record TranslationDirectionDecision(

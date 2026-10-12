@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -27,10 +28,15 @@ public partial class App : Application
         FloatingWindowAnchor Anchor,
         long Generation);
 
+    private sealed record ScreenshotUiState(
+        bool FloatingWindowVisible,
+        bool QuickLookupWindowVisible);
+
     private sealed record ModelSettingsContext(Guid SessionId, ContentType Mode);
 
     private GlobalKeyboardHook? _keyboardHook;
     private GlobalKeyboardHook? _quickLookupHook;
+    private GlobalKeyboardHook? _screenshotHook;
     private SelectionDetector? _selectionDetector;
     private OpenAITranslationService? _translationService;
     private ITtsService? _ttsService;
@@ -42,6 +48,19 @@ public partial class App : Application
     private AppSettings? _settings;
     private FloatingWindow? _floatingWindow;
     private RedDotWindow? _redDotWindow;
+    private ScreenshotSelectionWindow? _screenshotWindow;
+    private ScreenshotTranslationOverlayWindow? _screenshotOverlayWindow;
+    private ScreenshotTranslationProgressWindow? _screenshotProgressWindow;
+    private IOcrService? _screenshotOcrService;
+    private OcrModelManager? _ocrModelManager;
+    private IDisposable? _ocrModelUsage;
+    private CancellationTokenSource? _ocrEngineSwitchCts;
+    private long _ocrEngineSwitchGeneration;
+    private ScreenshotTranslationCoordinator? _screenshotTranslationCoordinator;
+    private MangaSceneRoutingService? _mangaSceneRoutingService;
+    private CancellationTokenSource? _screenshotTranslationCts;
+    private ScreenshotTranslationDiagnostics? _activeScreenshotDiagnostics;
+    private long _activeOcrEngineGeneration;
     private TrayIconManager? _trayIcon;
     private SettingsWindow? _settingsWindow;
     private ModelSettingsContext? _modelSettingsContext;
@@ -57,6 +76,7 @@ public partial class App : Application
     private readonly ModelSelectionCoordinator _modelSelection = new();
     private readonly TranslationCacheService _translationCache = new();
     private readonly TranslationMetrics _translationMetrics = new();
+    private readonly IScreenshotCaptureService _screenshotCaptureService = new GdiScreenshotCaptureService();
     private readonly WordLookupSessionCoordinator _lookupSessions = new();
     private readonly RecentLookupBuffer _recentLookups = new();
     private readonly TrayClickCoordinator _trayClicks = new();
@@ -73,12 +93,6 @@ public partial class App : Application
     private Window? _hiddenWindow; // 隐藏主窗口，稳定 WPF Application 生命周期
     private Timer? _watchdogTimer; // 看门狗线程，定期写入状态文件
     private bool _isExiting;
-
-    // 非托管异常处理
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr AddVectoredExceptionHandler(uint first, VectoredExceptionHandler handler);
-    private delegate IntPtr VectoredExceptionHandler(IntPtr exceptionInfo);
-    private static VectoredExceptionHandler? _vehHandler; // 防止 GC 回收
 
     // 控制台信号处理
     [DllImport("kernel32.dll")]
@@ -178,6 +192,22 @@ public partial class App : Application
 
         // 初始化翻译服务
         _translationService = new OpenAITranslationService(_settings);
+        _ocrModelManager = new OcrModelManager();
+        _screenshotOcrService = new WindowsMediaOcrService();
+        _screenshotTranslationCoordinator = new ScreenshotTranslationCoordinator(_screenshotOcrService);
+        RefreshMangaSceneRoutingService(_settings);
+        var screenshotOcrCapability = _screenshotOcrService.Probe();
+        Logger.Info("Screenshot", "screenshot.ocr_engine_selected", new
+        {
+            engine = screenshotOcrCapability.EngineId,
+            available = screenshotOcrCapability.IsAvailable,
+            supports_polygons = screenshotOcrCapability.SupportsPolygons,
+            supports_confidence = screenshotOcrCapability.SupportsConfidence,
+            language_count = screenshotOcrCapability.SupportedLanguageTags.Count
+        });
+        _ = WarmUpScreenshotOcrAsync(_screenshotOcrService);
+        if (string.Equals(_settings.ScreenshotOcrEngine, "rapidocr", StringComparison.OrdinalIgnoreCase))
+            _ = ApplyScreenshotOcrSettingsAsync(_settings, persistFallback: true);
 
         // 初始化悬浮窗（单例复用）
         _floatingWindow = new FloatingWindow();
@@ -258,6 +288,10 @@ public partial class App : Application
             _quickLookupHook.Start();
         }
 
+        _screenshotHook = new GlobalKeyboardHook { RequireExactModifiers = true };
+        _screenshotHook.HotKeyPressed += OnScreenshotHotKeyPressed;
+        ApplyScreenshotHotKeyConfiguration(_settings);
+
         // 启动文本选择检测器
         _selectionDetector = new SelectionDetector();
         _selectionDetector.SelectionCompleted += OnSelectionCompleted;
@@ -266,6 +300,7 @@ public partial class App : Application
 
         // 初始化系统托盘图标
         _trayIcon = new TrayIconManager();
+        _trayIcon.ScreenshotTranslationRequested += OnScreenshotTranslationRequested;
         _trayIcon.SettingsRequested += OnSettingsRequested;
         _trayIcon.RestoreRequested += OnRestoreRequested;
         _trayIcon.LookupClickStarted += OnLookupClickStarted;
@@ -283,10 +318,6 @@ public partial class App : Application
 
         // 根据配置更新托盘提示
         UpdateTrayToolTip();
-
-        // ★ 注册非托管异常处理器（捕获 access violation 等 native 异常）
-        _vehHandler = VehCallback;
-        AddVectoredExceptionHandler(1, _vehHandler);
 
         // ★ 看门狗线程：每 2 秒写入状态文件，用于定位进程死亡时刻
         var tracePath = Path.Combine(Logger.LogDirectory, "watchdog.trace");
@@ -334,24 +365,6 @@ public partial class App : Application
         {
             ScheduleStartupUpdateCheck(delaySeconds: 5);
         }
-    }
-
-    /// <summary>
-    /// 非托管异常向量处理器（在 CLR 异常处理之前执行，可捕获 access violation）
-    /// </summary>
-    private static IntPtr VehCallback(IntPtr exceptionInfo)
-    {
-        try
-        {
-            // EXCEPTION_POINTERS 结构: [ExceptionRecord*][ContextRecord*]
-            var excRecord = Marshal.ReadIntPtr(exceptionInfo);
-            var exceptionCode = Marshal.ReadInt32(excRecord); // ExceptionCode 在偏移 0
-            File.AppendAllText(
-                Path.Combine(Logger.LogDirectory, "shutdown-trace.log"),
-                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] VEH: native exception code=0x{exceptionCode:X8}\n");
-        }
-        catch { }
-        return IntPtr.Zero; // EXCEPTION_CONTINUE_SEARCH
     }
 
     /// <summary>
@@ -506,6 +519,1234 @@ public partial class App : Application
                 ShowQuickLookupCentered();
             }
         });
+    }
+
+    private void OnScreenshotTranslationRequested()
+    {
+        Dispatcher.BeginInvoke(() => StartScreenshotCapture("tray"));
+    }
+
+    private void OnScreenshotHotKeyPressed()
+    {
+        if (_isExiting || _settings?.ScreenshotHotKeyEnabled != true ||
+            _settingsWindow is { IsVisible: true })
+            return;
+        Dispatcher.BeginInvoke(() => StartScreenshotCapture("hotkey"));
+    }
+
+    /// <summary>
+    /// 从托盘进入单显示器截图框选。选区和捕获均使用物理像素，窗口只负责绘制遮罩。
+    /// </summary>
+    private void StartScreenshotCapture(string trigger)
+    {
+        if (_isExiting || _screenshotWindow is { IsVisible: true } ||
+            _screenshotProgressWindow is { IsVisible: true } ||
+            ScreenshotTranslationSessionState.BlocksNewSession(_screenshotTranslationCts))
+            return;
+
+        // A completed or cancelled overlay belongs to the previous screenshot
+        // session. Starting a new capture replaces that visual result so a
+        // stale overlay cannot make the tray command appear unresponsive.
+        if (_screenshotOverlayWindow is { } previousOverlay)
+        {
+            previousOverlay.Close();
+            if (ReferenceEquals(_screenshotOverlayWindow, previousOverlay))
+                _screenshotOverlayWindow = null;
+        }
+
+        if (!Win32Api.GetCursorPos(out var cursor))
+        {
+            _trayIcon?.ShowBalloonTip("截图翻译", "无法读取当前鼠标位置，请重试。", System.Windows.Forms.ToolTipIcon.Warning);
+            return;
+        }
+
+        var monitor = Win32Api.GetPhysicalMonitorAreaAtPoint(new Point(cursor.X, cursor.Y));
+        if (monitor.IsEmpty)
+        {
+            _trayIcon?.ShowBalloonTip("截图翻译", "无法确定当前显示器，请重试。", System.Windows.Forms.ToolTipIcon.Warning);
+            return;
+        }
+
+        var monitorRegion = new ScreenshotRegion(
+            checked((int)monitor.Left),
+            checked((int)monitor.Top),
+            checked((int)monitor.Width),
+            checked((int)monitor.Height));
+        var restoreState = new ScreenshotUiState(
+            _floatingWindow?.IsVisible == true,
+            _quickLookupWindow?.IsVisible == true);
+
+        // Cancel any pending text-selection red dot before taking control of the mouse.
+        OnSelectionCancelled();
+        if (restoreState.FloatingWindowVisible)
+            _floatingWindow?.Hide();
+        if (restoreState.QuickLookupWindowVisible)
+            _quickLookupWindow?.Hide();
+
+        var sessionId = Guid.NewGuid().ToString("N");
+        ScreenshotSelectionWindow? window = null;
+        try
+        {
+            window = new ScreenshotSelectionWindow(monitorRegion);
+            _screenshotWindow = window;
+            window.SelectionCompleted += region =>
+                OnScreenshotSelectionCompleted(window, restoreState, region, sessionId, trigger);
+            window.Cancelled += () =>
+                OnScreenshotSelectionCancelled(window, restoreState, sessionId);
+            window.ShowSelection();
+            Logger.Info("Screenshot", "screenshot.selection_started", new
+            {
+                session_id = sessionId,
+                trigger,
+                monitor_width = monitorRegion.Width,
+                monitor_height = monitorRegion.Height
+            });
+        }
+        catch (Exception ex)
+        {
+            window?.CancelSelection();
+            Logger.Warn("Screenshot", "screenshot.selection_start_failed", new
+            {
+                exception_type = ex.GetType().Name
+            });
+            RestoreScreenshotUi(restoreState);
+            _screenshotWindow = null;
+            _trayIcon?.ShowBalloonTip("截图翻译", "无法启动截图框选，请重试。", System.Windows.Forms.ToolTipIcon.Warning);
+        }
+    }
+
+    private void OnScreenshotSelectionCancelled(
+        ScreenshotSelectionWindow window,
+        ScreenshotUiState restoreState,
+        string sessionId)
+    {
+        if (ReferenceEquals(_screenshotWindow, window))
+            _screenshotWindow = null;
+        Logger.Info("Screenshot", "screenshot.selection_cancelled", new
+        {
+            session_id = sessionId,
+            cancellation_reason = ScreenshotTranslationCancellationReason.User.ToString()
+        });
+        RestoreScreenshotUi(restoreState);
+    }
+
+    private async void OnScreenshotSelectionCompleted(
+        ScreenshotSelectionWindow window,
+        ScreenshotUiState restoreState,
+        ScreenshotRegion region,
+        string sessionId,
+        string trigger)
+    {
+        var pipelineWatch = Stopwatch.StartNew();
+        var captureElapsed = TimeSpan.Zero;
+        var overlayLayoutElapsed = TimeSpan.Zero;
+        var stage = "capture";
+        var pipelineStatus = "not_started";
+        var pipelineTimings = ScreenshotTranslationStageTimings.Empty;
+        var translationRequestCount = 0;
+        var overlayItemCount = 0;
+        var overlayPlacedCount = 0;
+        var overlayDegradedCount = 0;
+        var overlaySkippedCount = 0;
+        var translationStreamingUsed = false;
+        var translationStreamingFallback = false;
+        double? firstTranslationPresentedMs = null;
+        string? selectedOcrEngine = null;
+        string? failureType = null;
+        ScreenshotTranslationFailureKind? failureKind = null;
+        MangaSceneRoutingResult? mangaResult = null;
+        ScreenshotTranslationProgressWindow? progressWindow = null;
+        ScreenshotTranslationOverlayWindow? overlayWindow = null;
+        var restoreUiReleaseClaimed = false;
+        var screenshotDiagnostics = new ScreenshotTranslationDiagnostics(sessionId);
+        var selectedOcrGeneration = Volatile.Read(ref _activeOcrEngineGeneration);
+        var translationWatch = new Stopwatch();
+        var translationCompletedCount = 0;
+        var closingProgressForCompletion = false;
+
+        if (ReferenceEquals(_screenshotWindow, window))
+            _screenshotWindow = null;
+
+        if (ScreenshotTranslationSessionState.BlocksNewSession(_screenshotTranslationCts))
+            return;
+        _screenshotTranslationCts = null;
+
+        using var userCancellation = new CancellationTokenSource();
+        using var pipelineDeadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        using var translationCts = CancellationTokenSource.CreateLinkedTokenSource(
+            userCancellation.Token,
+            pipelineDeadline.Token);
+        _screenshotTranslationCts = translationCts;
+        _activeScreenshotDiagnostics = screenshotDiagnostics;
+        using var deadlineRegistration = pipelineDeadline.Token.Register(() =>
+            RecordScreenshotCancellation(screenshotDiagnostics, ScreenshotTranslationCancellationReason.PipelineTimeout));
+        var cancellationToken = translationCts.Token;
+
+        try
+        {
+            // Let the hidden overlay leave the compositor before copying screen pixels.
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+            if (_isExiting || !ReferenceEquals(_screenshotTranslationCts, translationCts))
+                return;
+
+            var captureWatch = Stopwatch.StartNew();
+            OcrImage image;
+            try
+            {
+                image = await Task.Run(() => _screenshotCaptureService.Capture(region));
+            }
+            finally
+            {
+                captureElapsed = captureWatch.Elapsed;
+            }
+            Logger.Info("Screenshot", "screenshot.capture_completed", new
+            {
+                session_id = sessionId,
+                attempt_id = screenshotDiagnostics.AttemptId,
+                trigger,
+                width = image.PixelWidth,
+                height = image.PixelHeight,
+                stride = image.Stride,
+                payload_bytes = image.BgraPixels.Length
+            });
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (_isExiting || cancellationToken.IsCancellationRequested)
+                    return;
+                var progress = new ScreenshotTranslationProgressWindow(region);
+                progressWindow = progress;
+                _screenshotProgressWindow = progress;
+                progress.CancelRequested += () =>
+                {
+                    RecordScreenshotCancellation(screenshotDiagnostics, ScreenshotTranslationCancellationReason.User);
+                    userCancellation.Cancel();
+                    restoreUiReleaseClaimed |= ScreenshotTranslationSessionState.TryRelease(
+                        ref _screenshotTranslationCts,
+                        translationCts);
+                    if (ReferenceEquals(_screenshotOverlayWindow, overlayWindow) &&
+                        overlayWindow is { } overlay)
+                    {
+                        _screenshotOverlayWindow = null;
+                        overlay.Close();
+                    }
+                    if (ReferenceEquals(_screenshotProgressWindow, progress))
+                        _screenshotProgressWindow = null;
+                };
+                progress.Closed += (_, _) =>
+                {
+                    if (!translationCts.IsCancellationRequested && !progress.ClosedForOverlay && !closingProgressForCompletion)
+                    {
+                        RecordScreenshotCancellation(screenshotDiagnostics, ScreenshotTranslationCancellationReason.User);
+                        userCancellation.Cancel();
+                        restoreUiReleaseClaimed |= ScreenshotTranslationSessionState.TryRelease(
+                            ref _screenshotTranslationCts,
+                            translationCts);
+                    }
+
+                    if (ReferenceEquals(_screenshotProgressWindow, progress))
+                        _screenshotProgressWindow = null;
+                };
+                progress.ShowProgress();
+            }, DispatcherPriority.ApplicationIdle);
+            selectedOcrGeneration = Volatile.Read(ref _activeOcrEngineGeneration);
+            var ocrService = _screenshotOcrService;
+            var coordinator = _screenshotTranslationCoordinator;
+            var translationService = _translationService;
+            var settings = _settings;
+            if (ocrService is null || coordinator is null || translationService is null || settings is null)
+                throw new InvalidOperationException("截图翻译服务尚未初始化。");
+            bool ShouldTranslate(ScreenshotTranslationUnit unit) =>
+                screenshotDiagnostics.Evaluate(unit.SourceText, settings.TargetLanguage).ShouldTranslate;
+            Logger.Info("Screenshot", "screenshot.session_started", new
+            {
+                session_id = sessionId,
+                attempt_id = screenshotDiagnostics.AttemptId,
+                trigger,
+                engine = ocrService.Probe().EngineId,
+                ocr_generation = selectedOcrGeneration,
+                requested_ocr_generation = Volatile.Read(ref _ocrEngineSwitchGeneration),
+                target_language = settings.TargetLanguage
+            });
+            if (settings.EnhancedScreenshotTranslationEnabled && _mangaSceneRoutingService is null)
+                RefreshMangaSceneRoutingService(settings);
+
+            var capability = ocrService.Probe();
+            selectedOcrEngine = capability.EngineId;
+            if (!capability.IsAvailable)
+                throw new OcrEngineUnavailableException(capability.UnavailableReason);
+            stage = "ocr";
+            pipelineStatus = "running";
+            var overlayImage = image;
+
+            // OCR 单元准备好后立即创建稳定布局，但暂不显示空卡片。每个完整
+            // UnitId 译文到达时只更新对应卡片，避免流式期间全量碰撞重排。
+            void RecordPrepared(ScreenshotTranslationStageTimings timings)
+            {
+                pipelineTimings = timings;
+                var counts = screenshotDiagnostics.Snapshot();
+                Logger.Info("Screenshot", "screenshot.ocr_prepared", new
+                {
+                    session_id = sessionId,
+                    attempt_id = screenshotDiagnostics.AttemptId,
+                    engine = selectedOcrEngine,
+                    ocr_generation = selectedOcrGeneration,
+                    raw_block_count = timings.RawBlockCount,
+                    normalized_block_count = timings.NormalizedBlockCount,
+                    aggregated_paragraph_count = timings.AggregatedParagraphCount,
+                    translation_unit_count = timings.TranslationUnitCount,
+                    eligibility_evaluated_count = counts.EvaluatedCount,
+                    eligibility_translate_count = counts.TranslateCount,
+                    eligibility_preserve_count = counts.PreserveCount,
+                    eligibility_skip_count = counts.SkipCount,
+                    eligibility_reason_counts = counts.ReasonCounts
+                });
+            }
+
+            Action<IReadOnlyList<ScreenshotTranslationUnit>> prepareOverlay = units =>
+            {
+                void CreateOverlay()
+                {
+                    if (_isExiting || cancellationToken.IsCancellationRequested ||
+                        !ReferenceEquals(_screenshotTranslationCts, translationCts))
+                    {
+                        return;
+                    }
+
+                    var overlay = new ScreenshotTranslationOverlayWindow(region, overlayImage, units);
+                    overlayWindow = overlay;
+                    overlayItemCount = overlay.LayoutResult.Items.Count;
+                    overlayPlacedCount = overlay.LayoutResult.PlacedCount;
+                    overlayDegradedCount = overlay.LayoutResult.DegradedCount;
+                    overlaySkippedCount = overlay.LayoutResult.SkippedCount;
+                    if (!overlay.HasRenderableItems)
+                        return;
+
+                    _screenshotOverlayWindow = overlay;
+                    overlay.RetryRequested += missing =>
+                        _ = RetryMissingScreenshotTranslationsAsync(
+                            overlay,
+                            missing,
+                            translationService,
+                            settings,
+                            sessionId);
+                    overlay.Closed += (_, _) =>
+                    {
+                        if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+                        {
+                            var isActive = ReferenceEquals(_screenshotTranslationCts, translationCts);
+                            _screenshotOverlayWindow = null;
+                            // Closing during an active stream must stop the
+                            // provider request; late chunks are then ignored.
+                            if (isActive && !cancellationToken.IsCancellationRequested)
+                            {
+                                RecordScreenshotCancellation(screenshotDiagnostics, ScreenshotTranslationCancellationReason.OverlayClosed);
+                                translationCts.Cancel();
+                            }
+                            if (isActive)
+                                _screenshotTranslationCts = null;
+                            RestoreScreenshotUi(restoreState);
+                        }
+                    };
+                }
+
+                if (Dispatcher.CheckAccess())
+                    CreateOverlay();
+                else
+                    Dispatcher.Invoke(CreateOverlay, DispatcherPriority.ApplicationIdle);
+            };
+
+            Action<TranslatedTextUnit> publishOverlayUnit = translated =>
+            {
+                void UpdateOverlay()
+                {
+                    if (_isExiting || cancellationToken.IsCancellationRequested ||
+                        !ReferenceEquals(_screenshotTranslationCts, translationCts) ||
+                        _screenshotOverlayWindow is not { } overlay)
+                    {
+                        return;
+                    }
+
+                    if (!overlay.TryUpdateTranslation(translated))
+                        return;
+
+                    overlayItemCount = overlay.LayoutResult.Items.Count;
+                    overlayPlacedCount = overlay.LayoutResult.PlacedCount;
+                    overlayDegradedCount = overlay.LayoutResult.DegradedCount;
+                    overlaySkippedCount = overlay.LayoutResult.SkippedCount;
+
+                    if (!overlay.IsVisible)
+                    {
+                        if (ReferenceEquals(_screenshotProgressWindow, progressWindow) &&
+                            progressWindow is { } progress)
+                        {
+                            _screenshotProgressWindow = null;
+                            progress.CloseForOverlay();
+                        }
+                        overlay.ShowOverlay();
+                        firstTranslationPresentedMs ??= pipelineWatch.Elapsed.TotalMilliseconds;
+                        Logger.Info("Screenshot", "screenshot.overlay_presented", new
+                        {
+                            session_id = sessionId,
+                            attempt_id = screenshotDiagnostics.AttemptId,
+                            unit_id = translated.UnitId,
+                            completed_count = overlay.CompletedCount,
+                            unit_count = overlay.ExpectedCount,
+                            placed_count = overlay.LayoutResult.PlacedCount,
+                            degraded_count = overlay.LayoutResult.DegradedCount,
+                            skipped_count = overlay.LayoutResult.SkippedCount,
+                            engine = capability.EngineId
+                        });
+                    }
+                }
+
+                void SafeUpdateOverlay()
+                {
+                    try
+                    {
+                        UpdateOverlay();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn("Screenshot", "screenshot.overlay_update_failed", new
+                        {
+                            exception_type = ex.GetType().Name
+                        });
+                    }
+                }
+
+                if (Dispatcher.CheckAccess())
+                    SafeUpdateOverlay();
+                else
+                    _ = Dispatcher.BeginInvoke(SafeUpdateOverlay, DispatcherPriority.Background);
+            };
+
+            async Task<IReadOnlyList<TranslatedTextUnit>> TranslateUnitsAsync(
+                IReadOnlyList<ScreenshotTranslationUnit> units,
+                CancellationToken token)
+            {
+                stage = "translation";
+                translationWatch.Start();
+                Logger.Info("Screenshot", "screenshot.translation_started", new
+                {
+                    session_id = sessionId,
+                    attempt_id = screenshotDiagnostics.AttemptId,
+                    ocr_generation = selectedOcrGeneration,
+                    unit_count = units.Count
+                });
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (ReferenceEquals(_screenshotProgressWindow, progressWindow) &&
+                        progressWindow is { } progress)
+                        progress.SetStatus($"正在翻译 {units.Count} 个文本单元…");
+                }, DispatcherPriority.Background);
+                var completed = new Dictionary<string, TranslatedTextUnit>(StringComparer.Ordinal);
+                var completedGate = new object();
+
+                void Record(TranslatedTextUnit translated)
+                {
+                    if (string.IsNullOrWhiteSpace(translated.UnitId) || string.IsNullOrWhiteSpace(translated.Translation))
+                        return;
+                    lock (completedGate)
+                    {
+                        if (!completed.TryAdd(translated.UnitId, translated))
+                            return;
+                    }
+                    Interlocked.Increment(ref translationCompletedCount);
+                    publishOverlayUnit(translated);
+                }
+
+                async Task TranslateBatchAsync(
+                    IReadOnlyList<ScreenshotTranslationUnit> batch,
+                    bool allowStructuredBatch,
+                    CancellationToken cancellation)
+                {
+                    if (batch.Count == 0)
+                        return;
+
+                    var pending = batch
+                        .Where(unit =>
+                        {
+                            lock (completedGate)
+                                return !completed.ContainsKey(unit.UnitId);
+                        })
+                        .ToArray();
+                    if (pending.Length == 0)
+                        return;
+
+                    if (allowStructuredBatch && translationService is IScreenshotBatchStreamingTranslationService streaming)
+                    {
+                        translationStreamingUsed = true;
+                        Interlocked.Increment(ref translationRequestCount);
+                        using var batchDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+                        batchDeadline.CancelAfter(TimeSpan.FromSeconds(24));
+                        try
+                        {
+                            var translated = await streaming.TranslateScreenshotBatchStreamingAsync(
+                                pending,
+                                settings.TargetLanguage,
+                                Record,
+                                batchDeadline.Token).ConfigureAwait(false);
+                            foreach (var item in translated)
+                                Record(item);
+                            return;
+                        }
+                        catch (ScreenshotTranslationBatchFormatException ex) when (!cancellation.IsCancellationRequested)
+                        {
+                            translationStreamingFallback = true;
+                            Logger.Warn("Screenshot", "screenshot.batch_stream_mapping_rejected", new
+                            {
+                                reason = ex.Reason,
+                                unit_count = pending.Length
+                            });
+                        }
+                        catch (OperationCanceledException) when (
+                            batchDeadline.IsCancellationRequested && !cancellation.IsCancellationRequested)
+                        {
+                            translationStreamingFallback = true;
+                            Logger.Warn("Screenshot", "screenshot.batch_stream_timed_out", new
+                            {
+                                unit_count = pending.Length
+                            });
+                        }
+                        catch (ScreenshotTranslationTimeoutException)
+                        {
+                            translationStreamingFallback = true;
+                            Logger.Warn("Screenshot", "screenshot.batch_stream_timed_out", new
+                            {
+                                unit_count = pending.Length
+                            });
+                        }
+                    }
+
+                    pending = batch
+                        .Where(unit =>
+                        {
+                            lock (completedGate)
+                                return !completed.ContainsKey(unit.UnitId);
+                        })
+                        .ToArray();
+                    if (pending.Length == 0)
+                        return;
+
+                    if (allowStructuredBatch && translationService is IScreenshotBatchTranslationService batchTranslationService)
+                    {
+                        Interlocked.Increment(ref translationRequestCount);
+                        using var batchDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+                        batchDeadline.CancelAfter(TimeSpan.FromSeconds(18));
+                        try
+                        {
+                            var translated = await batchTranslationService
+                                .TranslateScreenshotBatchAsync(pending, settings.TargetLanguage, batchDeadline.Token)
+                                .ConfigureAwait(false);
+                            foreach (var item in translated)
+                                Record(item);
+                            return;
+                        }
+                        catch (ScreenshotTranslationBatchFormatException ex) when (!cancellation.IsCancellationRequested)
+                        {
+                            Logger.Warn("Screenshot", "screenshot.batch_mapping_rejected", new
+                            {
+                                reason = ex.Reason,
+                                unit_count = pending.Length
+                            });
+                        }
+                        catch (OperationCanceledException) when (
+                            batchDeadline.IsCancellationRequested && !cancellation.IsCancellationRequested)
+                        {
+                            Logger.Warn("Screenshot", "screenshot.batch_timed_out", new
+                            {
+                                unit_count = pending.Length
+                            });
+                        }
+                        catch (ScreenshotTranslationTimeoutException)
+                        {
+                            Logger.Warn("Screenshot", "screenshot.batch_timed_out", new
+                            {
+                                unit_count = pending.Length
+                            });
+                        }
+                    }
+
+                    pending = batch
+                        .Where(unit =>
+                        {
+                            lock (completedGate)
+                                return !completed.ContainsKey(unit.UnitId);
+                        })
+                        .ToArray();
+                    if (pending.Length == 0)
+                        return;
+
+                    if (pending.Length > 1)
+                    {
+                        if (allowStructuredBatch)
+                        {
+                            foreach (var smaller in pending.Chunk(3))
+                                await TranslateBatchAsync(smaller, false, cancellation).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            foreach (var smaller in pending)
+                                await TranslateBatchAsync(new[] { smaller }, false, cancellation).ConfigureAwait(false);
+                        }
+                        return;
+                    }
+
+                    var single = pending[0];
+                    Interlocked.Increment(ref translationRequestCount);
+                    using var singleDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+                    singleDeadline.CancelAfter(TimeSpan.FromSeconds(12));
+                    try
+                    {
+                        var translation = await translationService.TranslateToRequestedTargetAsync(
+                            single.SourceText,
+                            settings.TargetLanguage,
+                            ContentType.Translation,
+                            singleDeadline.Token).ConfigureAwait(false);
+                        Record(new TranslatedTextUnit(single.UnitId, translation));
+                    }
+                    catch (FormatException) when (!cancellation.IsCancellationRequested)
+                    {
+                        // Leave this unit missing so the overlay can expose it
+                        // for an explicit retry without blocking the rest.
+                    }
+                    catch (OperationCanceledException) when (
+                        singleDeadline.IsCancellationRequested && !cancellation.IsCancellationRequested)
+                    {
+                        // A single slow unit is isolated from the full capture.
+                    }
+                }
+
+                foreach (var batch in units.Chunk(12))
+                {
+                    await TranslateBatchAsync(batch, allowStructuredBatch: true, token).ConfigureAwait(false);
+                    token.ThrowIfCancellationRequested();
+                }
+
+                lock (completedGate)
+                {
+                    return units
+                        .Where(unit => completed.ContainsKey(unit.UnitId))
+                        .Select(unit => completed[unit.UnitId])
+                        .ToArray();
+                }
+            }
+
+            ScreenshotTranslationPipelineResult pipeline;
+            if (settings.EnhancedScreenshotTranslationEnabled && _mangaSceneRoutingService is not null)
+            {
+                var standardOcrWatch = Stopwatch.StartNew();
+                var standardOcr = await ocrService.RecognizeAsync(
+                    image,
+                    new OcrRecognitionOptions(LanguageHint: null, AllowLanguageFallback: true),
+                    cancellationToken).ConfigureAwait(false);
+                standardOcrWatch.Stop();
+                var sourceLanguage = ScreenshotLanguageRouter.Detect(standardOcr).ToWorkerLanguage();
+                if (sourceLanguage is not null && _mangaSceneRoutingService is not null)
+                {
+                    stage = "manga_worker";
+                    mangaResult = await _mangaSceneRoutingService.ProcessAsync(
+                        image,
+                        $"screenshot-{Guid.NewGuid():N}",
+                        sourceLanguage,
+                        TimeSpan.FromSeconds(90),
+                        cancellationToken).ConfigureAwait(false);
+                    Logger.Info("Screenshot", "screenshot.manga_route_decided", new
+                    {
+                        route = mangaResult.Route.ToString(),
+                        worker_response_type = mangaResult.WorkerResponse?.Type,
+                        source_language = sourceLanguage,
+                        failure_type = mangaResult.FailureType
+                    });
+                }
+
+                if (mangaResult?.Route == ScreenshotSceneRoute.MangaWorker && mangaResult.WorkerResponse is not null)
+                {
+                    var mangaUnits = MangaTranslationOrchestrator.CreateUnits(mangaResult.WorkerResponse);
+                    if (mangaUnits.Count >= 2)
+                    {
+                        selectedOcrEngine = "manga-worker";
+                        if (!string.IsNullOrWhiteSpace(mangaResult.CleanedImagePath) && File.Exists(mangaResult.CleanedImagePath))
+                            overlayImage = MangaSceneRoutingService.LoadPng(mangaResult.CleanedImagePath);
+                        pipeline = await coordinator.ExecuteWithUnitsAsync(
+                            standardOcr,
+                            mangaUnits,
+                            TranslateUnitsAsync,
+                            standardOcrWatch.Elapsed,
+                            cancellationToken,
+                            prepareOverlay,
+                            shouldTranslate: ShouldTranslate,
+                            onPrepared: RecordPrepared).ConfigureAwait(true);
+                    }
+                    else
+                    {
+                        mangaResult = mangaResult with { Route = ScreenshotSceneRoute.FallbackStandardOcr };
+                        pipeline = await coordinator.ExecuteWithOcrResultAsync(
+                            image,
+                            standardOcr,
+                            TranslateUnitsAsync,
+                            standardOcrWatch.Elapsed,
+                            cancellationToken,
+                            prepareOverlay,
+                            shouldTranslate: ShouldTranslate,
+                            onPrepared: RecordPrepared).ConfigureAwait(true);
+                    }
+                }
+                else
+                {
+                    pipeline = await coordinator.ExecuteWithOcrResultAsync(
+                        image,
+                        standardOcr,
+                        TranslateUnitsAsync,
+                        standardOcrWatch.Elapsed,
+                        cancellationToken,
+                        prepareOverlay,
+                        shouldTranslate: ShouldTranslate,
+                            onPrepared: RecordPrepared).ConfigureAwait(true);
+                }
+            }
+            else
+            {
+                pipeline = await coordinator.ExecuteAsync(
+                    image,
+                    TranslateUnitsAsync,
+                    new OcrRecognitionOptions(LanguageHint: null, AllowLanguageFallback: true),
+                    cancellationToken,
+                    prepareOverlay,
+                    shouldTranslate: ShouldTranslate,
+                            onPrepared: RecordPrepared).ConfigureAwait(true);
+            }
+
+            pipelineTimings = pipeline.Timings;
+            pipelineStatus = pipeline.Status.ToString();
+
+            if (pipeline.Status == ScreenshotTranslationPipelineStatus.NoText)
+            {
+                _trayIcon?.ShowBalloonTip(
+                    "截图翻译",
+                    "未识别到文字，请框选清晰的文字区域。",
+                    System.Windows.Forms.ToolTipIcon.Info);
+                return;
+            }
+
+            if (pipeline.Status == ScreenshotTranslationPipelineStatus.NoTranslationNeeded)
+            {
+                stage = "eligibility";
+                var counts = screenshotDiagnostics.Snapshot();
+                var targetLanguageCount = counts.ReasonCounts.GetValueOrDefault(
+                    nameof(ScreenshotTranslationEligibilityReason.TargetLanguageMatch));
+                _trayIcon?.ShowBalloonTip(
+                    "截图翻译",
+                    targetLanguageCount == counts.EvaluatedCount && targetLanguageCount > 0
+                        ? "当前文字已是目标语言，无需翻译。"
+                        : "识别到的内容无需翻译，已保留原样。",
+                    System.Windows.Forms.ToolTipIcon.Info);
+                return;
+            }
+
+            if (pipeline.Status != ScreenshotTranslationPipelineStatus.Completed)
+                throw new InvalidOperationException("译文无法安全映射回截图区域。");
+
+            stage = "overlay_layout";
+            var overlayWatch = Stopwatch.StartNew();
+            try
+            {
+                var overlayPresented = await Dispatcher.InvokeAsync(() =>
+                {
+                    if (_isExiting || _screenshotOverlayWindow is not { } overlay || !overlay.IsVisible)
+                        return false;
+                    return true;
+                }, DispatcherPriority.ApplicationIdle);
+                if (!overlayPresented)
+                {
+                    _trayIcon?.ShowBalloonTip(
+                        "截图翻译",
+                        "未生成可显示的译文。",
+                        System.Windows.Forms.ToolTipIcon.Warning);
+                }
+                stage = overlayPresented ? "overlay_presented" : "overlay_skipped";
+            }
+            finally
+            {
+                overlayLayoutElapsed = overlayWatch.Elapsed;
+            }
+        }
+        catch (OperationCanceledException) when (
+            pipelineDeadline.IsCancellationRequested && !userCancellation.IsCancellationRequested)
+        {
+            pipelineStatus = "failed";
+            failureType = nameof(ScreenshotTranslationTimeoutException);
+            failureKind = ScreenshotTranslationFailureKind.ProviderTimeout;
+            if (ReferenceEquals(_screenshotOverlayWindow, overlayWindow) &&
+                _screenshotOverlayWindow is { IsVisible: true } partial &&
+                partial.CompletedCount > 0 && partial.CompletedCount < partial.ExpectedCount)
+            {
+                partial.MarkPartial(
+                    $"已显示 {partial.CompletedCount}/{partial.ExpectedCount} 个译文（{DescribeScreenshotFailure(failureKind.Value)}）",
+                    canRetry: true);
+            }
+            else if (ReferenceEquals(_screenshotOverlayWindow, overlayWindow) &&
+                     _screenshotOverlayWindow is { IsVisible: false } pendingOverlay &&
+                     pendingOverlay.CompletedCount == 0)
+            {
+                if (ReferenceEquals(_screenshotOverlayWindow, pendingOverlay))
+                    _screenshotOverlayWindow = null;
+                pendingOverlay.Close();
+            }
+            _trayIcon?.ShowBalloonTip(
+                "截图翻译",
+                DescribeScreenshotFailure(failureKind.Value),
+                System.Windows.Forms.ToolTipIcon.Warning);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            pipelineStatus = "cancelled";
+            failureType = nameof(OperationCanceledException);
+            failureKind = ScreenshotTranslationFailureKind.Cancelled;
+            if (ReferenceEquals(_screenshotOverlayWindow, overlayWindow) &&
+                _screenshotOverlayWindow is { IsVisible: true } partial &&
+                partial.CompletedCount > 0 && partial.CompletedCount < partial.ExpectedCount)
+            {
+                partial.MarkPartial($"已显示 {partial.CompletedCount}/{partial.ExpectedCount} 个译文（已取消）");
+            }
+            else if (ReferenceEquals(_screenshotOverlayWindow, overlayWindow) &&
+                     _screenshotOverlayWindow is { IsVisible: false } pendingOverlay &&
+                     pendingOverlay.CompletedCount == 0)
+            {
+                if (ReferenceEquals(_screenshotOverlayWindow, pendingOverlay))
+                    _screenshotOverlayWindow = null;
+                pendingOverlay.Close();
+            }
+            _trayIcon?.ShowBalloonTip(
+                "截图翻译",
+                "截图翻译已取消。",
+                System.Windows.Forms.ToolTipIcon.Info);
+        }
+        catch (Exception ex)
+        {
+            pipelineStatus = "failed";
+            failureType = ex.GetType().Name;
+            failureKind = ScreenshotTranslationFailureClassifier.Classify(
+                ex,
+                stage,
+                cancellationToken.IsCancellationRequested);
+            var completedUnitCount = overlayWindow?.CompletedCount ?? 0;
+            if (ReferenceEquals(_screenshotOverlayWindow, overlayWindow) &&
+                _screenshotOverlayWindow is { IsVisible: true } partial &&
+                partial.CompletedCount > 0 && partial.CompletedCount < partial.ExpectedCount)
+            {
+                partial.MarkPartial(
+                    $"已显示 {partial.CompletedCount}/{partial.ExpectedCount} 个译文（{DescribeScreenshotFailure(failureKind.Value)}）",
+                    canRetry: true);
+            }
+            else if (ReferenceEquals(_screenshotOverlayWindow, overlayWindow) &&
+                     _screenshotOverlayWindow is { IsVisible: false } pendingOverlay &&
+                     completedUnitCount == 0)
+            {
+                if (ReferenceEquals(_screenshotOverlayWindow, pendingOverlay))
+                    _screenshotOverlayWindow = null;
+                pendingOverlay.Close();
+            }
+            Logger.Warn("Screenshot", "screenshot.capture_failed", new
+            {
+                session_id = sessionId,
+                attempt_id = screenshotDiagnostics.AttemptId,
+                exception_type = ex.GetType().Name,
+                inner_exception_type = ex.InnerException?.GetType().Name,
+                hresult = ex.HResult,
+                http_status_code = ex is HttpRequestException { StatusCode: { } statusCode }
+                    ? (int?)statusCode
+                    : null,
+                failure_stage = stage,
+                failure_kind = failureKind.ToString(),
+                completed_unit_count = completedUnitCount,
+                expected_unit_count = overlayWindow?.ExpectedCount ?? overlayItemCount,
+                width = region.Width,
+                height = region.Height
+            });
+            _trayIcon?.ShowBalloonTip(
+                "截图翻译",
+                DescribeScreenshotFailure(failureKind.Value),
+                System.Windows.Forms.ToolTipIcon.Warning);
+        }
+        finally
+        {
+            pipelineWatch.Stop();
+            translationWatch.Stop();
+            closingProgressForCompletion = true;
+            if (translationWatch.Elapsed > TimeSpan.Zero)
+            {
+                pipelineTimings = pipelineTimings with { TranslationElapsed = translationWatch.Elapsed };
+                Logger.Info("Screenshot", "screenshot.translation_ended", new
+                {
+                    session_id = sessionId,
+                    attempt_id = screenshotDiagnostics.AttemptId,
+                    status = pipelineStatus,
+                    ocr_generation = selectedOcrGeneration,
+                    cancellation_reason = screenshotDiagnostics.CancellationReason.ToString(),
+                    completed_unit_count = Volatile.Read(ref translationCompletedCount),
+                    request_count = Volatile.Read(ref translationRequestCount),
+                    duration_ms = Math.Round(translationWatch.Elapsed.TotalMilliseconds, 2)
+                });
+            }
+            var diagnosticsSnapshot = screenshotDiagnostics.Snapshot();
+            Logger.Info("Screenshot", "screenshot.pipeline_completed", new
+            {
+                session_id = sessionId,
+                attempt_id = screenshotDiagnostics.AttemptId,
+                status = pipelineStatus,
+                terminal_stage = stage,
+                failure_type = failureType,
+                failure_kind = failureKind?.ToString(),
+                engine = selectedOcrEngine ?? "unknown",
+                capture_elapsed_ms = Math.Round(captureElapsed.TotalMilliseconds, 2),
+                ocr_elapsed_ms = Math.Round(pipelineTimings.OcrElapsed.TotalMilliseconds, 2),
+                translation_elapsed_ms = Math.Round(pipelineTimings.TranslationElapsed.TotalMilliseconds, 2),
+                mapping_elapsed_ms = Math.Round(pipelineTimings.MappingElapsed.TotalMilliseconds, 2),
+                overlay_layout_elapsed_ms = Math.Round(overlayLayoutElapsed.TotalMilliseconds, 2),
+                overlay_item_count = overlayItemCount,
+                overlay_placed_count = overlayPlacedCount,
+                overlay_degraded_count = overlayDegradedCount,
+                overlay_skipped_count = overlaySkippedCount,
+                total_elapsed_ms = Math.Round(pipelineWatch.Elapsed.TotalMilliseconds, 2),
+                ocr_block_count = pipelineTimings.OcrBlockCount,
+                raw_block_count = pipelineTimings.RawBlockCount,
+                normalized_block_count = pipelineTimings.NormalizedBlockCount,
+                aggregated_paragraph_count = pipelineTimings.AggregatedParagraphCount,
+                translation_unit_count = pipelineTimings.TranslationUnitCount,
+                translation_request_count = Volatile.Read(ref translationRequestCount),
+                translation_streaming_used = translationStreamingUsed,
+                translation_streaming_fallback = translationStreamingFallback,
+                first_translation_presented_ms = firstTranslationPresentedMs,
+                translation_completed_unit_count = overlayWindow?.CompletedCount ?? 0,
+                cancelled = cancellationToken.IsCancellationRequested,
+                cancellation_reason = screenshotDiagnostics.CancellationReason.ToString(),
+                ocr_generation = selectedOcrGeneration,
+                active_ocr_generation = Volatile.Read(ref _activeOcrEngineGeneration),
+                requested_ocr_generation = Volatile.Read(ref _ocrEngineSwitchGeneration),
+                eligibility_evaluated_count = diagnosticsSnapshot.EvaluatedCount,
+                eligibility_translate_count = diagnosticsSnapshot.TranslateCount,
+                eligibility_preserve_count = diagnosticsSnapshot.PreserveCount,
+                eligibility_skip_count = diagnosticsSnapshot.SkipCount,
+                eligibility_reason_counts = diagnosticsSnapshot.ReasonCounts
+            });
+            if (ReferenceEquals(_screenshotProgressWindow, progressWindow) &&
+                progressWindow is { } progress)
+            {
+                _screenshotProgressWindow = null;
+                progress.Close();
+            }
+            if (ReferenceEquals(_screenshotWindow, window))
+                _screenshotWindow = null;
+            var isCurrentSession = ScreenshotTranslationSessionState.TryRelease(
+                ref _screenshotTranslationCts,
+                translationCts);
+            if (ReferenceEquals(_activeScreenshotDiagnostics, screenshotDiagnostics))
+                _activeScreenshotDiagnostics = null;
+            if (mangaResult is not null)
+            {
+                MangaSceneRoutingService.CleanupTemporaryImage(mangaResult.TemporaryImagePath);
+                MangaSceneRoutingService.CleanupTemporaryImage(mangaResult.CleanedImagePath);
+            }
+            if (ScreenshotTranslationSessionState.ShouldRestoreUi(
+                    isCurrentSession,
+                    restoreUiReleaseClaimed,
+                    _screenshotWindow is not null,
+                    _screenshotProgressWindow is not null,
+                    _screenshotOverlayWindow is not null))
+                RestoreScreenshotUi(restoreState);
+        }
+    }
+
+    private static double? AverageConfidence(IReadOnlyList<OcrTextBlock> blocks)
+    {
+        var values = blocks
+            .Where(static block => block.Confidence is { } confidence && double.IsFinite(confidence))
+            .Select(static block => block.Confidence!.Value)
+            .ToArray();
+        return values.Length == 0 ? null : values.Average();
+    }
+
+    private static string DescribeScreenshotFailure(ScreenshotTranslationFailureKind kind) => kind switch
+    {
+        ScreenshotTranslationFailureKind.ResourceLimit => "截图区域过大，请缩小后重试。",
+        ScreenshotTranslationFailureKind.CaptureFailed => "截图捕获失败，请重试。",
+        ScreenshotTranslationFailureKind.OcrUnavailable => "本机 OCR 不可用，请安装对应语言包或配置本地 OCR 模型。",
+        ScreenshotTranslationFailureKind.OcrFailed => "本地文字识别失败，请重试。",
+        ScreenshotTranslationFailureKind.ProviderUnauthorized => "翻译服务拒绝请求，请检查 API Key 和权限。",
+        ScreenshotTranslationFailureKind.ProviderQuota => "翻译服务额度或频率受限，请稍后重试。",
+        ScreenshotTranslationFailureKind.ProviderServer => "翻译服务暂时不可用，请稍后重试。",
+        ScreenshotTranslationFailureKind.ProviderTimeout => "翻译服务响应超时，请稍后重试。",
+        ScreenshotTranslationFailureKind.ProviderTransport => "翻译服务连接失败，请检查网络或 API 配置。",
+        ScreenshotTranslationFailureKind.ProviderFormat => "翻译服务返回格式异常，请稍后重试。",
+        ScreenshotTranslationFailureKind.Cancelled => "截图翻译已取消。",
+        _ => "截图翻译失败，请重试。"
+    };
+
+    private async Task RetryMissingScreenshotTranslationsAsync(
+        ScreenshotTranslationOverlayWindow overlay,
+        IReadOnlyList<ScreenshotTranslationUnit> missing,
+        OpenAITranslationService translationService,
+        AppSettings settings,
+        string sessionId)
+    {
+        if (missing.Count == 0 || _isExiting ||
+            ScreenshotTranslationSessionState.BlocksNewSession(_screenshotTranslationCts) ||
+            !ReferenceEquals(_screenshotOverlayWindow, overlay))
+            return;
+        _screenshotTranslationCts = null;
+
+        using var retryUserCancellation = new CancellationTokenSource();
+        using var retryDeadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        using var retryCts = CancellationTokenSource.CreateLinkedTokenSource(
+            retryUserCancellation.Token,
+            retryDeadline.Token);
+        var retryDiagnostics = new ScreenshotTranslationDiagnostics(sessionId);
+        _activeScreenshotDiagnostics = retryDiagnostics;
+        _screenshotTranslationCts = retryCts;
+        using var deadlineRegistration = retryDeadline.Token.Register(() =>
+            RecordScreenshotCancellation(retryDiagnostics, ScreenshotTranslationCancellationReason.PipelineTimeout));
+        var token = retryCts.Token;
+        var retryRequestCount = 0;
+        var pendingUnitIds = new HashSet<string>(
+            missing.Select(static unit => unit.UnitId),
+            StringComparer.Ordinal);
+        var pendingGate = new object();
+        overlay.Closed += CancelRetry;
+        overlay.MarkPartial($"正在重试未完成项（{missing.Count} 个）…", canRetry: false);
+        Logger.Info("Screenshot", "screenshot.retry_started", new
+        {
+            session_id = sessionId,
+            attempt_id = retryDiagnostics.AttemptId,
+            missing_unit_count = missing.Count
+        });
+        try
+        {
+            Action<TranslatedTextUnit> publish = translated =>
+            {
+                void Apply()
+                {
+                    if (_isExiting || token.IsCancellationRequested ||
+                        !ReferenceEquals(_screenshotTranslationCts, retryCts) ||
+                        !ReferenceEquals(_screenshotOverlayWindow, overlay) ||
+                        !overlay.IsVisible)
+                        return;
+                    if (overlay.TryUpdateTranslation(translated))
+                    {
+                        lock (pendingGate)
+                            pendingUnitIds.Remove(translated.UnitId);
+                    }
+                }
+
+                if (Dispatcher.CheckAccess())
+                    Apply();
+                else
+                    Dispatcher.Invoke(Apply, DispatcherPriority.Background);
+            };
+
+            if (translationService is IScreenshotBatchStreamingTranslationService streaming)
+            {
+                Interlocked.Increment(ref retryRequestCount);
+                try
+                {
+                    await streaming.TranslateScreenshotBatchStreamingAsync(
+                        GetPendingUnits(),
+                        settings.TargetLanguage,
+                        publish,
+                        token).ConfigureAwait(false);
+                }
+                catch (ScreenshotTranslationBatchFormatException) when (!token.IsCancellationRequested)
+                {
+                    if (translationService is not IScreenshotBatchTranslationService batchFallback)
+                        throw;
+                    var pendingForBatch = GetPendingUnits();
+                    if (pendingForBatch.Length > 0)
+                    {
+                        Interlocked.Increment(ref retryRequestCount);
+                        try
+                        {
+                            var translated = await batchFallback
+                                .TranslateScreenshotBatchAsync(pendingForBatch, settings.TargetLanguage, token)
+                                .ConfigureAwait(false);
+                            foreach (var unit in translated)
+                                publish(unit);
+                        }
+                        catch (ScreenshotTranslationBatchFormatException) when (!token.IsCancellationRequested)
+                        {
+                            await TranslateMissingIndividuallyAsync().ConfigureAwait(false);
+                        }
+                    }
+                }
+            }
+            else if (translationService is IScreenshotBatchTranslationService batch)
+            {
+                Interlocked.Increment(ref retryRequestCount);
+                try
+                {
+                    var translated = await batch
+                        .TranslateScreenshotBatchAsync(GetPendingUnits(), settings.TargetLanguage, token)
+                        .ConfigureAwait(false);
+                    foreach (var unit in translated)
+                        publish(unit);
+                }
+                catch (ScreenshotTranslationBatchFormatException) when (!token.IsCancellationRequested)
+                {
+                    await TranslateMissingIndividuallyAsync().ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                await TranslateMissingIndividuallyAsync().ConfigureAwait(false);
+            }
+
+            async Task TranslateMissingIndividuallyAsync()
+            {
+                ScreenshotTranslationUnit[] pending;
+                lock (pendingGate)
+                {
+                    pending = missing
+                        .Where(unit => pendingUnitIds.Contains(unit.UnitId))
+                        .ToArray();
+                }
+                foreach (var unit in pending)
+                {
+                    Interlocked.Increment(ref retryRequestCount);
+                    string text;
+                    try
+                    {
+                        text = await translationService.TranslateToRequestedTargetAsync(
+                            unit.SourceText,
+                            settings.TargetLanguage,
+                            ContentType.Translation,
+                            token).ConfigureAwait(false);
+                    }
+                    catch (FormatException ex) when (!token.IsCancellationRequested)
+                    {
+                        throw new ScreenshotTranslationBatchFormatException(
+                            "invalid_provider_response",
+                            ex);
+                    }
+                    publish(new TranslatedTextUnit(unit.UnitId, text));
+                }
+            }
+
+            ScreenshotTranslationUnit[] GetPendingUnits()
+            {
+                lock (pendingGate)
+                {
+                    return missing
+                        .Where(unit => pendingUnitIds.Contains(unit.UnitId))
+                        .ToArray();
+                }
+            }
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+                {
+                    if (overlay.CompletedCount >= overlay.ExpectedCount)
+                        overlay.ClearPartial();
+                    else
+                        overlay.MarkPartial(
+                            $"已显示 {overlay.CompletedCount}/{overlay.ExpectedCount} 个译文（仍有缺失）",
+                            canRetry: true);
+                }
+            }, DispatcherPriority.ApplicationIdle);
+            Logger.Info("Screenshot", "screenshot.retry_completed", new
+            {
+                session_id = sessionId,
+                attempt_id = retryDiagnostics.AttemptId,
+                missing_unit_count = missing.Count,
+                request_count = Volatile.Read(ref retryRequestCount),
+                completed_unit_count = overlay.CompletedCount,
+                expected_unit_count = overlay.ExpectedCount
+            });
+        }
+        catch (OperationCanceledException) when (
+            retryDeadline.IsCancellationRequested && !retryUserCancellation.IsCancellationRequested)
+        {
+            if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+                overlay.MarkPartial(
+                    $"已显示 {overlay.CompletedCount}/{overlay.ExpectedCount} 个译文（{DescribeScreenshotFailure(ScreenshotTranslationFailureKind.ProviderTimeout)}）",
+                    canRetry: true);
+            Logger.Warn("Screenshot", "screenshot.retry_failed", new
+            {
+                session_id = sessionId,
+                attempt_id = retryDiagnostics.AttemptId,
+                request_count = Volatile.Read(ref retryRequestCount),
+                exception_type = nameof(ScreenshotTranslationTimeoutException),
+                failure_kind = ScreenshotTranslationFailureKind.ProviderTimeout.ToString()
+            });
+        }
+        catch (OperationCanceledException ex)
+        {
+            var kind = ScreenshotTranslationFailureClassifier.Classify(
+                ex,
+                "translation",
+                token.IsCancellationRequested);
+            if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+            {
+                overlay.MarkPartial(
+                    $"已显示 {overlay.CompletedCount}/{overlay.ExpectedCount} 个译文（{DescribeScreenshotFailure(kind)}）",
+                    canRetry: true);
+            }
+            Logger.Info("Screenshot", "screenshot.retry_cancelled", new
+            {
+                session_id = sessionId,
+                attempt_id = retryDiagnostics.AttemptId,
+                request_count = Volatile.Read(ref retryRequestCount),
+                exception_type = ex.GetType().Name,
+                cancellation_reason = retryDiagnostics.CancellationReason.ToString(),
+                failure_kind = kind.ToString()
+            });
+        }
+        catch (Exception ex)
+        {
+            var kind = ScreenshotTranslationFailureClassifier.Classify(
+                ex,
+                "translation",
+                token.IsCancellationRequested);
+            if (ReferenceEquals(_screenshotOverlayWindow, overlay))
+                overlay.MarkPartial(
+                    $"已显示 {overlay.CompletedCount}/{overlay.ExpectedCount} 个译文（{DescribeScreenshotFailure(kind)}）",
+                    canRetry: true);
+            Logger.Warn("Screenshot", "screenshot.retry_failed", new
+            {
+                session_id = sessionId,
+                attempt_id = retryDiagnostics.AttemptId,
+                request_count = Volatile.Read(ref retryRequestCount),
+                exception_type = ex.GetType().Name,
+                cancellation_reason = retryDiagnostics.CancellationReason.ToString(),
+                failure_kind = kind.ToString()
+            });
+        }
+        finally
+        {
+            overlay.Closed -= CancelRetry;
+            if (ReferenceEquals(_activeScreenshotDiagnostics, retryDiagnostics))
+                _activeScreenshotDiagnostics = null;
+            if (ReferenceEquals(_screenshotTranslationCts, retryCts))
+                _screenshotTranslationCts = null;
+        }
+
+        void CancelRetry(object? sender, EventArgs args)
+        {
+            RecordScreenshotCancellation(retryDiagnostics, ScreenshotTranslationCancellationReason.OverlayClosed);
+            retryUserCancellation.Cancel();
+            ScreenshotTranslationSessionState.TryRelease(
+                ref _screenshotTranslationCts,
+                retryCts);
+        }
+    }
+
+    private void RestoreScreenshotUi(ScreenshotUiState restoreState)
+    {
+        if (_isExiting)
+            return;
+        if (restoreState.FloatingWindowVisible)
+            _floatingWindow?.ShowExistingResult();
+        if (restoreState.QuickLookupWindowVisible && _quickLookupWindow is { } quickLookup)
+            quickLookup.Show();
     }
 
     /// <summary>
@@ -1786,7 +3027,8 @@ public partial class App : Application
         Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
         _selectionCts = null;
-        _selectionDetector!.IsRedDotVisible = false;
+        if (_selectionDetector is not null)
+            _selectionDetector.IsRedDotVisible = false;
         _redDotWindow?.Hide();
         _pendingSelection = null;
     }
@@ -1810,7 +3052,8 @@ public partial class App : Application
                 _settings!,
                 OnSettingsSaved,
                 OnFeedbackRequested,
-                OnLogsRequested);
+                OnLogsRequested,
+                _ocrModelManager);
             _settingsWindow.Closed += OnSettingsWindowClosed;
             _settingsWindow.Show();
         });
@@ -1883,6 +3126,8 @@ public partial class App : Application
         CancelActiveTranslationRequest();
         _translationCache.Clear();
         _settings = settings;
+        RefreshMangaSceneRoutingService(settings);
+        _ = ApplyScreenshotOcrSettingsAsync(settings, persistFallback: true);
         var refreshedCurrentProfile = settings.SavedConfigs
             .Select(ModelProfileCatalog.Create)
             .FirstOrDefault(profile =>
@@ -1920,10 +3165,45 @@ public partial class App : Application
         OnSelectionCancelled();
         ApplyHotKeyConfiguration(settings);
         ApplyQuickLookupHotKeyConfiguration(settings);
+        ApplyScreenshotHotKeyConfiguration(settings);
         _trayIcon?.SetPaused(TranslationTriggerModes.IsPaused(settings.TranslationTriggerMode));
 
         RefreshFloatingModelSelector();
         UpdateTrayToolTip();
+    }
+
+    private void RefreshMangaSceneRoutingService(AppSettings settings)
+    {
+        _mangaSceneRoutingService = null;
+        if (!settings.EnhancedScreenshotTranslationEnabled)
+        {
+            Logger.Info("Screenshot", "screenshot.manga_worker_disabled", new { });
+            return;
+        }
+
+        var runtime = MangaWorkerRuntimeResolver.Resolve(settings, AppContext.BaseDirectory);
+        if (runtime is null)
+        {
+            Logger.Warn("Screenshot", "screenshot.manga_worker_unavailable", new
+            {
+                reason = "worker_runtime_missing",
+                base_directory = AppContext.BaseDirectory
+            });
+            return;
+        }
+
+        _mangaSceneRoutingService = new MangaSceneRoutingService(
+            new MangaWorkerClient(runtime.PythonPath, runtime.ScriptPath),
+            settings.MangaOcrModelDirectory,
+            settings.MangaInpaintingModelDirectory);
+        Logger.Info("Screenshot", "screenshot.manga_worker_ready", new
+        {
+            bundled = runtime.IsBundled,
+            python = Path.GetFileName(runtime.PythonPath),
+            script = Path.GetFileName(runtime.ScriptPath),
+            has_japanese_model_directory = !string.IsNullOrWhiteSpace(settings.MangaOcrModelDirectory),
+            has_inpainting_model_directory = !string.IsNullOrWhiteSpace(settings.MangaInpaintingModelDirectory)
+        });
     }
 
     /// <summary>
@@ -2288,6 +3568,199 @@ public partial class App : Application
     /// <summary>
     /// 退出应用
     /// </summary>
+    private static async Task WarmUpScreenshotOcrAsync(IOcrService ocrService)
+    {
+        if (ocrService is not IOcrWarmupService warmup)
+            return;
+
+        try
+        {
+            await warmup.WarmUpAsync().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown cancellation is expected.
+        }
+        catch (Exception ex)
+        {
+            // Warmup is best effort and must never block WPF startup.
+            Logger.Warn("Screenshot", "screenshot.ocr_worker_warmup_unavailable", new
+            {
+                exception_type = ex.GetType().Name
+            });
+        }
+    }
+
+    private async Task ApplyScreenshotOcrSettingsAsync(AppSettings settings, bool persistFallback)
+    {
+        var requestedEngine = settings.ScreenshotOcrEngine;
+        var requestedModelId = settings.ScreenshotOcrModelId;
+        var switchCts = new CancellationTokenSource();
+        var previousSwitch = Interlocked.Exchange(ref _ocrEngineSwitchCts, switchCts);
+        previousSwitch?.Cancel();
+        var generation = Interlocked.Increment(ref _ocrEngineSwitchGeneration);
+        Logger.Info("Screenshot", "screenshot.ocr_engine_switch_started", new
+        {
+            session_id = _activeScreenshotDiagnostics?.SessionId,
+            attempt_id = _activeScreenshotDiagnostics?.AttemptId,
+            engine = requestedEngine,
+            model_id = OcrModelCatalog.Find(requestedModelId)?.Id,
+            switch_generation = generation,
+            active_ocr_generation = Volatile.Read(ref _activeOcrEngineGeneration)
+        });
+        var token = switchCts.Token;
+        var manager = _ocrModelManager;
+        var model = OcrModelCatalog.Find(requestedModelId);
+        RapidOcrWorkerService? candidate = null;
+        IDisposable? candidateUsage = null;
+        try
+        {
+            if (!string.Equals(requestedEngine, "rapidocr", StringComparison.OrdinalIgnoreCase))
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (IsCurrent())
+                    {
+                        ReplaceScreenshotOcrService(new WindowsMediaOcrService(), generation: generation);
+                        Logger.Info("Screenshot", "screenshot.ocr_engine_switched", new
+                        {
+                            engine = "windows",
+                            model_id = (string?)null,
+                            switch_generation = generation
+                        });
+                    }
+                });
+                return;
+            }
+
+            if (manager is null || model is null)
+                throw new OcrEngineUnavailableException("未找到所选 OCR 模型。");
+            candidateUsage = manager.AcquireUsage(model);
+            var directory = await manager.VerifyInstalledAsync(model, token).ConfigureAwait(false);
+            candidate = ScreenshotOcrServiceFactory.CreateRapidOcr(model, directory)
+                ?? throw new OcrEngineUnavailableException("本地 OCR 运行时尚未安装。");
+            await candidate.WarmUpAsync(token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            var readyCandidate = candidate;
+            var applied = false;
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (!IsCurrent())
+                    return;
+                ReplaceScreenshotOcrService(readyCandidate, candidateUsage, model.Id, generation);
+                applied = true;
+                candidate = null;
+                candidateUsage = null;
+                Logger.Info("Screenshot", "screenshot.ocr_engine_switched", new
+                {
+                    engine = "rapidocr",
+                    model_id = model.Id,
+                    switch_generation = generation
+                });
+            });
+            if (!applied)
+                throw new OperationCanceledException(token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested || !IsCurrent())
+        {
+            candidate?.Dispose();
+            candidateUsage?.Dispose();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            candidate?.Dispose();
+            candidateUsage?.Dispose();
+            Logger.Warn("Screenshot", "screenshot.ocr_engine_switch_failed", new
+            {
+                model_id = model?.Id,
+                exception_type = ex.GetType().Name
+            });
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (!IsCurrent())
+                    return;
+                ReplaceScreenshotOcrService(new WindowsMediaOcrService(), generation: generation);
+                if (ReferenceEquals(_settings, settings))
+                {
+                    settings.ScreenshotOcrEngine = "windows";
+                    if (persistFallback)
+                        ConfigManager.Save(settings);
+                }
+                _trayIcon?.ShowBalloonTip(
+                    "截图 OCR 已回退",
+                    "本地模型未能启动，已继续使用 Windows OCR。",
+                System.Windows.Forms.ToolTipIcon.Warning);
+            });
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _ocrEngineSwitchCts, null, switchCts);
+            switchCts.Dispose();
+        }
+
+        bool IsCurrent() =>
+            !switchCts.IsCancellationRequested &&
+            Volatile.Read(ref _ocrEngineSwitchGeneration) == generation &&
+            ReferenceEquals(Volatile.Read(ref _ocrEngineSwitchCts), switchCts) &&
+            !_isExiting;
+    }
+
+    private void ReplaceScreenshotOcrService(
+        IOcrService service,
+        IDisposable? modelUsage = null,
+        string? activeModelId = null,
+        long generation = 0)
+    {
+        if (ReferenceEquals(_screenshotOcrService, service))
+        {
+            Volatile.Write(ref _activeOcrEngineGeneration, generation);
+            modelUsage?.Dispose();
+            return;
+        }
+        CancelActiveScreenshotTranslation();
+        var previous = _screenshotOcrService;
+        var previousUsage = _ocrModelUsage;
+        _screenshotOcrService = service;
+        Volatile.Write(ref _activeOcrEngineGeneration, generation);
+        _ocrModelUsage = modelUsage;
+        _ocrModelManager?.SetActiveModel(activeModelId);
+        _screenshotTranslationCoordinator = new ScreenshotTranslationCoordinator(service);
+        if (previous is IDisposable disposable)
+            disposable.Dispose();
+        previousUsage?.Dispose();
+    }
+
+    private void RecordScreenshotCancellation(
+        ScreenshotTranslationDiagnostics diagnostics,
+        ScreenshotTranslationCancellationReason reason)
+    {
+        if (!diagnostics.TryRecordCancellation(reason))
+            return;
+        Logger.Info("Screenshot", "screenshot.session_cancelled", new
+        {
+            session_id = diagnostics.SessionId,
+            attempt_id = diagnostics.AttemptId,
+            cancellation_reason = reason.ToString(),
+            requested_ocr_generation = Volatile.Read(ref _ocrEngineSwitchGeneration),
+            active_ocr_generation = Volatile.Read(ref _activeOcrEngineGeneration)
+        });
+    }
+
+    private void CancelActiveScreenshotTranslation(
+        ScreenshotTranslationCancellationReason reason = ScreenshotTranslationCancellationReason.OcrEngineSwitch)
+    {
+        var active = _screenshotTranslationCts;
+        _screenshotTranslationCts = null;
+        if (active is not null && !active.IsCancellationRequested && _activeScreenshotDiagnostics is { } diagnostics)
+            RecordScreenshotCancellation(diagnostics, reason);
+        active?.Cancel();
+        if (_screenshotProgressWindow is { } progress)
+        {
+            _screenshotProgressWindow = null;
+            progress.Close();
+        }
+    }
+
     private void OnExitRequested()
     {
         var dispatcherAccess = Dispatcher.CheckAccess();
@@ -2362,6 +3835,30 @@ public partial class App : Application
         });
     }
 
+    private void ApplyScreenshotHotKeyConfiguration(AppSettings settings)
+    {
+        if (_screenshotHook is not { } hook)
+            return;
+        hook.Stop();
+        hook.HotKey = settings.ScreenshotHotKeyVK;
+        hook.RequireAlt = settings.ScreenshotHotKeyRequireAlt;
+        hook.RequireCtrl = settings.ScreenshotHotKeyRequireCtrl;
+        hook.RequireShift = settings.ScreenshotHotKeyRequireShift;
+        if (!settings.ScreenshotHotKeyEnabled || _isExiting)
+            return;
+        var conflict = SettingsWindow.GetScreenshotHotKeyConflict(
+            settings, hook.HotKey, hook.RequireAlt, hook.RequireCtrl, hook.RequireShift,
+            settings.QuickLookupHotKeyEnabled, settings.TranslationTriggerMode);
+        if (conflict is not null)
+        {
+            Dispatcher.BeginInvoke(new Action(() => _trayIcon?.ShowBalloonTip(
+                "截图快捷键未启用", $"与{conflict}冲突，请在设置中修改。",
+                System.Windows.Forms.ToolTipIcon.Warning)));
+            return;
+        }
+        hook.Start();
+    }
+
     /// <summary>
     /// 保存翻译历史记录
     /// </summary>
@@ -2416,10 +3913,21 @@ public partial class App : Application
         CancelActiveTranslationRequest();
         _lookupSessions.CancelCurrent();
         _lookupDeactivationTimer.Stop();
+        _screenshotWindow?.CancelSelection();
+        _screenshotWindow = null;
+        CancelActiveScreenshotTranslation(ScreenshotTranslationCancellationReason.ApplicationExit);
+        _ocrEngineSwitchCts?.Cancel();
+        _ocrEngineSwitchCts?.Dispose();
+        _ocrEngineSwitchCts = null;
+        _screenshotOverlayWindow?.Close();
+        _screenshotOverlayWindow = null;
+        _screenshotProgressWindow?.Close();
+        _screenshotProgressWindow = null;
         Interlocked.Increment(ref _selectionGeneration);
         _selectionCts?.Cancel();
         _selectionCts?.Dispose();
         _selectionCts = null;
+        ClipboardHelper.Dispose();
         // 停止看门狗
         _watchdogTimer?.Dispose();
 
@@ -2487,7 +3995,17 @@ public partial class App : Application
         }
         _keyboardHook?.Dispose();
         _quickLookupHook?.Dispose();
+        _screenshotHook?.Dispose();
         _selectionDetector?.Dispose();
+        if (_screenshotOcrService is IDisposable screenshotOcrDisposable)
+            screenshotOcrDisposable.Dispose();
+        _ocrModelUsage?.Dispose();
+        _ocrModelUsage = null;
+        _ocrModelManager?.SetActiveModel(null);
+        _ocrModelManager?.Dispose();
+        _ocrModelManager = null;
+        _screenshotOcrService = null;
+        _screenshotTranslationCoordinator = null;
         _translationService?.Dispose();
         _dbContext?.Dispose();
 

@@ -14,7 +14,7 @@ namespace QuickTranslate.Core
     /// - 静态信号量防并发（全局同一时刻只有一个剪贴板操作）
     /// - 零污染检测：通过 GetClipboardSequenceNumber 检测 Ctrl+C 是否生效，不写任何内容到剪贴板
     /// - 快速失败：100ms 内序列号未变 → 无选中文本，立即退出
-    /// - 剪贴板恢复增强：5 次重试 x 100ms，最大确保原始内容恢复
+    /// - 剪贴板恢复：取词完成后后台 best-effort 执行，不阻塞翻译窗口显示
     /// 注意：UIA TextPattern.GetText 已移除 —— 该 COM 调用在部分应用中触发
     /// AccessViolationException(0xc0000005) 导致进程不可恢复崩溃。
     /// </summary>
@@ -25,6 +25,7 @@ namespace QuickTranslate.Core
 
         // ★ 全局剪贴板互斥锁：防止并发操作互相锁死剪贴板
         private static readonly SemaphoreSlim _clipboardLock = new(1, 1);
+        private static readonly Lazy<ClipboardRestoreCoordinator> _restoreCoordinator = new();
 
         /// <summary>
         /// 获取当前选中的文本。请求必须先通过终端复制策略审查。
@@ -89,6 +90,7 @@ namespace QuickTranslate.Core
                 string? originalText = null;
                 string? result = null;
                 uint copiedSequence = 0;
+                var restoreQueued = false;
                 try
                 {
                     // 0. “选中即复制”快速路径：终端应用的选区复制发生在鼠标抬起时
@@ -108,7 +110,18 @@ namespace QuickTranslate.Core
                     }
 
                     // 1. 保存当前剪贴板内容（用于最后恢复）
-                    if (Clipboard.ContainsText())
+                    var currentSequence = Win32Api.GetClipboardSequenceNumber();
+                    if (_restoreCoordinator.IsValueCreated &&
+                        _restoreCoordinator.Value.TryGetPendingOriginalText(
+                            currentSequence,
+                            out var pendingOriginalText))
+                    {
+                        // A previous capture may still own the clipboard while
+                        // its restore is pending. Reuse its saved user text
+                        // instead of treating the previous selection as original.
+                        originalText = pendingOriginalText;
+                    }
+                    else if (Clipboard.ContainsText())
                     {
                         originalText = Clipboard.GetText();
                         // 如果原内容本身就是旧版哨兵格式（历史残留），不保存
@@ -204,34 +217,24 @@ namespace QuickTranslate.Core
                         }
                     }
 
-                    // 6. 恢复原始剪贴板内容（Ctrl+C 成功时才需要恢复）
-                    //    即使恢复失败，选中文本留在剪贴板也比丢失原始内容好
-                    //    （用户至少可以手动 Ctrl+Z 或重新复制）
-                    if (result != null && request.RestoreClipboard && originalText != null)
+                    // Restore asynchronously. The original clipboard is only
+                    // restored while the sequence still belongs to this copy;
+                    // user changes always take precedence over our best effort.
+                    if (result != null &&
+                        ClipboardRestoreCoordinator.ShouldQueue(
+                            originalText,
+                            copiedSequence,
+                            request.RestoreClipboard))
                     {
-                        if (Win32Api.GetClipboardSequenceNumber() != copiedSequence)
+                        restoreQueued = _restoreCoordinator.Value.TryEnqueue(originalText!, copiedSequence);
+                        if (!restoreQueued)
                         {
-                            Logger.Debug("ClipboardHelper", "[Clipboard] Clipboard changed after copy; skip restore");
-                        }
-                        else
-                        {
-                            bool restored = false;
-                            for (int attempt = 0; attempt < 5; attempt++)
+                            Logger.Debug("ClipboardHelper", "clipboard.restore_enqueue_skipped", new
                             {
-                                try
-                                {
-                                    Clipboard.SetText(originalText);
-                                    restored = true;
-                                    break;
-                                }
-                                catch
-                                {
-                                    if (attempt < 4) Thread.Sleep(100);
-                                }
-                            }
-                            if (!restored)
-                                Logger.Warn("ClipboardHelper", "[Clipboard] Original clipboard restore failed after 5 attempts");
+                                copied_sequence = copiedSequence
+                            });
                         }
+                        originalText = null;
                     }
                 }
                 catch (Exception ex)
@@ -242,6 +245,13 @@ namespace QuickTranslate.Core
                 {
                     var finalMs = (DateTime.UtcNow - opStart).TotalMilliseconds;
                     Logger.Debug("ClipboardHelper", $"[剪贴板] 操作结束: 获取结果={(result != null ? $"成功(长度{result.Length})" : "失败")}, 总耗时 {finalMs:F0}ms");
+                    Logger.Info("ClipboardHelper", "clipboard.capture_completed", new
+                    {
+                        succeeded = result != null,
+                        text_len = result?.Length ?? 0,
+                        duration_ms = finalMs,
+                        restore_queued = restoreQueued
+                    });
                     tcs.SetResult(result);
                 }
             });
@@ -252,6 +262,16 @@ namespace QuickTranslate.Core
             staThread.Start();
 
             return await tcs.Task;
+        }
+
+        /// <summary>
+        /// Stops the best-effort restore worker without making shutdown depend on
+        /// a potentially stuck native clipboard provider.
+        /// </summary>
+        public static void Dispose()
+        {
+            if (_restoreCoordinator.IsValueCreated)
+                _restoreCoordinator.Value.Dispose();
         }
 
         private static bool IsExpectedWindow(CopyRequest request) =>

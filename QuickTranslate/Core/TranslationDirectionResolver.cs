@@ -36,6 +36,14 @@ internal static partial class TranslationDirectionResolver
                 TranslationDirectionReason.UserSelectedTarget);
         }
 
+        if (preference == TranslationDirectionPreference.FixedRequestedTarget)
+        {
+            return CreateManual(
+                requestedTargetLanguage,
+                requestedTargetLanguage,
+                TranslationDirectionReason.ScreenshotFixedTarget);
+        }
+
         if (preference == TranslationDirectionPreference.FallbackTarget)
         {
             return CreateManual(

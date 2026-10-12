@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="QuickTranslate 设置" Height="700" Width="520"
+        Title="QuickTranslate 设置" Height="780" Width="520"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanMinimize"
         Background="#16191F"
@@ -360,6 +360,34 @@
 
                 <Border Style="{StaticResource SectionBorder}" Margin="0,0,0,12">
                     <StackPanel>
+                        <TextBlock Text="截图 OCR" Style="{StaticResource SectionTitle}" Margin="0,0,0,4"/>
+                        <TextBlock Text="清晰区域推荐 Windows OCR；本地 OCR 可选。" Style="{StaticResource HintStyle}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="识别引擎" Style="{StaticResource LabelStyle}"/>
+                            <ComboBox x:Name="ScreenshotOcrEngineComboBox" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource DarkComboBox}" SelectionChanged="ScreenshotOcrEngineComboBox_SelectionChanged"/>
+                            <TextBlock Grid.Row="1" Text="本地模型" Style="{StaticResource LabelStyle}"/>
+                            <ComboBox x:Name="ScreenshotOcrModelComboBox" Grid.Row="1" Grid.Column="1" Style="{StaticResource DarkComboBox}" DisplayMemberPath="DisplayName" SelectionChanged="ScreenshotOcrModelComboBox_SelectionChanged"/>
+                            <Button x:Name="DownloadScreenshotOcrButton" Grid.Row="1" Grid.Column="2" Content="下载" Style="{StaticResource SecondaryButton}" Padding="10,6" Margin="8,2,0,2" Click="DownloadScreenshotOcrButton_Click" ToolTip="下载本地 OCR 模型"/>
+                            <TextBlock x:Name="ScreenshotOcrModelDescriptionText" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource HintStyle}" TextWrapping="Wrap" Margin="0,2,0,4"/>
+                            <TextBlock Grid.Row="3" Text="模型状态" Style="{StaticResource LabelStyle}"/>
+                            <StackPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2">
+                                <TextBlock x:Name="ScreenshotOcrStatusText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap"/>
+                                <ProgressBar x:Name="ScreenshotOcrProgressBar" Height="5" Margin="0,7,0,0" Minimum="0" Maximum="100" Visibility="Collapsed" Foreground="{StaticResource PrimaryBrush}" Background="#343D49"/>
+                                <TextBlock x:Name="ScreenshotOcrProgressText" Style="{StaticResource HintStyle}" Margin="0,4,0,0" Visibility="Collapsed"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,4,0,0">
+                                <Button x:Name="EnableScreenshotOcrButton" Content="启用并保存" Style="{StaticResource PrimaryButton}" Padding="10,6" Click="EnableScreenshotOcrButton_Click" ToolTip="启用本地 OCR"/>
+                                <Button x:Name="CancelScreenshotOcrButton" Content="取消下载" Style="{StaticResource SecondaryButton}" Padding="10,6" Margin="8,0,0,0" Visibility="Collapsed" Click="CancelScreenshotOcrButton_Click"/>
+                                <Button x:Name="DeleteScreenshotOcrButton" Content="删除模型" Style="{StaticResource DangerButton}" Padding="10,6" Margin="8,0,0,0" Click="DeleteScreenshotOcrButton_Click" ToolTip="删除本地模型文件"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource SectionBorder}" Margin="0,0,0,12">
+                    <StackPanel>
                         <TextBlock Text="翻译设置" Style="{StaticResource SectionTitle}" Margin="0,0,0,14"/>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -442,7 +470,7 @@
 
                 <Border Style="{StaticResource SectionBorder}" Margin="0,0,0,12">
                     <StackPanel><TextBlock Text="系统与快捷键" Style="{StaticResource SectionTitle}" Margin="0,0,0,14"/>
-                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="116"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="116"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="开机启动" Style="{StaticResource LabelStyle}"/><CheckBox x:Name="AutoStartCheckBox" Grid.Row="0" Grid.Column="1" Style="{StaticResource DarkCheckBox}" Content="随 Windows 启动 QuickTranslate" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
                             <TextBlock Grid.Row="1" Text="划词翻译快捷键" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,2,12,0"/>
                             <StackPanel Grid.Row="1" Grid.Column="1">
@@ -455,8 +483,18 @@
                                 <StackPanel Orientation="Horizontal"><TextBlock x:Name="QuickLookupHotKeyDisplayText" Foreground="{StaticResource TextBrush}" FontSize="13" VerticalAlignment="Center" Text="Alt+W"/><Button x:Name="ChangeQuickLookupHotKeyButton" Style="{StaticResource SecondaryButton}" Content="修改" Padding="10,6" Margin="12,0,0,0" Click="ChangeQuickLookupHotKeyButton_Click"/><TextBlock x:Name="QuickLookupHotKeyCaptureHint" Foreground="#F0B35A" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" Visibility="Collapsed" Text="请按下新的快捷键组合"/></StackPanel>
                                 <TextBlock Foreground="{StaticResource HintTextBrush}" FontSize="11" Margin="0,4,0,0" Text="按下快捷键直接唤出快速查词窗口（不依赖托盘图标）"/>
                             </StackPanel>
-                            <TextBlock Grid.Row="3" Text="检查更新" Style="{StaticResource LabelStyle}"/><StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal"><Button x:Name="CheckUpdateButton" Style="{StaticResource SecondaryButton}" Content="立即检查" Padding="10,6" Click="CheckUpdateButton_Click"/><TextBlock x:Name="UpdateStatusText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"/></StackPanel>
-                            <TextBlock Grid.Row="4" Text="自动检查" Style="{StaticResource LabelStyle}"/><CheckBox x:Name="CheckUpdateOnStartupCheckBox" Grid.Row="4" Grid.Column="1" Style="{StaticResource DarkCheckBox}" Content="启动时自动检查更新" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                            <TextBlock Grid.Row="3" Text="截图翻译快捷键" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,2,12,0"/>
+                            <StackPanel Grid.Row="3" Grid.Column="1">
+                                <CheckBox x:Name="ScreenshotHotKeyEnabledCheckBox" Style="{StaticResource DarkCheckBox}" Content="启用截图翻译全局快捷键" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="ScreenshotHotKeyDisplayText" Foreground="{StaticResource TextBrush}" FontSize="13" VerticalAlignment="Center" Text="Alt+S"/>
+                                    <Button x:Name="ChangeScreenshotHotKeyButton" Grid.Column="1" Style="{StaticResource SecondaryButton}" Content="修改" Padding="10,6" Margin="12,0,0,0" Click="ChangeScreenshotHotKeyButton_Click"/>
+                                    <TextBlock x:Name="ScreenshotHotKeyCaptureHint" Grid.Column="2" Foreground="#F0B35A" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" Visibility="Collapsed" TextWrapping="Wrap" Text="请按下新的快捷键组合"/>
+                                </Grid>
+                            </StackPanel>
+                            <TextBlock Grid.Row="4" Text="检查更新" Style="{StaticResource LabelStyle}"/><StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal"><Button x:Name="CheckUpdateButton" Style="{StaticResource SecondaryButton}" Content="立即检查" Padding="10,6" Click="CheckUpdateButton_Click"/><TextBlock x:Name="UpdateStatusText" Foreground="{StaticResource MutedTextBrush}" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"/></StackPanel>
+                            <TextBlock Grid.Row="5" Text="自动检查" Style="{StaticResource LabelStyle}"/><CheckBox x:Name="CheckUpdateOnStartupCheckBox" Grid.Row="5" Grid.Column="1" Style="{StaticResource DarkCheckBox}" Content="启动时自动检查更新" Checked="Setting_Changed" Unchecked="Setting_Changed"/>
                         </Grid>
                     </StackPanel>
                 </Border>

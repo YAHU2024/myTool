@@ -56,6 +56,14 @@ QuickTranslate 是一款贴着阅读场景工作的 Windows AI 工具。选中�
 
 选中文本自动弹出红点引导，根据内容进入翻译、代码或术语模式，**流式输出 AI 结果**；支持拖拽、双击和三击触发。翻译模式会保守判断方向，也可在状态栏一键切换目标语言；悬浮窗的翻译、代码、术语和解析模式都支持为当前文本临时换用已保存模型，不会修改全局默认配置。
 
+### 截图翻译 · 清晰区域 OCR 覆盖
+
+从托盘菜单选择“截图翻译”或按 `Alt+S`（默认启用，可在设置中修改或关闭），框选同一显示器内的网页、IDE、文档段落或其他清晰文字区域后，程序在本地识别文字并调用当前翻译模型，将译文覆盖回原截图位置。框选时按 `Esc` 或鼠标右键取消，翻译完成后按 `Esc` 或单击覆盖层关闭并恢复原画面；截图、OCR 文本和译文默认只保存在当前内存，不写入历史或日志。复杂整页图片、密集论文版面和背景复杂的漫画不属于正式支持范围，请缩小到单个清晰区域后再翻译。
+
+支持结构化流式输出的模型会在每个 `UnitId` 译文完整到达后立即显示对应区域，已显示卡片的位置保持稳定；流中断时保留已完成结果并明确标记部分完成，不伪造未返回的译文。模型不支持该格式或响应无法安全映射时，自动回退到一次批量请求，再按既有边界回退逐单元请求。
+
+Windows OCR 始终可用；也可以在设置页主动下载并切换已适配的 RapidOCR/ONNX 本地场景 OCR，用于清晰的网页、IDE 和文档区域。应用不会在启动或截图时自动联网下载模型。URL、代码、路径和已经使用目标语言的文本会保留原样，不会发送给翻译 Provider。复杂图片增强、漫画背景擦除和整页自动排版已冻结为内部研究资产。
+
 ---
 
 ### 解析追问 · 围绕结果继续理解
@@ -116,6 +124,7 @@ SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支
   - [三种 AI 体验，一个开放入口](#三种-ai-体验一个开放入口)
   - [功能展示](#功能展示)
     - [AI 划词翻译 · 红点引导](#ai-划词翻译--红点引导)
+    - [截图翻译 · 清晰区域 OCR 覆盖](#截图翻译--清晰区域-ocr-覆盖)
     - [解析追问 · 围绕结果继续理解](#解析追问--围绕结果继续理解)
     - [设置窗口 · 多模型与快捷键管理](#设置窗口--多模型与快捷键管理)
     - [AI 查词 · 本地词典打底，云端模型补全](#ai-查词--本地词典打底云端模型补全)
@@ -151,7 +160,7 @@ SQLite 本地持久化存储，按时间/语言搜索筛选，分页浏览，支
 | Markdown | 流式增量渲染 · 围栏闭合后语法高亮与独立复制 · 表格/列表/引用 · 仅允许 http/https 链接 |
 | 语音朗读 | Edge TTS 在线合成 · 选中文本朗读 · 翻译结果一键朗读 · 自动语种匹配 |
 | 翻译历史 | SQLite 本地持久化 · 按时间/语言搜索筛选 · 分页浏览 · 双击复制 · Anki 格式导出 |
-| 系统集成 | 两套独立全局快捷键（划词翻译 / 快速查词）· 查词快捷键带开关默认关闭 · 托盘单击快速查词 · 右键恢复最近翻译 · 开机自启 · 浏览器内触发 · 单实例保护 |
+| 系统集成 | 三套独立全局快捷键（划词翻译 / 快速查词 / 截图翻译）· 查词快捷键默认关闭 · 截图快捷键 Alt+S 默认开启 · 托盘单击快速查词 · 右键恢复最近翻译 · 开机自启 · 浏览器内触发 · 单实例保护 |
 | 深度解析 | 4 种内置预设（通用/语言学习/文学赏析/商务） · 自定义方案新建/复制/编辑/删除 · 多轮方案管理 |
 | 模型接入 | 内置四家供应商预置 · 自定义 OpenAI 兼容 Base URL 与 Model · 已保存配置支持备注与分组 · 悬浮窗临时切换当前会话模型 · 三态思考控制 · 按供应商能力发送思考参数 |
 | 性能优化 | LRU+TTL 语义缓存 · latest-request-wins 请求冲突防护 · 请求快照隔离 · 设置修改不影响运行中请求 |
@@ -244,121 +253,162 @@ dotnet run
 ```text
 QuickTranslate/
 ├── Core/                  # 核心引擎
-│   ├── GlobalKeyboardHook.cs                # 全局键盘钩子（独立消息循环）
-│   ├── SelectionDetector.cs                 # 鼠标钩子选词检测（拖拽/双击/三击）
-│   ├── SelectionLocator.cs                  # UIA 像素级选区定位
-│   ├── ClipboardHelper.cs                   # 零污染剪贴板（序列号检测+恢复）
-│   ├── ContentTypeDetector.cs               # 智能内容识别（Translation/Code/Term）
-│   ├── BrowserDetector.cs                   # 浏览器窗口感知
-│   ├── TerminalDetector.cs                  # 终端宿主识别与复制风险判断
-│   ├── SelectionCapturePolicy.cs            # 选区复制动作安全策略
-│   ├── RecentSelectionCopyEvaluator.cs      # 选中即复制判定（OSC52/copyOnSelection）
-│   ├── UiaCircuitBreaker.cs                 # UIA 失败熔断与恢复
-│   ├── CopyShortcut.cs                      # 复制快捷键辅助
-│   ├── AnalysisConversationFormatter.cs     # 解析追问对话上下文格式化
-│   ├── AutoScrollController.cs              # 流式自动滚动（用户操作暂停/恢复）
-│   ├── LatestRequestCoordinator.cs          # latest-request-wins 请求协调
-│   ├── LatestPresentationCoordinator.cs     # 展示身份协调
-│   ├── FloatingResultSessionCoordinator.cs  # 多模式会话统一管理
-│   ├── TranslationDirectionResolver.cs      # 自动/手动翻译方向决策
-│   ├── TranslationRouteResolver.cs          # 翻译与解释模式路由
-│   ├── ModelProfileCatalog.cs               # 当前会话可用模型方案目录
-│   ├── ModelSelectionCoordinator.cs         # 会话级模型切换协调
-│   ├── TrayClickCoordinator.cs              # 托盘点击协调（左键/右键/滚轮动作）
-│   ├── WordLookupSessionCoordinator.cs      # 查词会话防竞态管理
-│   ├── WordLookupTextFormatter.cs           # 查词结果格式化
-│   ├── RecentLookupBuffer.cs                # 最近查词缓冲区
-│   ├── ReasoningSummaryAccumulator.cs       # 思考摘要累积（上限截断）
-│   ├── StreamingCompositionMetrics.cs       # 流式组合指标
-│   ├── StreamingDispatcherMetrics.cs        # 流式分发指标
-│   ├── StreamingPresentationPump.cs         # 流式展示帧泵（帧合并/发布）
-│   ├── StreamingRuntimeMetrics.cs           # 流式运行指标
-│   └── TtsPlaybackCoordinator.cs            # TTS 播放协调（多所有者、忙避让）
+│   ├── GlobalKeyboardHook.cs                           # 全局键盘钩子（独立消息循环）
+│   ├── SelectionDetector.cs                            # 鼠标钩子选词检测（拖拽/双击/三击）
+│   ├── SelectionLocator.cs                             # UIA 像素级选区定位
+│   ├── ClipboardHelper.cs                              # 零污染剪贴板（序列号检测+恢复）
+│   ├── ClipboardRestoreCoordinator.cs                  # 后台剪贴板恢复队列
+│   ├── ContentTypeDetector.cs                          # 智能内容识别（Translation/Code/Term）
+│   ├── BrowserDetector.cs                              # 浏览器窗口感知
+│   ├── TerminalDetector.cs                             # 终端宿主识别与复制风险判断
+│   ├── SelectionCapturePolicy.cs                       # 选区复制动作安全策略
+│   ├── RecentSelectionCopyEvaluator.cs                 # 选中即复制判定（OSC52/copyOnSelection）
+│   ├── UiaCircuitBreaker.cs                            # UIA 失败熔断与恢复
+│   ├── CopyShortcut.cs                                 # 复制快捷键辅助
+│   ├── AnalysisConversationFormatter.cs                # 解析追问对话上下文格式化
+│   ├── AutoScrollController.cs                         # 流式自动滚动（用户操作暂停/恢复）
+│   ├── LatestRequestCoordinator.cs                     # latest-request-wins 请求协调
+│   ├── LatestPresentationCoordinator.cs                # 展示身份协调
+│   ├── FloatingResultSessionCoordinator.cs             # 多模式会话统一管理
+│   ├── TranslationDirectionResolver.cs                 # 自动/手动翻译方向决策
+│   ├── TranslationRouteResolver.cs                     # 翻译与解释模式路由
+│   ├── ModelProfileCatalog.cs                          # 当前会话可用模型方案目录
+│   ├── ModelSelectionCoordinator.cs                    # 会话级模型切换协调
+│   ├── TrayClickCoordinator.cs                         # 托盘点击协调（左键/右键/滚轮动作）
+│   ├── WordLookupSessionCoordinator.cs                 # 查词会话防竞态管理
+│   ├── WordLookupTextFormatter.cs                      # 查词结果格式化
+│   ├── RecentLookupBuffer.cs                           # 最近查词缓冲区
+│   ├── ReasoningSummaryAccumulator.cs                  # 思考摘要累积（上限截断）
+│   ├── StreamingCompositionMetrics.cs                  # 流式组合指标
+│   ├── StreamingDispatcherMetrics.cs                   # 流式分发指标
+│   ├── StreamingPresentationPump.cs                    # 流式展示帧泵（帧合并/发布）
+│   ├── StreamingRuntimeMetrics.cs                      # 流式运行指标
+│   ├── TtsPlaybackCoordinator.cs                       # TTS 播放协调（多所有者、忙避让）
+│   ├── OcrBlockValidator.cs                            # OCR 文本块与资源边界校验
+│   ├── OcrBlockAggregator.cs                           # OCR 行块确定性聚合
+│   ├── OcrLanguageSelector.cs                          # OCR 语言选择与降级
+│   ├── OcrTextNormalizer.cs                            # OCR 文本规范化
+│   ├── OcrReadingOrderSorter.cs                        # OCR 阅读顺序排序
+│   ├── ScreenshotTranslationEligibility.cs             # 截图翻译资格判定
+│   ├── ScreenshotTranslationSessionState.cs            # 截图翻译会话生命周期状态
+│   ├── ScreenshotTranslationCoordinator.cs             # 截图翻译 OCR 到译文协调
+│   ├── ScreenshotTranslationTiming.cs                  # 截图翻译分段耗时与计数
+│   ├── ScreenshotTranslationDiagnostics.cs             # 截图翻译隐私安全诊断统计
+│   ├── ScreenshotTranslationCancellationReason.cs      # 截图翻译取消来源
+│   ├── ScreenshotSelection.cs                          # 截图框选物理矩形与资源门禁
+│   └── OverlayLayoutEngine.cs                          # 截图译文覆盖层确定性布局引擎
 ├── Database/              # 持久化层
-│   ├── TranslationRecord.cs                 # 翻译历史模型
-│   └── TranslationDbContext.cs              # EF Core SQLite 上下文
+│   ├── TranslationRecord.cs                            # 翻译历史模型
+│   └── TranslationDbContext.cs                         # EF Core SQLite 上下文
 ├── Services/              # 业务服务
-│   ├── ITranslationService.cs               # 翻译服务接口
-│   ├── TranslationStreamEvent.cs            # 流式事件类型（开始/内容增量/推理增量/完成）
-│   ├── OpenAITranslationService.cs          # OpenAI 兼容 SSE 流式翻译
-│   ├── ProviderKind.cs                      # 官方 API Host 与供应商类型解析
-│   ├── ProviderModelCapabilities.cs         # 公共模型能力描述
-│   ├── ProviderRequestPolicy.cs             # 供应商请求参数策略
-│   ├── ProviderHttpError.cs                 # 安全的供应商 HTTP 错误提取
-│   ├── TranslationPromptBuilder.cs          # 翻译任务与输入保护 Prompt
-│   ├── TranslationEchoDetector.cs           # 原文回显质量检测
-│   ├── BigModelModelCapabilities.cs         # 智谱模型思考能力
-│   ├── DeepSeekModelCapabilities.cs         # DeepSeek 模型思考能力
-│   ├── SiliconFlowModelCapabilities.cs      # SiliconFlow 模型思考能力
-│   ├── OpenAIModelCapabilities.cs           # OpenAI 模型推理能力
-│   ├── PromptInputContract.cs               # 模型输入安全与长度契约
-│   ├── TranslationCacheService.cs           # 语义缓存（LRU + 30min TTL）
-│   ├── TranslationMetrics.cs                # 指标统计（P50/P95/P99）
-│   ├── HistoryExporter.cs                   # 翻译历史导出（Anki/CSV）
-│   ├── AnalysisPromptCatalog.cs             # 内置/自定义解析方案目录
-│   ├── UpdateService.cs                     # 自动更新（GitHub Release + AutoUpdater.NET）
-│   ├── FeedbackContentBuilder.cs            # 公开反馈字段构建与敏感内容检查
-│   ├── FeedbackLinkService.cs               # 固定 GitHub Issue Form 链接
-│   ├── CrashRecoveryTracker.cs              # 异常退出状态与恢复提示跟踪
-│   ├── ITtsService.cs                       # TTS 服务接口
-│   ├── EdgeTtsService.cs                    # Edge TTS 朗读服务
-│   ├── EdgeTtsClient.cs                     # Edge TTS WebSocket 客户端
-│   ├── TtsTextSelector.cs                   # TTS 文本选择器
-│   ├── TtsSpeakException.cs                 # TTS 异常类
-│   ├── IWordLookupService.cs                # 查词服务接口
-│   ├── IWordLookupEnrichmentService.cs      # AI 查词增强接口
-│   ├── OpenAIWordLookupService.cs           # OpenAI 兼容查词服务
-│   ├── LocalDictionaryWordLookupService.cs  # ECDICT + OEWN 本地查词
-│   ├── CompositeWordLookupService.cs        # 本地词典优先，AI 兜底
-│   ├── WordLookupPromptBuilder.cs           # 查词 Prompt 构建器
-│   └── WordPartOfSpeechNormalizer.cs        # 词性标签标准化
+│   ├── ITranslationService.cs                          # 翻译服务接口
+│   ├── TranslationStreamEvent.cs                       # 流式事件类型（开始/内容增量/推理增量/完成）
+│   ├── OpenAITranslationService.cs                     # OpenAI 兼容 SSE 流式翻译
+│   ├── ProviderKind.cs                                 # 官方 API Host 与供应商类型解析
+│   ├── ProviderModelCapabilities.cs                    # 公共模型能力描述
+│   ├── ProviderRequestPolicy.cs                        # 供应商请求参数策略
+│   ├── ProviderHttpError.cs                            # 安全的供应商 HTTP 错误提取
+│   ├── TranslationPromptBuilder.cs                     # 翻译任务与输入保护 Prompt
+│   ├── TranslationEchoDetector.cs                      # 原文回显质量检测
+│   ├── BigModelModelCapabilities.cs                    # 智谱模型思考能力
+│   ├── DeepSeekModelCapabilities.cs                    # DeepSeek 模型思考能力
+│   ├── SiliconFlowModelCapabilities.cs                 # SiliconFlow 模型思考能力
+│   ├── OpenAIModelCapabilities.cs                      # OpenAI 模型推理能力
+│   ├── PromptInputContract.cs                          # 模型输入安全与长度契约
+│   ├── TranslationCacheService.cs                      # 语义缓存（LRU + 30min TTL）
+│   ├── TranslationMetrics.cs                           # 指标统计（P50/P95/P99）
+│   ├── HistoryExporter.cs                              # 翻译历史导出（Anki/CSV）
+│   ├── AnalysisPromptCatalog.cs                        # 内置/自定义解析方案目录
+│   ├── UpdateService.cs                                # 自动更新（GitHub Release + AutoUpdater.NET）
+│   ├── FeedbackContentBuilder.cs                       # 公开反馈字段构建与敏感内容检查
+│   ├── FeedbackLinkService.cs                          # 固定 GitHub Issue Form 链接
+│   ├── CrashRecoveryTracker.cs                         # 异常退出状态与恢复提示跟踪
+│   ├── ITtsService.cs                                  # TTS 服务接口
+│   ├── EdgeTtsService.cs                               # Edge TTS 朗读服务
+│   ├── EdgeTtsClient.cs                                # Edge TTS WebSocket 客户端
+│   ├── TtsTextSelector.cs                              # TTS 文本选择器
+│   ├── TtsSpeakException.cs                            # TTS 异常类
+│   ├── IOcrService.cs                                  # OCR 引擎无关接口
+│   ├── ScreenshotTranslationMapping.cs                 # 截图翻译 UnitId 映射
+│   ├── IScreenshotBatchTranslationService.cs           # 截图结构化批量翻译接口
+│   ├── IScreenshotBatchStreamingTranslationService.cs  # 截图单元完成级流式翻译接口
+│   ├── ScreenshotTranslationStreamParser.cs            # 截图结构化流式响应解析与 ID 校验
+│   ├── ScreenshotTranslationFailure.cs                 # 截图翻译失败分类与超时契约
+│   ├── IScreenshotCaptureService.cs                    # 截图捕获接口
+│   ├── GdiScreenshotCaptureService.cs                  # GDI 物理像素截图捕获
+│   ├── WindowsMediaOcrService.cs                       # Windows 内置 OCR 适配器
+│   ├── RapidOcrWorkerService.cs                        # 隔离 RapidOCR/ONNX Worker 服务
+│   ├── ScreenshotOcrServiceFactory.cs                  # 截图 OCR 引擎选择与回退
+│   ├── ScreenshotLanguageRouter.cs                     # 截图源语言路由
+│   ├── ScreenshotSceneRouter.cs                        # 截图场景路由
+│   ├── MangaModelStatusService.cs                      # 漫画模型状态检查（内部研究）
+│   ├── MangaSceneRoutingService.cs                     # 漫画场景 Worker 路由（内部研究）
+│   ├── MangaTranslationOrchestrator.cs                 # 漫画翻译单元编排（内部研究）
+│   ├── MangaTranslationResult.cs                       # 漫画翻译结果模型（内部研究）
+│   ├── MangaWorkerClient.cs                            # 漫画 Worker 客户端（内部研究）
+│   ├── MangaWorkerRequestFactory.cs                    # 漫画 Worker 请求构建（内部研究）
+│   ├── MangaWorkerRuntimeResolver.cs                   # 漫画 Worker 运行时解析（内部研究）
+│   ├── OcrModelCatalog.cs                              # 官方 OCR 模型固定 revision 清单
+│   ├── OcrModelManager.cs                              # OCR 模型下载、校验与原子安装
+│   ├── IWordLookupService.cs                           # 查词服务接口
+│   ├── IWordLookupEnrichmentService.cs                 # AI 查词增强接口
+│   ├── OpenAIWordLookupService.cs                      # OpenAI 兼容查词服务
+│   ├── LocalDictionaryWordLookupService.cs             # ECDICT + OEWN 本地查词
+│   ├── CompositeWordLookupService.cs                   # 本地词典优先，AI 兜底
+│   ├── WordLookupPromptBuilder.cs                      # 查词 Prompt 构建器
+│   └── WordPartOfSpeechNormalizer.cs                   # 词性标签标准化
 ├── Models/                # 数据模型
-│   ├── AppSettings.cs                       # 配置模型（多模型/快捷键/解析预设/更新设置）
-│   ├── ProviderPreset.cs                    # 无密钥供应商预置目录
-│   ├── TranslationRequest.cs                # 不可变请求快照
-│   ├── TranslationRequestContext.cs         # 会话请求语义快照
-│   ├── TranslationDirectionDecision.cs      # 翻译方向决策结果
-│   ├── FloatingResultSession.cs             # 多模式会话状态
-│   ├── AnalysisPromptProfile.cs             # 自定义解析方案
-│   ├── AnalysisFollowUpRequest.cs           # 解析追问请求与语义快照
-│   ├── TranslationTriggerMode.cs            # 翻译触发模式枚举
-│   ├── ThinkingModePreference.cs            # 思考模式偏好
-│   ├── FeedbackModels.cs                    # 反馈草稿、诊断摘要与字段模型
-│   └── WordLookupModels.cs                  # 查词结果模型（释义/音标/例句/搭配）
+│   ├── AppSettings.cs                                  # 配置模型（多模型/快捷键/解析预设/更新设置）
+│   ├── ProviderPreset.cs                               # 无密钥供应商预置目录
+│   ├── TranslationRequest.cs                           # 不可变请求快照
+│   ├── TranslationRequestContext.cs                    # 会话请求语义快照
+│   ├── TranslationDirectionDecision.cs                 # 翻译方向决策结果
+│   ├── FloatingResultSession.cs                        # 多模式会话状态
+│   ├── AnalysisPromptProfile.cs                        # 自定义解析方案
+│   ├── AnalysisFollowUpRequest.cs                      # 解析追问请求与语义快照
+│   ├── TranslationTriggerMode.cs                       # 翻译触发模式枚举
+│   ├── ThinkingModePreference.cs                       # 思考模式偏好
+│   ├── FeedbackModels.cs                               # 反馈草稿、诊断摘要与字段模型
+│   ├── WordLookupModels.cs                             # 查词结果模型（释义/音标/例句/搭配）
+│   ├── OcrModels.cs                                    # OCR 图像、文本块与资源限制模型
+│   └── ScreenshotOverlayModels.cs                      # 截图译文覆盖层模型
 ├── Helpers/               # 工具类
-│   ├── ConfigManager.cs                     # JSON 配置读写 + 旧配置迁移
-│   ├── Logger.cs                            # 异步日志器（JSON Lines/轮转/清理）
-│   ├── LogEvent.cs                          # 结构化日志事件模型
-│   ├── MarkdownRenderer.cs                  # 安全 Markdown 渲染
-│   ├── StreamingMarkdownRenderer.cs         # 流式 Markdown 渲染器
-│   ├── CodeSyntaxHighlighter.cs             # 围栏代码块本地语法高亮
-│   ├── Win32Api.cs                          # Win32 P/Invoke 声明
-│   ├── DpiHelper.cs                         # DPI 缩放坐标转换
-│   ├── ApiEndpointValidator.cs              # API 端点格式验证
-│   └── AuthenticodeVerifier.cs              # 安装包数字签名校验
+│   ├── ConfigManager.cs                                # JSON 配置读写 + 旧配置迁移
+│   ├── Logger.cs                                       # 异步日志器（JSON Lines/轮转/清理）
+│   ├── LogEvent.cs                                     # 结构化日志事件模型
+│   ├── MarkdownRenderer.cs                             # 安全 Markdown 渲染
+│   ├── StreamingMarkdownRenderer.cs                    # 流式 Markdown 渲染器
+│   ├── CodeSyntaxHighlighter.cs                        # 围栏代码块本地语法高亮
+│   ├── Win32Api.cs                                     # Win32 P/Invoke 声明
+│   ├── DpiHelper.cs                                    # DPI 缩放坐标转换
+│   ├── ApiEndpointValidator.cs                         # API 端点格式验证
+│   └── AuthenticodeVerifier.cs                         # 安装包数字签名校验
 ├── UI/                    # 用户界面
-│   ├── FloatingWindow.xaml/.cs              # 悬浮窗（多模式/Markdown/TTS/图钉）
-│   ├── MarkdownInteraction.cs               # Markdown 交互辅助
-│   ├── RedDotWindow.xaml/.cs                # 红点引导窗口
-│   ├── QuickLookupWindow.xaml/.cs           # 快速查词窗口（结构化释义/朗读）
-│   ├── TrayIconManager.cs                   # 系统托盘（右键菜单/气泡通知）
-│   ├── SettingsWindow.xaml/.cs              # 设置窗口（模型/快捷键/解析方案/更新管理）
-│   ├── DownloadUpdateWindow.xaml/.cs        # 更新下载窗口
-│   ├── UpdateAvailableWindow.xaml/.cs       # 更新说明与用户确认窗口
-│   ├── ModelSelectorControl.xaml/.cs        # 当前会话模型选择控件
-│   ├── HistoryWindow.xaml/.cs               # 翻译历史查看
-│   ├── LogViewerWindow.xaml/.cs             # 日志查看器
-│   ├── ThoughtBlockView.cs                  # 思考区块视图
-│   ├── LogEntryReader.cs                    # 日志读取与筛选
-│   ├── FeedbackWindow.xaml/.cs              # 帮助与反馈窗口
-│   ├── CrashRecoveryPromptWindow.xaml/.cs   # 异常退出后的恢复提示
-│   ├── SharedSettingsStyles.xaml            # 反馈窗口复用的设置控件样式
-│   ├── SharedToolWindowStyles.xaml          # 工具窗口共享样式
-│   ├── FloatingWindowAnchor.cs              # 窗口锚点定位
-│   ├── FloatingWindowPlacement.cs           # 窗口位置管理
-│   ├── TrayPanelPlacement.cs                # 托盘面板位置计算（多显示器 DPI）
-│   ├── FloatingStatusMessage.cs             # 状态消息
-│   └── TransientButtonFeedback.cs           # 瞬态按钮反馈
+│   ├── FloatingWindow.xaml/.cs                         # 悬浮窗（多模式/Markdown/TTS/图钉）
+│   ├── MarkdownInteraction.cs                          # Markdown 交互辅助
+│   ├── RedDotWindow.xaml/.cs                           # 红点引导窗口
+│   ├── ScreenshotSelectionWindow.xaml/.cs              # 单显示器截图框选遮罩
+│   ├── ScreenshotTranslationOverlayWindow.xaml/.cs     # 截图译文覆盖窗口
+│   ├── ScreenshotTranslationProgressWindow.xaml/.cs    # 截图 OCR 翻译进度与取消窗口
+│   ├── QuickLookupWindow.xaml/.cs                      # 快速查词窗口（结构化释义/朗读）
+│   ├── TrayIconManager.cs                              # 系统托盘（右键菜单/气泡通知）
+│   ├── SettingsWindow.xaml/.cs                         # 设置窗口（模型/快捷键/解析方案/更新管理）
+│   ├── DownloadUpdateWindow.xaml/.cs                   # 更新下载窗口
+│   ├── UpdateAvailableWindow.xaml/.cs                  # 更新说明与用户确认窗口
+│   ├── ModelSelectorControl.xaml/.cs                   # 当前会话模型选择控件
+│   ├── HistoryWindow.xaml/.cs                          # 翻译历史查看
+│   ├── LogViewerWindow.xaml/.cs                        # 日志查看器
+│   ├── ThoughtBlockView.cs                             # 思考区块视图
+│   ├── LogEntryReader.cs                               # 日志读取与筛选
+│   ├── FeedbackWindow.xaml/.cs                         # 帮助与反馈窗口
+│   ├── CrashRecoveryPromptWindow.xaml/.cs              # 异常退出后的恢复提示
+│   ├── SharedSettingsStyles.xaml                       # 反馈窗口复用的设置控件样式
+│   ├── SharedToolWindowStyles.xaml                     # 工具窗口共享样式
+│   ├── FloatingWindowAnchor.cs                         # 窗口锚点定位
+│   ├── FloatingWindowPlacement.cs                      # 窗口位置管理
+│   ├── TrayPanelPlacement.cs                           # 托盘面板位置计算（多显示器 DPI）
+│   ├── FloatingStatusMessage.cs                        # 状态消息
+│   └── TransientButtonFeedback.cs                      # 瞬态按钮反馈
 ├── Assets/                # 应用图标资源
 ├── app.manifest           # Windows 应用清单
 ├── AssemblyInfo.cs        # 程序集信息声明

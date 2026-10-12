@@ -126,7 +126,25 @@ if (Test-Path $dbPath) {
     Write-Check "FAIL" "发布词典存在" "缺少 QuickTranslate\Data\word-dictionary.db，发布包将只有 AI 查词"
 }
 
-# 9. 发布说明草稿
+# 9. 本地场景 OCR Worker 运行时（两个安装包都应随应用发布；模型权重仍由用户主动下载）
+$ocrRuntimePath = Join-Path $repoRoot "ocr-runtime"
+$ocrPythonCandidates = @(
+    (Join-Path $ocrRuntimePath "python.exe"),
+    (Join-Path $ocrRuntimePath "Scripts\python.exe")
+)
+$ocrPythonPath = $ocrPythonCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+$ocrWorkerPath = Join-Path $ocrRuntimePath "ocr-worker.py"
+$ocrManifestPath = Join-Path $ocrRuntimePath "runtime-manifest.json"
+if ($ocrPythonPath -and (Test-Path -LiteralPath $ocrWorkerPath -PathType Leaf) -and
+    (Test-Path -LiteralPath $ocrManifestPath -PathType Leaf)) {
+    $ocrRuntimeBytes = (Get-ChildItem -LiteralPath $ocrRuntimePath -Recurse -File |
+        Measure-Object -Property Length -Sum).Sum
+    Write-Check "PASS" "OCR Worker 运行时存在" ("{0:N1} MB；将复制到两个发布目录的 ocr-runtime\\" -f ($ocrRuntimeBytes / 1MB))
+} else {
+    Write-Check "FAIL" "OCR Worker 运行时存在" "请先执行 scripts\install-ocr-runtime.ps1；模型权重不应放入 ocr-runtime。"
+}
+
+# 10. 发布说明草稿
 $notesPath = Join-Path $repoRoot "docs\RELEASE_NOTES_NEXT.md"
 if (Test-Path $notesPath) {
     $notes = [System.IO.File]::ReadAllText($notesPath, [System.Text.Encoding]::UTF8)

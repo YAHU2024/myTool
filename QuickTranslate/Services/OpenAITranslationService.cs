@@ -12,13 +12,16 @@ namespace QuickTranslate.Services;
 /// <summary>
 /// OpenAI-compatible translation service with streaming SSE support.
 /// </summary>
-public sealed class OpenAITranslationService : ITranslationService, IDisposable
+public sealed class OpenAITranslationService : ITranslationService, IScreenshotBatchTranslationService, IScreenshotBatchStreamingTranslationService, IDisposable
 {
     internal const int MaxInitialRequestRunes = 20000;
     internal const int MaxAnalysisRequestRunes = 30000;
     internal const int MaxFollowUpQuestionRunes = AnalysisConversationFormatter.MaxQuestionRunes;
     internal const int MaxFollowUpContextCharacters = 60000;
     internal const double StalledChunkGapThresholdMs = 250;
+    internal static readonly TimeSpan ScreenshotFirstChunkTimeout = TimeSpan.FromSeconds(15);
+    internal static readonly TimeSpan ScreenshotIdleChunkTimeout = TimeSpan.FromSeconds(25);
+    internal static readonly TimeSpan ScreenshotOverallTimeout = TimeSpan.FromSeconds(55);
 
     private readonly HttpClient _httpClient;
     private AppSettings _settings;
@@ -121,7 +124,8 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             prompt = TranslationPromptBuilder.Build(
                 contentType,
                 direction.EffectiveTargetLanguage,
-                context.CustomTranslationPrompt);
+                context.CustomTranslationPrompt,
+                directionPreference == TranslationDirectionPreference.FixedRequestedTarget);
         }
 
         var request = new TranslationRequest(
@@ -405,7 +409,291 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         ContentType contentType = ContentType.Translation,
         CancellationToken cancellationToken = default)
     {
-        var request = CreateRequest(text, targetLang, contentType);
+        return await TranslateAsyncCore(
+            text,
+            targetLang,
+            contentType,
+            TranslationDirectionPreference.Auto,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 翻译为指定目标语言，不执行“同语言切换到备选语言”的普通划词策略。
+    /// 截图翻译使用此入口，确保一张截图中的所有单元保持同一输出语言。
+    /// </summary>
+    public async Task<string> TranslateToRequestedTargetAsync(
+        string text,
+        string targetLang,
+        ContentType contentType = ContentType.Translation,
+        CancellationToken cancellationToken = default)
+    {
+        return await TranslateAsyncCore(
+            text,
+            targetLang,
+            contentType,
+            TranslationDirectionPreference.FixedRequestedTarget,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<TranslatedTextUnit>> TranslateScreenshotBatchAsync(
+        IReadOnlyList<ScreenshotTranslationUnit> units,
+        string targetLanguage,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(units);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetLanguage);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (units.Count == 0)
+            return Array.Empty<TranslatedTextUnit>();
+
+        ValidateScreenshotBatchUnits(units);
+        var context = CaptureRequestContext(targetLanguage);
+        var batchInput = BuildScreenshotBatchInput(units);
+        EnsureInputLength(batchInput, MaxInitialRequestRunes, "截图批量请求");
+        var direction = TranslationDirectionResolver.Resolve(
+            batchInput,
+            targetLanguage,
+            context.FallbackLanguage,
+            context.AutoDetectLanguage,
+            ContentType.Translation,
+            TranslationDirectionPreference.FixedRequestedTarget);
+        var request = new TranslationRequest(
+            TranslationRequestKind.Translation,
+            batchInput,
+            direction,
+            ContentType.Translation,
+            context.ApiBaseUrl,
+            context.ApiKey,
+            context.ModelName,
+            TranslationPromptBuilder.BuildScreenshotBatchPrompt(
+                targetLanguage,
+                context.CustomTranslationPrompt),
+            context.EnableThinking);
+        ValidateRequest(request);
+
+        var startedAt = Stopwatch.GetTimestamp();
+        Logger.Info("TranslationService", "screenshot_batch.started", new
+        {
+            unit_count = units.Count,
+            text_len = units.Sum(static unit => unit.SourceText.Length),
+            requested_target_language = targetLanguage
+        });
+
+        string responseBody;
+        using (var response = await SendAsync(
+                   request.ApiBaseUrl,
+                   request.ApiKey,
+                   BuildRequestBody(
+                       request.ModelName,
+                       [
+                           new ChatCompletionMessage("system", request.SystemPrompt),
+                           new ChatCompletionMessage("user", PromptInputContract.Wrap(request.Text))
+                       ],
+                       request.ApiBaseUrl,
+                       request.EnableThinking,
+                       stream: false),
+                   HttpCompletionOption.ResponseContentRead,
+                   cancellationToken).ConfigureAwait(false))
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                throw await ProviderHttpError.CreateExceptionAsync(
+                    "screenshot batch translation",
+                    response,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            responseBody = await response.Content
+                .ReadAsStringAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        string content;
+        try
+        {
+            content = ExtractTranslation(responseBody);
+        }
+        catch (FormatException ex)
+        {
+            throw new ScreenshotTranslationBatchFormatException("invalid_provider_response", ex);
+        }
+
+        var mapped = ScreenshotTranslationMapper.ParseAndMap(content, units);
+        if (!mapped.Accepted)
+            throw new ScreenshotTranslationBatchFormatException(mapped.Reason);
+
+        Logger.Info("TranslationService", "screenshot_batch.completed", new
+        {
+            unit_count = units.Count,
+            mapped_count = mapped.MappedCount,
+            duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+            requested_target_language = targetLanguage
+        });
+        return mapped.MappedUnits;
+    }
+
+    public async Task<IReadOnlyList<TranslatedTextUnit>> TranslateScreenshotBatchStreamingAsync(
+        IReadOnlyList<ScreenshotTranslationUnit> units,
+        string targetLanguage,
+        Action<TranslatedTextUnit> onUnitCompleted,
+        CancellationToken cancellationToken = default)
+    {
+        return await TranslateScreenshotBatchStreamingAsync(
+            units,
+            targetLanguage,
+            onUnitCompleted,
+            cancellationToken,
+            ScreenshotFirstChunkTimeout,
+            ScreenshotIdleChunkTimeout,
+            ScreenshotOverallTimeout).ConfigureAwait(false);
+    }
+
+    internal async Task<IReadOnlyList<TranslatedTextUnit>> TranslateScreenshotBatchStreamingAsync(
+        IReadOnlyList<ScreenshotTranslationUnit> units,
+        string targetLanguage,
+        Action<TranslatedTextUnit> onUnitCompleted,
+        CancellationToken cancellationToken,
+        TimeSpan firstChunkTimeout,
+        TimeSpan idleChunkTimeout,
+        TimeSpan overallTimeoutDuration)
+    {
+        ArgumentNullException.ThrowIfNull(units);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetLanguage);
+        ArgumentNullException.ThrowIfNull(onUnitCompleted);
+        if (firstChunkTimeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(firstChunkTimeout));
+        if (idleChunkTimeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(idleChunkTimeout));
+        if (overallTimeoutDuration <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(overallTimeoutDuration));
+        cancellationToken.ThrowIfCancellationRequested();
+        if (units.Count == 0)
+            return Array.Empty<TranslatedTextUnit>();
+
+        ValidateScreenshotBatchUnits(units);
+        var context = CaptureRequestContext(targetLanguage);
+        var batchInput = BuildScreenshotBatchInput(units);
+        EnsureInputLength(batchInput, MaxInitialRequestRunes, "截图批量流式请求");
+        var direction = TranslationDirectionResolver.Resolve(
+            batchInput,
+            targetLanguage,
+            context.FallbackLanguage,
+            context.AutoDetectLanguage,
+            ContentType.Translation,
+            TranslationDirectionPreference.FixedRequestedTarget);
+        var request = new TranslationRequest(
+            TranslationRequestKind.Translation,
+            batchInput,
+            direction,
+            ContentType.Translation,
+            context.ApiBaseUrl,
+            context.ApiKey,
+            context.ModelName,
+            TranslationPromptBuilder.BuildScreenshotBatchStreamingPrompt(
+                targetLanguage,
+                context.CustomTranslationPrompt),
+            context.EnableThinking);
+        ValidateRequest(request);
+
+        var startedAt = Stopwatch.GetTimestamp();
+        Logger.Info("TranslationService", "screenshot_batch_stream.started", new
+        {
+            unit_count = units.Count,
+            text_len = units.Sum(static unit => unit.SourceText.Length),
+            requested_target_language = targetLanguage
+        });
+        var parser = new ScreenshotTranslationStreamParser(units.Select(static unit => unit.UnitId));
+        ChatStreamingResult execution;
+        using var overallTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        overallTimeout.CancelAfter(overallTimeoutDuration);
+        try
+        {
+            execution = await ExecuteChatStreamingAsync(
+                request.ApiBaseUrl,
+                request.ApiKey,
+                BuildRequestBody(
+                    request.ModelName,
+                    [
+                        new ChatCompletionMessage("system", request.SystemPrompt),
+                        new ChatCompletionMessage("user", PromptInputContract.Wrap(request.Text))
+                    ],
+                    request.ApiBaseUrl,
+                    request.EnableThinking,
+                    stream: true),
+                "screenshot batch streaming translation",
+                streamEvent =>
+                {
+                    if (streamEvent.Kind != TranslationStreamEventKind.ContentDelta)
+                        return;
+
+                    foreach (var translated in parser.Append(streamEvent.Text))
+                        onUnitCompleted(translated);
+                },
+                overallTimeout.Token,
+                firstChunkTimeout,
+                idleChunkTimeout).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (
+            !cancellationToken.IsCancellationRequested && overallTimeout.IsCancellationRequested)
+        {
+            if (parser.IsComplete)
+                return parser.Complete(units).MappedUnits;
+            throw new ScreenshotTranslationTimeoutException(ScreenshotTranslationTimeoutKind.Overall);
+        }
+        catch (ScreenshotTranslationTimeoutException) when (parser.IsComplete)
+        {
+            // All expected units are already complete; a missing terminal
+            // marker or post-content idle timeout does not invalidate them.
+            return parser.Complete(units).MappedUnits;
+        }
+        catch (HttpRequestException) when (parser.IsComplete)
+        {
+            // Some compatible providers close the connection immediately after
+            // the final unit without sending [DONE]. Content completeness wins.
+            return parser.Complete(units).MappedUnits;
+        }
+        catch (IOException) when (parser.IsComplete)
+        {
+            // A raw stream can surface the same post-content close as an
+            // IOException instead of HttpRequestException.
+            return parser.Complete(units).MappedUnits;
+        }
+        catch (KeyNotFoundException ex)
+        {
+            // A non-stream completion shape (message.content) is a provider
+            // capability mismatch, not a transport failure; App may safely use
+            // the non-stream structured batch fallback.
+            throw new ScreenshotTranslationBatchFormatException("invalid_stream_response", ex);
+        }
+
+        var mapping = parser.Complete(units);
+        if (!mapping.Accepted)
+            throw new ScreenshotTranslationBatchFormatException(mapping.Reason);
+
+        Logger.Info("TranslationService", "screenshot_batch_stream.completed", new
+        {
+            unit_count = units.Count,
+            mapped_count = mapping.MappedCount,
+            duration_ms = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+            stream_chunk_count = execution.ChunkCount,
+            first_chunk_ms = execution.FirstChunkMs
+        });
+        return mapping.MappedUnits;
+    }
+
+    private async Task<string> TranslateAsyncCore(
+        string text,
+        string targetLang,
+        ContentType contentType,
+        TranslationDirectionPreference directionPreference,
+        CancellationToken cancellationToken)
+    {
+        var request = CreateRequest(
+            text,
+            contentType,
+            TranslationRequestKind.Translation,
+            CaptureRequestContext(targetLang),
+            directionPreference);
         ValidateRequest(request);
 
         var requestBody = BuildRequestBody(request, stream: false);
@@ -426,6 +714,34 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
 
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         return ExtractTranslation(responseBody);
+    }
+
+    private static void ValidateScreenshotBatchUnits(
+        IReadOnlyList<ScreenshotTranslationUnit> units)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var unit in units)
+        {
+            ArgumentNullException.ThrowIfNull(unit);
+            if (string.IsNullOrWhiteSpace(unit.UnitId) || !ids.Add(unit.UnitId))
+                throw new ArgumentException("截图批量翻译单元 ID 必须非空且唯一。", nameof(units));
+            if (string.IsNullOrWhiteSpace(unit.SourceText))
+                throw new ArgumentException("截图批量翻译单元文本不能为空。", nameof(units));
+        }
+    }
+
+    private static string BuildScreenshotBatchInput(
+        IReadOnlyList<ScreenshotTranslationUnit> units)
+    {
+        var payload = new
+        {
+            units = units.Select(static unit => new
+            {
+                id = unit.UnitId,
+                text = unit.SourceText
+            })
+        };
+        return JsonSerializer.Serialize(payload, JsonOptions);
     }
 
     public async Task<string> AnalyzeStreamingAsync(
@@ -522,17 +838,79 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         Dictionary<string, object> requestBody,
         string operation,
         Action<TranslationStreamEvent> onEvent,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? firstChunkTimeout = null,
+        TimeSpan? idleChunkTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(onEvent);
         var streamStartedAt = Stopwatch.GetTimestamp();
         onEvent(new TranslationStreamEvent(TranslationStreamEventKind.Started));
-        using var response = await SendAsync(
-            apiBaseUrl,
-            apiKey,
-            requestBody,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken).ConfigureAwait(false);
+        HttpResponseMessage response;
+        if (firstChunkTimeout is { } connectTimeout)
+        {
+            // ResponseHeadersRead returns as soon as headers arrive. Apply the
+            // first-chunk budget to this phase too, otherwise a stalled
+            // connection can bypass the screenshot timeout until HttpClient's
+            // unrelated global timeout fires.
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            connectCts.CancelAfter(connectTimeout);
+            try
+            {
+                response = await SendAsync(
+                    apiBaseUrl,
+                    apiKey,
+                    requestBody,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    connectCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested &&
+                                                       connectCts.IsCancellationRequested)
+            {
+                throw new ScreenshotTranslationTimeoutException(ScreenshotTranslationTimeoutKind.Connect);
+            }
+        }
+        else
+        {
+            response = await SendAsync(
+                apiBaseUrl,
+                apiKey,
+                requestBody,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        using (response)
+        {
+            if (firstChunkTimeout is { } firstTimeout)
+            {
+                var elapsed = Stopwatch.GetElapsedTime(streamStartedAt);
+                if (elapsed >= firstTimeout)
+                    throw new ScreenshotTranslationTimeoutException(ScreenshotTranslationTimeoutKind.FirstChunk);
+            }
+            return await ExecuteChatStreamingResponseAsync(
+                response,
+                operation,
+                onEvent,
+                cancellationToken,
+                firstChunkTimeout,
+                idleChunkTimeout,
+                streamStartedAt,
+                operation.StartsWith("screenshot", StringComparison.OrdinalIgnoreCase)).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<ChatStreamingResult> ExecuteChatStreamingResponseAsync(
+        HttpResponseMessage response,
+        string operation,
+        Action<TranslationStreamEvent> onEvent,
+        CancellationToken cancellationToken,
+        TimeSpan? firstChunkTimeout,
+        TimeSpan? idleChunkTimeout,
+        long streamStartedAt,
+        bool strictStreamFormat)
+    {
+        // This method is split only to keep response disposal adjacent to the
+        // request above; all stream validation remains in one place.
 
         if (!response.IsSuccessStatusCode)
         {
@@ -549,12 +927,53 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
         var totalChunkGapMs = 0.0;
         var stalledChunkCount = 0;
         long? previousChunkAt = null;
+        long? idleStartedAt = null;
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var reader = new StreamReader(stream);
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            string? line;
+            if (firstChunkTimeout is null && idleChunkTimeout is null)
+            {
+                line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                TimeSpan? remaining;
+                if (chunkCount == 0)
+                {
+                    remaining = firstChunkTimeout is { } firstTimeout
+                        ? firstTimeout - Stopwatch.GetElapsedTime(streamStartedAt)
+                        : null;
+                }
+                else
+                {
+                    remaining = idleChunkTimeout is { } idleTimeout && idleStartedAt is { } idleStart
+                        ? idleTimeout - Stopwatch.GetElapsedTime(idleStart)
+                        : null;
+                }
+                if (remaining is null || remaining <= TimeSpan.Zero)
+                {
+                    throw new ScreenshotTranslationTimeoutException(
+                        chunkCount == 0
+                            ? ScreenshotTranslationTimeoutKind.FirstChunk
+                            : ScreenshotTranslationTimeoutKind.Idle);
+                }
+                using var readTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                readTimeout.CancelAfter(remaining.Value);
+                try
+                {
+                    line = await reader.ReadLineAsync(readTimeout.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    throw new ScreenshotTranslationTimeoutException(
+                        chunkCount == 0
+                            ? ScreenshotTranslationTimeoutKind.FirstChunk
+                            : ScreenshotTranslationTimeoutKind.Idle);
+                }
+            }
             if (line == null)
                 break;
             if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data: ", StringComparison.Ordinal))
@@ -567,11 +986,27 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
             try
             {
                 using var document = JsonDocument.Parse(data);
-                var choices = document.RootElement.GetProperty("choices");
+                var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object ||
+                    !root.TryGetProperty("choices", out var choices) ||
+                    choices.ValueKind != JsonValueKind.Array)
+                {
+                    if (strictStreamFormat)
+                        throw new ScreenshotTranslationBatchFormatException("invalid_stream_response");
+                    continue;
+                }
                 if (choices.GetArrayLength() == 0)
                     continue;
 
-                var delta = choices[0].GetProperty("delta");
+                var choice = choices[0];
+                if (choice.ValueKind != JsonValueKind.Object ||
+                    !choice.TryGetProperty("delta", out var delta) ||
+                    delta.ValueKind != JsonValueKind.Object)
+                {
+                    if (strictStreamFormat)
+                        throw new ScreenshotTranslationBatchFormatException("invalid_stream_response");
+                    continue;
+                }
                 if (TryGetText(delta, "reasoning_content", out var reasoning))
                     onEvent(new TranslationStreamEvent(TranslationStreamEventKind.ReasoningDelta, reasoning));
                 else if (TryGetText(delta, "reasoning", out reasoning))
@@ -591,12 +1026,18 @@ public sealed class OpenAITranslationService : ITranslationService, IDisposable
                 }
                 previousChunkAt = chunkAt;
                 chunkCount++;
+                idleStartedAt = chunkAt;
                 fullResult.Append(chunk);
                 onEvent(new TranslationStreamEvent(TranslationStreamEventKind.ContentDelta, chunk));
             }
+            catch (JsonException ex) when (strictStreamFormat)
+            {
+                throw new ScreenshotTranslationBatchFormatException("invalid_stream_response", ex);
+            }
             catch (JsonException)
             {
-                // Ignore malformed provider chunks and continue reading the stream.
+                // Ordinary translation streams retain their historical
+                // tolerance for a malformed provider chunk.
             }
         }
 

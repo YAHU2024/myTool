@@ -17,6 +17,7 @@ namespace QuickTranslate.UI
         private readonly Action<AppSettings>? _onSettingsSaved;
         private readonly Action<FeedbackMode>? _onFeedbackRequested;
         private readonly Action? _onLogsRequested;
+        private readonly OcrModelManager? _ocrModelManager;
         private bool _isInitializing = true;
         private bool _isDirty = false;
         private bool _isApiKeyVisible = false;
@@ -26,21 +27,29 @@ namespace QuickTranslate.UI
         private readonly List<AnalysisPromptProfile> _analysisPromptProfiles = new();
         private string _selectedAnalysisPromptId = AnalysisPromptCatalog.GeneralId;
         private string? _editingAnalysisPromptId;
+        private CancellationTokenSource? _ocrDownloadCts;
 
         // 快捷键录入状态
         private bool _isCapturingHotKey = false;
         private bool _isCapturingQuickLookupHotKey = false;
+        private bool _isCapturingScreenshotHotKey;
+        private byte _screenshotHotKeyVK;
+        private bool _screenshotHotKeyAlt;
+        private bool _screenshotHotKeyCtrl;
+        private bool _screenshotHotKeyShift;
 
         public SettingsWindow(
             AppSettings settings,
             Action<AppSettings>? onSettingsSaved = null,
             Action<FeedbackMode>? onFeedbackRequested = null,
-            Action? onLogsRequested = null)
+            Action? onLogsRequested = null,
+            OcrModelManager? ocrModelManager = null)
         {
             _settings = settings;
             _onSettingsSaved = onSettingsSaved;
             _onFeedbackRequested = onFeedbackRequested;
             _onLogsRequested = onLogsRequested;
+            _ocrModelManager = ocrModelManager;
             _origAutoStart = settings.AutoStart;
             _thinkingModePreference = ThinkingModePreferences.Normalize(settings.ThinkingMode);
             InitializeComponent();
@@ -57,6 +66,8 @@ namespace QuickTranslate.UI
 
             // 模型下拉框（按域名分组）
             RefreshModelComboBox();
+
+            LoadScreenshotOcrSettings();
 
             // 目标语言
             LanguageComboBox.ItemsSource = _settings.SupportedLanguages;
@@ -97,6 +108,12 @@ namespace QuickTranslate.UI
             // 快捷键显示
             UpdateHotKeyDisplay();
             UpdateQuickLookupHotKeyDisplay();
+            _screenshotHotKeyVK = _settings.ScreenshotHotKeyVK;
+            _screenshotHotKeyAlt = _settings.ScreenshotHotKeyRequireAlt;
+            _screenshotHotKeyCtrl = _settings.ScreenshotHotKeyRequireCtrl;
+            _screenshotHotKeyShift = _settings.ScreenshotHotKeyRequireShift;
+            UpdateScreenshotHotKeyDisplay();
+            ScreenshotHotKeyEnabledCheckBox.IsChecked = _settings.ScreenshotHotKeyEnabled;
 
             // 快速查词快捷键开关
             QuickLookupHotKeyEnabledCheckBox.IsChecked = _settings.QuickLookupHotKeyEnabled;
@@ -171,6 +188,8 @@ namespace QuickTranslate.UI
         /// </summary>
         private static string GetKeyName(byte vk)
         {
+            if (vk is >= 0x70 and <= 0x87)
+                return $"F{vk - 0x70 + 1}";
             return vk switch
             {
                 0x51 => "Q",
@@ -479,6 +498,227 @@ namespace QuickTranslate.UI
             _isDirty = true;
         }
 
+        private void LoadScreenshotOcrSettings()
+        {
+            ScreenshotOcrEngineComboBox.ItemsSource = new[]
+            {
+                new OcrEngineChoice("windows", "Windows OCR（内置兜底）"),
+                new OcrEngineChoice("rapidocr", "本地场景 OCR（可选）")
+            };
+            ScreenshotOcrEngineComboBox.DisplayMemberPath = nameof(OcrEngineChoice.Name);
+            ScreenshotOcrEngineComboBox.SelectedValuePath = nameof(OcrEngineChoice.Id);
+            ScreenshotOcrEngineComboBox.SelectedValue =
+                string.Equals(_settings.ScreenshotOcrEngine, "rapidocr", StringComparison.OrdinalIgnoreCase)
+                    ? "rapidocr"
+                    : "windows";
+
+            ScreenshotOcrModelComboBox.ItemsSource = OcrModelCatalog.All;
+            ScreenshotOcrModelComboBox.SelectedValuePath = nameof(OcrModelDescriptor.Id);
+            ScreenshotOcrModelComboBox.SelectedValue =
+                OcrModelCatalog.Find(_settings.ScreenshotOcrModelId)?.Id ?? OcrModelCatalog.DefaultModelId;
+            RefreshScreenshotOcrModelState();
+        }
+
+        private OcrModelDescriptor? SelectedScreenshotOcrModel =>
+            ScreenshotOcrModelComboBox.SelectedItem as OcrModelDescriptor ??
+            OcrModelCatalog.Find(ScreenshotOcrModelComboBox.SelectedValue?.ToString());
+
+        private bool IsRapidOcrSelected =>
+            string.Equals(ScreenshotOcrEngineComboBox.SelectedValue?.ToString(), "rapidocr", StringComparison.OrdinalIgnoreCase);
+
+        private void RefreshScreenshotOcrModelState(string? transientStatus = null)
+        {
+            var model = SelectedScreenshotOcrModel;
+            ScreenshotOcrModelDescriptionText.Text = model is null
+                ? "未选择模型。"
+                : $"{model.Description} · {FormatBytes(model.TotalSizeBytes)}";
+
+            var status = model is null || _ocrModelManager is null
+                ? null
+                : _ocrModelManager.GetStatus(model);
+            var hasPartialDownload = model is not null && _ocrModelManager?.HasPartialDownload(model) == true;
+            var isActive = model is not null &&
+                           string.Equals(_ocrModelManager?.ActiveModelId, model.Id, StringComparison.Ordinal);
+            var isInUse = model is not null && _ocrModelManager?.IsModelInUse(model.Id) == true;
+            var runtimeAvailable = ScreenshotOcrServiceFactory.IsRapidOcrRuntimeAvailable();
+            var statusText = transientStatus ?? (status switch
+            {
+                null when _ocrModelManager is null => "模型管理器不可用。",
+                { State: OcrModelInstallState.NotInstalled } when hasPartialDownload => "下载未完成。",
+                { State: OcrModelInstallState.NotInstalled } => "未安装。",
+                { State: OcrModelInstallState.Corrupted } => "文件损坏，请重新下载。",
+                { State: OcrModelInstallState.Installed } when isActive => "当前使用中。",
+                { State: OcrModelInstallState.Installed } when isInUse => "正在启动。",
+                { State: OcrModelInstallState.Installed } when IsRapidOcrSelected && !runtimeAvailable => "缺少本地 OCR 运行时。",
+                { State: OcrModelInstallState.Installed } => "已安装。",
+                _ => "状态未知。"
+            });
+            ScreenshotOcrStatusText.Text = statusText;
+            ScreenshotOcrStatusText.Foreground = new System.Windows.Media.SolidColorBrush(
+                transientStatus is not null || status?.State == OcrModelInstallState.Corrupted
+                    ? System.Windows.Media.Color.FromRgb(0xF2, 0xC6, 0x6D)
+                    : System.Windows.Media.Color.FromRgb(0xA4, 0xAF, 0xBC));
+
+            var busy = _ocrDownloadCts is not null;
+            var canManage = _ocrModelManager is not null && model is not null;
+            ScreenshotOcrModelComboBox.IsEnabled = !busy && IsRapidOcrSelected;
+            CancelScreenshotOcrButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+            DownloadScreenshotOcrButton.Content = status?.State == OcrModelInstallState.Corrupted
+                ? "重新下载"
+                : "下载 / 继续";
+            DownloadScreenshotOcrButton.IsEnabled = !busy && canManage && status?.State != OcrModelInstallState.Installed;
+            EnableScreenshotOcrButton.IsEnabled = !busy && canManage && runtimeAvailable && status?.State == OcrModelInstallState.Installed && !isActive;
+            DeleteScreenshotOcrButton.IsEnabled = !busy && canManage &&
+                (status?.State != OcrModelInstallState.NotInstalled || hasPartialDownload) && !isInUse;
+        }
+
+        private void ScreenshotOcrEngineComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            RefreshScreenshotOcrModelState();
+            if (!_isInitializing)
+                _isDirty = true;
+        }
+
+        private void ScreenshotOcrModelComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            RefreshScreenshotOcrModelState();
+            if (!_isInitializing)
+                _isDirty = true;
+        }
+
+        private async void DownloadScreenshotOcrButton_Click(object sender, RoutedEventArgs e)
+        {
+            var manager = _ocrModelManager;
+            var model = SelectedScreenshotOcrModel;
+            if (manager is null || model is null || _ocrDownloadCts is not null)
+                return;
+
+            using var cts = new CancellationTokenSource();
+            _ocrDownloadCts = cts;
+            ScreenshotOcrProgressBar.Visibility = Visibility.Visible;
+            ScreenshotOcrProgressText.Visibility = Visibility.Visible;
+            RefreshScreenshotOcrModelState("正在准备下载...");
+            try
+            {
+                var progress = new Progress<OcrModelDownloadProgress>(UpdateScreenshotOcrDownloadProgress);
+                await manager.InstallAsync(model, progress, cts.Token);
+                ScreenshotOcrProgressText.Text = "下载并校验完成，可点击“启用并保存”。";
+                RefreshScreenshotOcrModelState("已安装，等待启用。");
+            }
+            catch (OperationCanceledException)
+            {
+                RefreshScreenshotOcrModelState("下载已取消，已保留可续传文件。");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Screenshot", "screenshot.ocr_model_download_failed", new
+                {
+                    model_id = model.Id,
+                    exception_type = ex.GetType().Name
+                });
+                RefreshScreenshotOcrModelState($"下载失败（{ex.GetType().Name}），可重试。 ");
+            }
+            finally
+            {
+                _ocrDownloadCts = null;
+                ScreenshotOcrProgressBar.Visibility = Visibility.Collapsed;
+                ScreenshotOcrProgressText.Visibility = Visibility.Collapsed;
+                RefreshScreenshotOcrModelState(ScreenshotOcrStatusText.Text);
+            }
+        }
+
+        private void UpdateScreenshotOcrDownloadProgress(OcrModelDownloadProgress progress)
+        {
+            if (progress.Percentage is { } percentage)
+                ScreenshotOcrProgressBar.Value = percentage;
+            ScreenshotOcrProgressText.Text = $"{progress.Stage} · {progress.CompletedFiles}/{progress.TotalFiles} · {FormatBytes(progress.DownloadedBytes)}/{FormatBytes(progress.TotalBytes)}";
+        }
+
+        private void CancelScreenshotOcrButton_Click(object sender, RoutedEventArgs e) => _ocrDownloadCts?.Cancel();
+
+        private async void EnableScreenshotOcrButton_Click(object sender, RoutedEventArgs e)
+        {
+            var manager = _ocrModelManager;
+            var model = SelectedScreenshotOcrModel;
+            if (manager is null || model is null || _ocrDownloadCts is not null)
+                return;
+
+            using var cts = new CancellationTokenSource();
+            _ocrDownloadCts = cts;
+            RefreshScreenshotOcrModelState("正在验证模型...");
+            try
+            {
+                await manager.VerifyInstalledAsync(model, cts.Token);
+                if (!ValidateScreenshotHotKey())
+                    return;
+                ScreenshotOcrEngineComboBox.SelectedValue = "rapidocr";
+                ApplySettingsToModel();
+                ConfigManager.Save(_settings);
+                _onSettingsSaved?.Invoke(_settings);
+                _isDirty = false;
+                Close();
+            }
+            catch (OperationCanceledException)
+            {
+                RefreshScreenshotOcrModelState("验证已取消。");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Screenshot", "screenshot.ocr_model_verify_failed", new
+                {
+                    model_id = model.Id,
+                    exception_type = ex.GetType().Name
+                });
+                RefreshScreenshotOcrModelState($"验证失败（{ex.GetType().Name}），未切换引擎。 ");
+            }
+            finally
+            {
+                _ocrDownloadCts = null;
+                RefreshScreenshotOcrModelState();
+            }
+        }
+
+        private void DeleteScreenshotOcrButton_Click(object sender, RoutedEventArgs e)
+        {
+            var manager = _ocrModelManager;
+            var model = SelectedScreenshotOcrModel;
+            if (manager is null || model is null)
+                return;
+            if (string.Equals(manager.ActiveModelId, model.Id, StringComparison.Ordinal))
+            {
+                RefreshScreenshotOcrModelState("当前模型正在使用，请先切换到 Windows OCR 并保存，确认生效后再删除。 ");
+                return;
+            }
+            var result = MessageBox.Show(
+                $"确定删除 {model.DisplayName} 的本地文件吗？下次使用需要重新下载。",
+                "删除 OCR 模型",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (result != MessageBoxResult.Yes)
+                return;
+            try
+            {
+                manager.Delete(model);
+                RefreshScreenshotOcrModelState("模型已删除。 ");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn("Screenshot", "screenshot.ocr_model_delete_failed", new
+                {
+                    model_id = model.Id,
+                    exception_type = ex.GetType().Name
+                });
+                RefreshScreenshotOcrModelState($"删除失败（{ex.GetType().Name}）。 ");
+            }
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            if (bytes >= 1024 * 1024)
+                return $"{bytes / 1024d / 1024d:0.0} MB";
+            return $"{bytes / 1024d:0.0} KB";
+        }
+
         private void TerminalCopyMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_isInitializing) return;
@@ -719,6 +959,8 @@ namespace QuickTranslate.UI
                 return;
             if (!ValidateApiBaseUrl())
                 return;
+            if (!ValidateScreenshotHotKey())
+                return;
             ApplySettingsToModel();
             ConfigManager.Save(_settings);
             _onSettingsSaved?.Invoke(_settings);
@@ -761,6 +1003,11 @@ namespace QuickTranslate.UI
                         e.Cancel = true;
                         return;
                     }
+                    if (!ValidateScreenshotHotKey())
+                    {
+                        e.Cancel = true;
+                        return;
+                    }
                     ApplySettingsToModel();
                     ConfigManager.Save(_settings);
                     _onSettingsSaved?.Invoke(_settings);
@@ -773,6 +1020,11 @@ namespace QuickTranslate.UI
                 // No = 不保存，直接关闭
             }
 
+            // Cancellation leaves verified-by-size partial files in place so a
+            // later settings visit can resume; it never promotes an incomplete
+            // model to the active engine.
+            _ocrDownloadCts?.Cancel();
+            StopScreenshotHotKeyCapture();
             base.OnClosing(e);
         }
 
@@ -781,6 +1033,23 @@ namespace QuickTranslate.UI
         /// </summary>
         private void ApplySettingsToModel()
         {
+            // The complex-image route is retained only as an internal research
+            // path. User settings always select the stable screenshot pipeline.
+            _settings.EnhancedScreenshotTranslationEnabled = false;
+            if (ScreenshotOcrEngineComboBox.SelectedValue is string screenshotEngine)
+            {
+                var selectedModelStatus = SelectedScreenshotOcrModel is { } selectedOcrModel
+                    ? _ocrModelManager?.GetStatus(selectedOcrModel).State
+                    : null;
+                _settings.ScreenshotOcrEngine =
+                    screenshotEngine.Equals("rapidocr", StringComparison.OrdinalIgnoreCase) &&
+                    selectedModelStatus == OcrModelInstallState.Installed
+                        ? "rapidocr"
+                        : "windows";
+            }
+            if (SelectedScreenshotOcrModel is { } screenshotModel)
+                _settings.ScreenshotOcrModelId = screenshotModel.Id;
+
             _settings.ApiBaseUrl = ApiEndpointValidator.ValidateAndNormalize(
                 ApiBaseUrlTextBox.Text?.Trim() ?? _settings.ApiBaseUrl);
 
@@ -868,6 +1137,11 @@ namespace QuickTranslate.UI
             _settings.CheckForUpdateOnStartup = CheckUpdateOnStartupCheckBox.IsChecked ?? true;
 
             _settings.QuickLookupHotKeyEnabled = QuickLookupHotKeyEnabledCheckBox.IsChecked ?? false;
+            _settings.ScreenshotHotKeyEnabled = ScreenshotHotKeyEnabledCheckBox.IsChecked == true;
+            _settings.ScreenshotHotKeyVK = _screenshotHotKeyVK;
+            _settings.ScreenshotHotKeyRequireAlt = _screenshotHotKeyAlt;
+            _settings.ScreenshotHotKeyRequireCtrl = _screenshotHotKeyCtrl;
+            _settings.ScreenshotHotKeyRequireShift = _screenshotHotKeyShift;
 
             // 保存到已保存配置列表
             if (!string.IsNullOrWhiteSpace(model))
@@ -921,6 +1195,8 @@ namespace QuickTranslate.UI
         }
 
         private sealed record ThinkingModeChoice(ThinkingModePreference Value, string Label);
+
+        private sealed record OcrEngineChoice(string Id, string Name);
 
         private void LoadTranslationTriggerModeComboBox()
         {
@@ -1074,7 +1350,7 @@ namespace QuickTranslate.UI
         /// </summary>
         private void ChangeHotKeyButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_isCapturingQuickLookupHotKey)
+            if (_isCapturingQuickLookupHotKey || _isCapturingScreenshotHotKey)
                 return; // 快速查词快捷键正在录入，忽略
 
             if (_isCapturingHotKey)
@@ -1170,7 +1446,7 @@ namespace QuickTranslate.UI
         /// </summary>
         private void ChangeQuickLookupHotKeyButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_isCapturingHotKey)
+            if (_isCapturingHotKey || _isCapturingScreenshotHotKey)
                 return; // 划词翻译快捷键正在录入，忽略
 
             if (_isCapturingQuickLookupHotKey)
@@ -1238,6 +1514,117 @@ namespace QuickTranslate.UI
                 System.Windows.Media.Color.FromRgb(0xE0, 0xE0, 0xE0));
 
             this.PreviewKeyDown -= QuickLookupHotKey_KeyDown;
+        }
+
+        private void UpdateScreenshotHotKeyDisplay()
+        {
+            var parts = new List<string>();
+            if (_screenshotHotKeyCtrl) parts.Add("Ctrl");
+            if (_screenshotHotKeyAlt) parts.Add("Alt");
+            if (_screenshotHotKeyShift) parts.Add("Shift");
+            parts.Add(GetKeyName(_screenshotHotKeyVK));
+            ScreenshotHotKeyDisplayText.Text = string.Join("+", parts);
+        }
+
+        private void ChangeScreenshotHotKeyButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isCapturingHotKey || _isCapturingQuickLookupHotKey)
+                return;
+            if (_isCapturingScreenshotHotKey)
+            {
+                StopScreenshotHotKeyCapture();
+                return;
+            }
+            _isCapturingScreenshotHotKey = true;
+            ChangeScreenshotHotKeyButton.Content = "取消";
+            ScreenshotHotKeyCaptureHint.Visibility = Visibility.Visible;
+            ScreenshotHotKeyDisplayText.Foreground = ScreenshotHotKeyCaptureHint.Foreground;
+            PreviewKeyDown += ScreenshotHotKey_KeyDown;
+        }
+
+        private void ScreenshotHotKey_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (!_isCapturingScreenshotHotKey)
+                return;
+            var key = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
+            e.Handled = true;
+            if (key == System.Windows.Input.Key.Escape)
+            {
+                StopScreenshotHotKeyCapture();
+                return;
+            }
+            if (key is System.Windows.Input.Key.LeftCtrl or System.Windows.Input.Key.RightCtrl or
+                System.Windows.Input.Key.LeftAlt or System.Windows.Input.Key.RightAlt or
+                System.Windows.Input.Key.LeftShift or System.Windows.Input.Key.RightShift or
+                System.Windows.Input.Key.LWin or System.Windows.Input.Key.RWin)
+                return;
+
+            var modifiers = System.Windows.Input.Keyboard.Modifiers;
+            if (modifiers == System.Windows.Input.ModifierKeys.None ||
+                modifiers.HasFlag(System.Windows.Input.ModifierKeys.Windows))
+            {
+                ScreenshotHotKeyCaptureHint.Text = "请使用 Ctrl、Alt 或 Shift 组合";
+                return;
+            }
+            var vk = System.Windows.Input.KeyInterop.VirtualKeyFromKey(key);
+            if (vk <= 0 || vk > byte.MaxValue)
+                return;
+            _screenshotHotKeyVK = (byte)vk;
+            _screenshotHotKeyAlt = modifiers.HasFlag(System.Windows.Input.ModifierKeys.Alt);
+            _screenshotHotKeyCtrl = modifiers.HasFlag(System.Windows.Input.ModifierKeys.Control);
+            _screenshotHotKeyShift = modifiers.HasFlag(System.Windows.Input.ModifierKeys.Shift);
+            UpdateScreenshotHotKeyDisplay();
+            StopScreenshotHotKeyCapture();
+            _isDirty = true;
+        }
+
+        private void StopScreenshotHotKeyCapture()
+        {
+            _isCapturingScreenshotHotKey = false;
+            ChangeScreenshotHotKeyButton.Content = "修改";
+            ScreenshotHotKeyCaptureHint.Text = "请按下新的快捷键组合";
+            ScreenshotHotKeyCaptureHint.Visibility = Visibility.Collapsed;
+            ScreenshotHotKeyDisplayText.Foreground = HotKeyDisplayText.Foreground;
+            PreviewKeyDown -= ScreenshotHotKey_KeyDown;
+        }
+
+        private bool ValidateScreenshotHotKey()
+        {
+            if (ScreenshotHotKeyEnabledCheckBox.IsChecked != true)
+                return true;
+            var conflict = GetScreenshotHotKeyConflict(
+                _settings,
+                _screenshotHotKeyVK,
+                _screenshotHotKeyAlt,
+                _screenshotHotKeyCtrl,
+                _screenshotHotKeyShift,
+                QuickLookupHotKeyEnabledCheckBox.IsChecked == true,
+                TranslationTriggerModeComboBox.SelectedValue is TranslationTriggerMode mode
+                    ? mode : _settings.TranslationTriggerMode);
+            if (conflict is null)
+                return true;
+            MessageBox.Show($"截图翻译快捷键与{conflict}冲突，请修改其中一个。",
+                "快捷键设置", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        internal static string? GetScreenshotHotKeyConflict(
+            AppSettings settings, byte vk, bool alt, bool ctrl, bool shift,
+            bool lookupEnabled, TranslationTriggerMode translationMode)
+        {
+            // Existing hooks accept additional modifiers. A subset of the
+            // screenshot gesture can therefore trigger both actions.
+            bool Matches(byte otherVK, bool otherAlt, bool otherCtrl, bool otherShift) =>
+                vk == otherVK && (!otherAlt || alt) && (!otherCtrl || ctrl) && (!otherShift || shift);
+            if (TranslationTriggerModes.CanTriggerHotKey(translationMode) &&
+                Matches(settings.HotKeyVK, settings.HotKeyRequireAlt,
+                    settings.HotKeyRequireCtrl, settings.HotKeyRequireShift))
+                return "划词翻译快捷键";
+            if (lookupEnabled && Matches(settings.QuickLookupHotKeyVK,
+                settings.QuickLookupHotKeyRequireAlt, settings.QuickLookupHotKeyRequireCtrl,
+                settings.QuickLookupHotKeyRequireShift))
+                return "快速查词快捷键";
+            return null;
         }
 
         private async void CheckUpdateButton_Click(object sender, RoutedEventArgs e)

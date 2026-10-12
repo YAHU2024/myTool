@@ -179,6 +179,13 @@ namespace QuickTranslate.Models
         /// </summary>
         public bool QuickLookupHotKeyEnabled { get; set; } = false;
 
+        /// <summary>截图翻译快捷键，默认启用 Alt+S。</summary>
+        public byte ScreenshotHotKeyVK { get; set; } = 0x53;
+        public bool ScreenshotHotKeyRequireAlt { get; set; } = true;
+        public bool ScreenshotHotKeyRequireCtrl { get; set; } = false;
+        public bool ScreenshotHotKeyRequireShift { get; set; } = false;
+        public bool ScreenshotHotKeyEnabled { get; set; } = true;
+
         /// <summary>
         /// 是否启用语言自动检测（根据源语言自动决定翻译方向）
         /// </summary>
@@ -188,6 +195,26 @@ namespace QuickTranslate.Models
         /// 是否启用智能内容识别（代码/命令→解析，专有名词→解释，其余→翻译）
         /// </summary>
         public bool SmartContentType { get; set; } = false;
+
+        /// <summary>
+        /// Screenshot OCR engine preference: windows or rapidocr.
+        /// Windows OCR remains the safe built-in default.
+        /// </summary>
+        public string ScreenshotOcrEngine { get; set; } = "windows";
+
+        /// <summary>Selected catalog model for the optional local scene OCR engine.</summary>
+        public string ScreenshotOcrModelId { get; set; } = "ppocrv6-small-cpu";
+
+        /// <summary>
+        /// Legacy compatibility flag for the retired complex-image route. It is
+        /// normalized to false and is not exposed in the supported settings UI.
+        /// </summary>
+        public bool EnhancedScreenshotTranslationEnabled { get; set; } = false;
+
+        public string MangaWorkerPythonPath { get; set; } = string.Empty;
+        public string MangaWorkerScriptPath { get; set; } = string.Empty;
+        public string MangaOcrModelDirectory { get; set; } = string.Empty;
+        public string MangaInpaintingModelDirectory { get; set; } = string.Empty;
 
         /// <summary>
         /// 模型思考控制偏好。默认不发送供应商私有参数。

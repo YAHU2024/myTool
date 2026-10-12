@@ -26,6 +26,11 @@ namespace QuickTranslate.UI
         /// </summary>
         public event Action? SettingsRequested;
 
+        /// <summary>
+        /// 用户点击"截图翻译"
+        /// </summary>
+        public event Action? ScreenshotTranslationRequested;
+
         public event Action? RestoreRequested;
 
         public event Action<PhysicalPoint>? LookupClickStarted;
@@ -73,6 +78,9 @@ namespace QuickTranslate.UI
             // 创建右键菜单
             _contextMenu = new ContextMenuStrip();
 
+            var screenshotTranslationItem = new ToolStripMenuItem("截图翻译");
+            screenshotTranslationItem.Click += (s, e) => ScreenshotTranslationRequested?.Invoke();
+
             _pauseResumeItem = new ToolStripMenuItem("暂停翻译");
             _pauseResumeItem.Click += (s, e) =>
             {
@@ -97,6 +105,7 @@ namespace QuickTranslate.UI
             var exitItem = new ToolStripMenuItem("退出");
             exitItem.Click += (s, e) => ExitRequested?.Invoke();
 
+            _contextMenu.Items.Add(screenshotTranslationItem);
             _contextMenu.Items.Add(settingsItem);
             _contextMenu.Items.Add(_restoreItem);
             _contextMenu.Items.Add(historyItem);

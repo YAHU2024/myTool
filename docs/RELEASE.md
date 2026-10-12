@@ -38,7 +38,7 @@ powershell -ExecutionPolicy Bypass -File scripts\release\preflight.ps1
 ```
 
 脚本覆盖：.NET SDK、gh 登录、ISCC/SignTool、Git 工作区、四处版本号一致性、README 结构、
-发布词典存在性与 SHA256 追溯、`RELEASE_NOTES_NEXT.md` 基线版本。
+发布词典存在性与 SHA256 追溯、OCR Worker 运行时、`RELEASE_NOTES_NEXT.md` 基线版本。
 
 ---
 
@@ -91,7 +91,23 @@ powershell -ExecutionPolicy Bypass -File scripts\prepare-word-dictionary.ps1
 > （`scripts/release/preflight.ps1` 会输出这两项）。与上一发布版本的哈希不一致时，
 > 必须能提供 `ecdict.csv` / `oewn-2025-json.zip` 源文件说明变化来源，禁止"来历不明"的词典随包发布。
 
-### 2.2 编译轻量版源文件（框架依赖，含词典）
+### 2.2 准备本地场景 OCR Worker 运行时
+
+标准版和完整版都应携带同一份经验证的 `ocr-runtime\` Worker 运行时；PP-OCRv6
+模型权重仍由用户在设置页主动下载，不放入发布包。运行时目录被 Git 忽略，发布前
+必须在仓库根目录执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-ocr-runtime.ps1
+```
+
+脚本会创建隔离 Python 运行时、安装固定版本的 RapidOCR/ONNX Runtime、复制
+`ocr-worker.py` 并验证依赖导入。源码 Debug 运行会从仓库根目录自动发现
+`ocr-runtime\`；`QuickTranslate.csproj` 在 publish 时会把它按相同目录结构复制到
+两个发布目录，普通 build/test 不会重复复制这几百 MB。若运行时不存在，项目仍可
+构建，但正式发布预检会失败，避免安装后设置页误报“模型已安装但运行时缺失”。
+
+### 2.3 编译轻量版源文件（框架依赖，含词典和 OCR Worker 运行时）
 
 ```powershell
 dotnet publish QuickTranslate\QuickTranslate.csproj `
@@ -99,7 +115,7 @@ dotnet publish QuickTranslate\QuickTranslate.csproj `
   -o publish\source\v1.8.0
 ```
 
-### 2.3 编译完整版源文件（自包含，含词典）
+### 2.4 编译完整版源文件（自包含，含词典和 OCR Worker 运行时）
 
 ```powershell
 dotnet publish QuickTranslate\QuickTranslate.csproj `
@@ -121,7 +137,7 @@ Copy-Item (Join-Path $dotnetRoot "ThirdPartyNotices.txt") `
 .NET SDK 后，应重新执行 `dotnet list QuickTranslate\QuickTranslate.csproj package --include-transitive`
 并核对声明文件，不得直接沿用旧版本清单。
 
-### 2.4 创建发布目录 + 打包 zip
+### 2.5 创建发布目录 + 打包 zip
 
 ```powershell
 $ver = "1.8.0"

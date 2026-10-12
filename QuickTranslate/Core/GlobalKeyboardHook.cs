@@ -19,6 +19,7 @@ namespace QuickTranslate.Core
         private readonly Win32Api.LowLevelKeyboardProc _proc;
         private readonly ManualResetEventSlim _threadReady = new(false);
         private volatile bool _isRunning;
+        private bool _hotKeyDown;
 
         /// <summary>
         /// 热键的虚拟键码（默认 VK_Q = 0x51）
@@ -39,6 +40,8 @@ namespace QuickTranslate.Core
         /// 是否需要 Shift 修饰键（默认 false）
         /// </summary>
         public bool RequireShift { get; set; } = false;
+
+        public bool RequireExactModifiers { get; set; }
 
         /// <summary>
         /// 热键触发时触发（在 WPF UI 线程上调用）
@@ -85,6 +88,7 @@ namespace QuickTranslate.Core
             _hookThread?.Join(2000);
             _hookThread = null;
             _hookThreadId = 0;
+            _hotKeyDown = false;
             Logger.Info("KeyboardHook", "全局键盘钩子已停止");
         }
 
@@ -93,7 +97,9 @@ namespace QuickTranslate.Core
         /// </summary>
         private void HookThreadProc()
         {
-            _hookThreadId = (uint)Environment.CurrentManagedThreadId;
+            _hookThreadId = Win32Api.GetCurrentThreadId();
+            // Create the native queue before Stop can post WM_QUIT.
+            Win32Api.PeekMessage(out _, IntPtr.Zero, 0, 0, 0);
 
             var moduleHandle = Win32Api.GetModuleHandle(null);
             _hookId = Win32Api.SetWindowsHookEx(
@@ -147,28 +153,29 @@ namespace QuickTranslate.Core
             {
                 try
                 {
-                    if (wParam == (IntPtr)Win32Api.WM_KEYDOWN)
+                    if ((lParam.flags & Win32Api.LLKHF_INJECTED) != 0)
+                        return Win32Api.CallNextHookEx(_hookId, nCode, wParam, ref lParam);
+                    if (lParam.vkCode == HotKey &&
+                        (wParam == (IntPtr)Win32Api.WM_KEYUP || wParam == (IntPtr)Win32Api.WM_SYSKEYUP))
+                        _hotKeyDown = false;
+                    if (wParam == (IntPtr)Win32Api.WM_KEYDOWN ||
+                        wParam == (IntPtr)Win32Api.WM_SYSKEYDOWN)
                     {
-                        // 过滤注入事件（模拟按键），避免 Ctrl+C 模拟触发钩子
-                        if ((lParam.flags & Win32Api.LLKHF_INJECTED) != 0)
-                        {
-                            return Win32Api.CallNextHookEx(_hookId, nCode, wParam, ref lParam);
-                        }
-
                         // 检查是否按下热键
                         if (lParam.vkCode == HotKey)
                         {
-                            bool altPressed = (Win32Api.GetAsyncKeyState(0x12) & 0x8000) != 0;
+                            bool altPressed = (lParam.flags & 0x20) != 0 ||
+                                (Win32Api.GetAsyncKeyState(0x12) & 0x8000) != 0;
                             bool ctrlPressed = (Win32Api.GetAsyncKeyState(Win32Api.VK_CONTROL) & 0x8000) != 0;
                             bool shiftPressed = (Win32Api.GetAsyncKeyState(0x10) & 0x8000) != 0;
 
-                            bool match = true;
-                            if (RequireAlt && !altPressed) match = false;
-                            if (RequireCtrl && !ctrlPressed) match = false;
-                            if (RequireShift && !shiftPressed) match = false;
+                            var windowsPressed = (Win32Api.GetAsyncKeyState(0x5B) & 0x8000) != 0 ||
+                                (Win32Api.GetAsyncKeyState(0x5C) & 0x8000) != 0;
+                            var match = MatchesModifiers(altPressed, ctrlPressed, shiftPressed, windowsPressed);
 
-                            if (match)
+                            if (match && (!RequireExactModifiers || !_hotKeyDown))
                             {
+                                _hotKeyDown = true;
                                 // 异步投递到 WPF UI 线程
                                 System.Windows.Application.Current?.Dispatcher.BeginInvoke(
                                     new Action(() => HotKeyPressed?.Invoke()));
@@ -199,6 +206,11 @@ namespace QuickTranslate.Core
             parts.Add(GetKeyName(HotKey));
             return string.Join("+", parts);
         }
+
+        internal bool MatchesModifiers(bool alt, bool ctrl, bool shift, bool windows) =>
+            RequireExactModifiers
+                ? RequireAlt == alt && RequireCtrl == ctrl && RequireShift == shift && !windows
+                : (!RequireAlt || alt) && (!RequireCtrl || ctrl) && (!RequireShift || shift);
 
         /// <summary>
         /// 获取按键名称

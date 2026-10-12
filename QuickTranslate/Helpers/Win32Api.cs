@@ -15,6 +15,8 @@ namespace QuickTranslate.Helpers
         public const int WH_MOUSE_LL = 14;
         public const int WM_KEYDOWN = 0x0100;
         public const int WM_KEYUP = 0x0101;
+        public const int WM_SYSKEYDOWN = 0x0104;
+        public const int WM_SYSKEYUP = 0x0105;
         public const int WM_LBUTTONDOWN = 0x0201;
         public const int WM_LBUTTONUP = 0x0202;
         public const int WM_MOUSEMOVE = 0x0200;
@@ -180,6 +182,12 @@ namespace QuickTranslate.Helpers
         [DllImport("user32.dll")]
         public static extern void PostThreadMessage(uint idThread, uint Msg, IntPtr wParam, IntPtr lParam);
 
+        [DllImport("kernel32.dll")]
+        public static extern uint GetCurrentThreadId();
+
+        [DllImport("user32.dll")]
+        public static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint min, uint max, uint remove);
+
         // ── 原生定时器（钩子线程内使用） ──
         public const uint WM_TIMER = 0x0113;
         public const uint WM_QUIT = 0x0012;
@@ -226,6 +234,25 @@ namespace QuickTranslate.Helpers
             var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
             if (!GetMonitorInfo(hMon, ref mi)) return Rect.Empty;
             return new Rect(mi.rcWork.Left, mi.rcWork.Top, mi.rcWork.Right - mi.rcWork.Left, mi.rcWork.Bottom - mi.rcWork.Top);
+        }
+
+        /// <summary>
+        /// 获取指定物理屏幕坐标所在显示器的完整物理像素矩形。
+        /// </summary>
+        public static Rect GetPhysicalMonitorAreaAtPoint(Point physicalPoint)
+        {
+            var hMon = MonitorFromPoint(
+                new POINT { X = (int)physicalPoint.X, Y = (int)physicalPoint.Y },
+                MONITOR_DEFAULTTONEAREST);
+            var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+            if (hMon == IntPtr.Zero || !GetMonitorInfo(hMon, ref mi))
+                return Rect.Empty;
+
+            return new Rect(
+                mi.rcMonitor.Left,
+                mi.rcMonitor.Top,
+                mi.rcMonitor.Right - mi.rcMonitor.Left,
+                mi.rcMonitor.Bottom - mi.rcMonitor.Top);
         }
 
         [DllImport("user32.dll")]
