@@ -33,6 +33,8 @@ public sealed class ScreenshotTranslationCoordinatorTests
         Assert.True(result.Mapping.Accepted);
         Assert.Equal(new[] { "u0001", "u0002" }, result.Mapping.MappedUnits.Select(unit => unit.UnitId));
         Assert.Equal(3, result.Timings.OcrBlockCount);
+        Assert.Equal(3, result.Timings.NormalizedBlockCount);
+        Assert.Equal(2, result.Timings.AggregatedParagraphCount);
         Assert.Equal(2, result.Timings.TranslationUnitCount);
         Assert.True(result.Timings.OcrElapsed >= TimeSpan.Zero);
         Assert.True(result.Timings.TranslationElapsed >= TimeSpan.Zero);
@@ -59,6 +61,8 @@ public sealed class ScreenshotTranslationCoordinatorTests
         Assert.False(called);
         Assert.True(result.Mapping.Accepted);
         Assert.Equal(0, result.Timings.OcrBlockCount);
+        Assert.Equal(0, result.Timings.NormalizedBlockCount);
+        Assert.Equal(0, result.Timings.AggregatedParagraphCount);
         Assert.Equal(0, result.Timings.TranslationUnitCount);
     }
 
@@ -153,6 +157,32 @@ public sealed class ScreenshotTranslationCoordinatorTests
         var unit = Assert.Single(result.Units);
         Assert.Equal("This sentence needs translation.", unit.SourceText);
         Assert.Equal(1, result.Timings.TranslationUnitCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ReportsPreparedCountsWhenTranslationFails()
+    {
+        var ocr = new FakeOcrService(new OcrResult(
+            new[]
+            {
+                new OcrTextBlock("b0001", "https://example.com", new OcrBounds(0, 0, 90, 12)),
+                new OcrTextBlock("b0002", "Translate this sentence.", new OcrBounds(0, 30, 90, 12))
+            }, "en-US", false, 0, TimeSpan.Zero));
+        var coordinator = new ScreenshotTranslationCoordinator(ocr);
+        ScreenshotTranslationStageTimings? prepared = null;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ExecuteAsync(
+            ValidImage(),
+            (_, _) => throw new InvalidOperationException("provider"),
+            shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
+                .Evaluate(unit.SourceText, "简体中文").ShouldTranslate,
+            onPrepared: timings => prepared = timings));
+
+        Assert.NotNull(prepared);
+        Assert.Equal(2, prepared!.RawBlockCount);
+        Assert.Equal(2, prepared.NormalizedBlockCount);
+        Assert.Equal(2, prepared.AggregatedParagraphCount);
+        Assert.Equal(1, prepared.TranslationUnitCount);
     }
 
     private static OcrImage ValidImage() => new(100, 100, 400, new byte[40_000]);

@@ -44,7 +44,8 @@ public sealed class ScreenshotTranslationCoordinator
         CancellationToken cancellationToken = default,
         Action<IReadOnlyList<ScreenshotTranslationUnit>>? onUnitsReady = null,
         Action<TranslatedTextUnit>? onUnitTranslated = null,
-        Func<ScreenshotTranslationUnit, bool>? shouldTranslate = null)
+        Func<ScreenshotTranslationUnit, bool>? shouldTranslate = null,
+        Action<ScreenshotTranslationStageTimings>? onPrepared = null)
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(translateAsync);
@@ -64,7 +65,8 @@ public sealed class ScreenshotTranslationCoordinator
             cancellationToken,
             onUnitsReady,
             onUnitTranslated,
-            shouldTranslate).ConfigureAwait(false);
+            shouldTranslate,
+            onPrepared).ConfigureAwait(false);
     }
 
     public async Task<ScreenshotTranslationPipelineResult> ExecuteWithOcrResultAsync(
@@ -75,7 +77,8 @@ public sealed class ScreenshotTranslationCoordinator
         CancellationToken cancellationToken = default,
         Action<IReadOnlyList<ScreenshotTranslationUnit>>? onUnitsReady = null,
         Action<TranslatedTextUnit>? onUnitTranslated = null,
-        Func<ScreenshotTranslationUnit, bool>? shouldTranslate = null)
+        Func<ScreenshotTranslationUnit, bool>? shouldTranslate = null,
+        Action<ScreenshotTranslationStageTimings>? onPrepared = null)
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(ocrResult);
@@ -104,17 +107,20 @@ public sealed class ScreenshotTranslationCoordinator
         if (units.Length > _limits.MaxTranslationUnitCount)
             throw new ArgumentException("翻译单元数超过允许上限。", nameof(ocrResult));
 
+        var preparedTimings = new ScreenshotTranslationStageTimings(
+            ocrElapsed, TimeSpan.Zero, TimeSpan.Zero, ocrResult.Blocks.Count, units.Length)
+        {
+            RawBlockCount = ocrResult.Blocks.Count,
+            NormalizedBlockCount = normalizedBlocks.Length,
+            AggregatedParagraphCount = paragraphs.Count
+        };
+        onPrepared?.Invoke(preparedTimings);
         if (units.Length == 0)
         {
             var emptyMapping = ScreenshotTranslationMapper.Map(units, Array.Empty<TranslatedTextUnit>());
             return new(ScreenshotTranslationPipelineStatus.NoText, ocrResult, units, emptyMapping)
             {
-                Timings = new(
-                    ocrElapsed,
-                    TimeSpan.Zero,
-                    TimeSpan.Zero,
-                    normalizedBlocks.Length,
-                    0)
+                Timings = preparedTimings
             };
         }
 
@@ -138,12 +144,11 @@ public sealed class ScreenshotTranslationCoordinator
             : ScreenshotTranslationPipelineStatus.TranslationMappingRejected;
         return new(status, ocrResult, units, mapping)
         {
-            Timings = new(
-                ocrElapsed,
-                translationWatch.Elapsed,
-                mappingWatch.Elapsed,
-                normalizedBlocks.Length,
-                    units.Length)
+            Timings = preparedTimings with
+            {
+                TranslationElapsed = translationWatch.Elapsed,
+                MappingElapsed = mappingWatch.Elapsed
+            }
         };
     }
 
@@ -155,21 +160,32 @@ public sealed class ScreenshotTranslationCoordinator
         CancellationToken cancellationToken = default,
         Action<IReadOnlyList<ScreenshotTranslationUnit>>? onUnitsReady = null,
         Action<TranslatedTextUnit>? onUnitTranslated = null,
-        Func<ScreenshotTranslationUnit, bool>? shouldTranslate = null)
+        Func<ScreenshotTranslationUnit, bool>? shouldTranslate = null,
+        Action<ScreenshotTranslationStageTimings>? onPrepared = null)
     {
         ArgumentNullException.ThrowIfNull(ocrResult);
         ArgumentNullException.ThrowIfNull(units);
         ArgumentNullException.ThrowIfNull(translateAsync);
+        var aggregatedParagraphCount = units.Count;
         units = units
             .Where(unit => shouldTranslate?.Invoke(unit) ?? true)
             .ToArray();
 
+        // Externally prepared units do not pass through this coordinator's normalizer.
+        var preparedTimings = new ScreenshotTranslationStageTimings(
+            ocrElapsed, TimeSpan.Zero, TimeSpan.Zero, ocrResult.Blocks.Count, units.Count)
+        {
+            RawBlockCount = ocrResult.Blocks.Count,
+            NormalizedBlockCount = null,
+            AggregatedParagraphCount = aggregatedParagraphCount
+        };
+        onPrepared?.Invoke(preparedTimings);
         if (units.Count == 0)
         {
             var empty = ScreenshotTranslationMapper.Map(units, Array.Empty<TranslatedTextUnit>());
             return new(ScreenshotTranslationPipelineStatus.NoText, ocrResult, units, empty)
             {
-                Timings = new(ocrElapsed, TimeSpan.Zero, TimeSpan.Zero, ocrResult.Blocks.Count, 0)
+                Timings = preparedTimings
             };
         }
 
@@ -189,7 +205,11 @@ public sealed class ScreenshotTranslationCoordinator
             : ScreenshotTranslationPipelineStatus.TranslationMappingRejected;
         return new(status, ocrResult, units, mapping)
         {
-            Timings = new(ocrElapsed, translationWatch.Elapsed, mappingWatch.Elapsed, ocrResult.Blocks.Count, units.Count)
+            Timings = preparedTimings with
+            {
+                TranslationElapsed = translationWatch.Elapsed,
+                MappingElapsed = mappingWatch.Elapsed
+            }
         };
     }
 

@@ -11,6 +11,12 @@ public sealed record ScreenshotTranslationStageTimings(
     int OcrBlockCount,
     int TranslationUnitCount)
 {
+    public int RawBlockCount { get; init; }
+
+    public int? NormalizedBlockCount { get; init; }
+
+    public int AggregatedParagraphCount { get; init; }
+
     public static ScreenshotTranslationStageTimings Empty { get; } = new(
         TimeSpan.Zero,
         TimeSpan.Zero,

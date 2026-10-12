@@ -80,6 +80,8 @@ ZH_QUICK = _mk(
     ("Core/ScreenshotTranslationSessionState.cs", "截图翻译会话生命周期状态"),
     ("Core/ScreenshotTranslationCoordinator.cs", "截图翻译 OCR 到译文协调"),
     ("Core/ScreenshotTranslationTiming.cs", "截图翻译分段耗时与计数"),
+    ("Core/ScreenshotTranslationDiagnostics.cs", "截图翻译隐私安全诊断统计"),
+    ("Core/ScreenshotTranslationCancellationReason.cs", "截图翻译取消来源"),
     ("Core/ScreenshotSelection.cs", "截图框选物理矩形与资源门禁"),
     ("Core/OverlayLayoutEngine.cs", "截图译文覆盖层确定性布局引擎"),
     # Database
@@ -275,6 +277,8 @@ EN_QUICK = _mk(
     ("Core/ScreenshotTranslationSessionState.cs", "Screenshot translation session lifecycle state"),
     ("Core/ScreenshotTranslationCoordinator.cs", "Screenshot OCR-to-translation coordination"),
     ("Core/ScreenshotTranslationTiming.cs", "Screenshot pipeline stage timings and counts"),
+    ("Core/ScreenshotTranslationDiagnostics.cs", "Privacy-safe screenshot translation diagnostics"),
+    ("Core/ScreenshotTranslationCancellationReason.cs", "Screenshot translation cancellation source"),
     ("Core/ScreenshotSelection.cs", "Physical screenshot region and resource gate"),
     ("Core/OverlayLayoutEngine.cs", "Deterministic screenshot overlay layout engine"),
     ("Database/", "Persistence layer"),

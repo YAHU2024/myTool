@@ -294,6 +294,8 @@ QuickTranslate/
 │   ├── ScreenshotTranslationSessionState.cs            # Screenshot translation session lifecycle state
 │   ├── ScreenshotTranslationCoordinator.cs             # Screenshot OCR-to-translation coordination
 │   ├── ScreenshotTranslationTiming.cs                  # Screenshot pipeline stage timings and counts
+│   ├── ScreenshotTranslationDiagnostics.cs             # Privacy-safe screenshot translation diagnostics
+│   ├── ScreenshotTranslationCancellationReason.cs      # Screenshot translation cancellation source
 │   ├── ScreenshotSelection.cs                          # Physical screenshot region and resource gate
 │   └── OverlayLayoutEngine.cs                          # Deterministic screenshot overlay layout engine
 ├── Database/              # Persistence layer

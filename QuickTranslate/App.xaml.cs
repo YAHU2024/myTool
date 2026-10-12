@@ -59,6 +59,8 @@ public partial class App : Application
     private ScreenshotTranslationCoordinator? _screenshotTranslationCoordinator;
     private MangaSceneRoutingService? _mangaSceneRoutingService;
     private CancellationTokenSource? _screenshotTranslationCts;
+    private ScreenshotTranslationDiagnostics? _activeScreenshotDiagnostics;
+    private long _activeOcrEngineGeneration;
     private TrayIconManager? _trayIcon;
     private SettingsWindow? _settingsWindow;
     private ModelSettingsContext? _modelSettingsContext;
@@ -581,18 +583,20 @@ public partial class App : Application
         if (restoreState.QuickLookupWindowVisible)
             _quickLookupWindow?.Hide();
 
+        var sessionId = Guid.NewGuid().ToString("N");
         ScreenshotSelectionWindow? window = null;
         try
         {
             window = new ScreenshotSelectionWindow(monitorRegion);
             _screenshotWindow = window;
             window.SelectionCompleted += region =>
-                OnScreenshotSelectionCompleted(window, restoreState, region, trigger);
+                OnScreenshotSelectionCompleted(window, restoreState, region, sessionId, trigger);
             window.Cancelled += () =>
-                OnScreenshotSelectionCancelled(window, restoreState);
+                OnScreenshotSelectionCancelled(window, restoreState, sessionId);
             window.ShowSelection();
             Logger.Info("Screenshot", "screenshot.selection_started", new
             {
+                session_id = sessionId,
                 trigger,
                 monitor_width = monitorRegion.Width,
                 monitor_height = monitorRegion.Height
@@ -613,11 +617,16 @@ public partial class App : Application
 
     private void OnScreenshotSelectionCancelled(
         ScreenshotSelectionWindow window,
-        ScreenshotUiState restoreState)
+        ScreenshotUiState restoreState,
+        string sessionId)
     {
         if (ReferenceEquals(_screenshotWindow, window))
             _screenshotWindow = null;
-        Logger.Info("Screenshot", "screenshot.selection_cancelled", new { });
+        Logger.Info("Screenshot", "screenshot.selection_cancelled", new
+        {
+            session_id = sessionId,
+            cancellation_reason = ScreenshotTranslationCancellationReason.User.ToString()
+        });
         RestoreScreenshotUi(restoreState);
     }
 
@@ -625,6 +634,7 @@ public partial class App : Application
         ScreenshotSelectionWindow window,
         ScreenshotUiState restoreState,
         ScreenshotRegion region,
+        string sessionId,
         string trigger)
     {
         var pipelineWatch = Stopwatch.StartNew();
@@ -648,6 +658,11 @@ public partial class App : Application
         ScreenshotTranslationProgressWindow? progressWindow = null;
         ScreenshotTranslationOverlayWindow? overlayWindow = null;
         var restoreUiReleaseClaimed = false;
+        var screenshotDiagnostics = new ScreenshotTranslationDiagnostics(sessionId);
+        var selectedOcrGeneration = Volatile.Read(ref _activeOcrEngineGeneration);
+        var translationWatch = new Stopwatch();
+        var translationCompletedCount = 0;
+        var closingProgressForCompletion = false;
 
         if (ReferenceEquals(_screenshotWindow, window))
             _screenshotWindow = null;
@@ -662,6 +677,9 @@ public partial class App : Application
             userCancellation.Token,
             pipelineDeadline.Token);
         _screenshotTranslationCts = translationCts;
+        _activeScreenshotDiagnostics = screenshotDiagnostics;
+        using var deadlineRegistration = pipelineDeadline.Token.Register(() =>
+            RecordScreenshotCancellation(screenshotDiagnostics, ScreenshotTranslationCancellationReason.PipelineTimeout));
         var cancellationToken = translationCts.Token;
 
         try
@@ -683,6 +701,9 @@ public partial class App : Application
             }
             Logger.Info("Screenshot", "screenshot.capture_completed", new
             {
+                session_id = sessionId,
+                attempt_id = screenshotDiagnostics.AttemptId,
+                trigger,
                 width = image.PixelWidth,
                 height = image.PixelHeight,
                 stride = image.Stride,
@@ -697,6 +718,7 @@ public partial class App : Application
                 _screenshotProgressWindow = progress;
                 progress.CancelRequested += () =>
                 {
+                    RecordScreenshotCancellation(screenshotDiagnostics, ScreenshotTranslationCancellationReason.User);
                     userCancellation.Cancel();
                     restoreUiReleaseClaimed |= ScreenshotTranslationSessionState.TryRelease(
                         ref _screenshotTranslationCts,
@@ -712,8 +734,9 @@ public partial class App : Application
                 };
                 progress.Closed += (_, _) =>
                 {
-                    if (!userCancellation.IsCancellationRequested && !progress.ClosedForOverlay)
+                    if (!translationCts.IsCancellationRequested && !progress.ClosedForOverlay && !closingProgressForCompletion)
                     {
+                        RecordScreenshotCancellation(screenshotDiagnostics, ScreenshotTranslationCancellationReason.User);
                         userCancellation.Cancel();
                         restoreUiReleaseClaimed |= ScreenshotTranslationSessionState.TryRelease(
                             ref _screenshotTranslationCts,
@@ -725,12 +748,25 @@ public partial class App : Application
                 };
                 progress.ShowProgress();
             }, DispatcherPriority.ApplicationIdle);
+            selectedOcrGeneration = Volatile.Read(ref _activeOcrEngineGeneration);
             var ocrService = _screenshotOcrService;
             var coordinator = _screenshotTranslationCoordinator;
             var translationService = _translationService;
             var settings = _settings;
             if (ocrService is null || coordinator is null || translationService is null || settings is null)
                 throw new InvalidOperationException("截图翻译服务尚未初始化。");
+            bool ShouldTranslate(ScreenshotTranslationUnit unit) =>
+                screenshotDiagnostics.Evaluate(unit.SourceText, settings.TargetLanguage).ShouldTranslate;
+            Logger.Info("Screenshot", "screenshot.session_started", new
+            {
+                session_id = sessionId,
+                attempt_id = screenshotDiagnostics.AttemptId,
+                trigger,
+                engine = ocrService.Probe().EngineId,
+                ocr_generation = selectedOcrGeneration,
+                requested_ocr_generation = Volatile.Read(ref _ocrEngineSwitchGeneration),
+                target_language = settings.TargetLanguage
+            });
             if (settings.EnhancedScreenshotTranslationEnabled && _mangaSceneRoutingService is null)
                 RefreshMangaSceneRoutingService(settings);
 
@@ -749,6 +785,28 @@ public partial class App : Application
 
             // OCR 单元准备好后立即创建稳定布局，但暂不显示空卡片。每个完整
             // UnitId 译文到达时只更新对应卡片，避免流式期间全量碰撞重排。
+            void RecordPrepared(ScreenshotTranslationStageTimings timings)
+            {
+                pipelineTimings = timings;
+                var counts = screenshotDiagnostics.Snapshot();
+                Logger.Info("Screenshot", "screenshot.ocr_prepared", new
+                {
+                    session_id = sessionId,
+                    attempt_id = screenshotDiagnostics.AttemptId,
+                    engine = selectedOcrEngine,
+                    ocr_generation = selectedOcrGeneration,
+                    raw_block_count = timings.RawBlockCount,
+                    normalized_block_count = timings.NormalizedBlockCount,
+                    aggregated_paragraph_count = timings.AggregatedParagraphCount,
+                    translation_unit_count = timings.TranslationUnitCount,
+                    eligibility_evaluated_count = counts.EvaluatedCount,
+                    eligibility_translate_count = counts.TranslateCount,
+                    eligibility_preserve_count = counts.PreserveCount,
+                    eligibility_skip_count = counts.SkipCount,
+                    eligibility_reason_counts = counts.ReasonCounts
+                });
+            }
+
             Action<IReadOnlyList<ScreenshotTranslationUnit>> prepareOverlay = units =>
             {
                 void CreateOverlay()
@@ -774,7 +832,8 @@ public partial class App : Application
                             overlay,
                             missing,
                             translationService,
-                            settings);
+                            settings,
+                            sessionId);
                     overlay.Closed += (_, _) =>
                     {
                         if (ReferenceEquals(_screenshotOverlayWindow, overlay))
@@ -784,7 +843,10 @@ public partial class App : Application
                             // Closing during an active stream must stop the
                             // provider request; late chunks are then ignored.
                             if (isActive && !cancellationToken.IsCancellationRequested)
+                            {
+                                RecordScreenshotCancellation(screenshotDiagnostics, ScreenshotTranslationCancellationReason.OverlayClosed);
                                 translationCts.Cancel();
+                            }
                             if (isActive)
                                 _screenshotTranslationCts = null;
                             RestoreScreenshotUi(restoreState);
@@ -829,6 +891,8 @@ public partial class App : Application
                         firstTranslationPresentedMs ??= pipelineWatch.Elapsed.TotalMilliseconds;
                         Logger.Info("Screenshot", "screenshot.overlay_presented", new
                         {
+                            session_id = sessionId,
+                            attempt_id = screenshotDiagnostics.AttemptId,
                             unit_id = translated.UnitId,
                             completed_count = overlay.CompletedCount,
                             unit_count = overlay.ExpectedCount,
@@ -866,6 +930,14 @@ public partial class App : Application
                 CancellationToken token)
             {
                 stage = "translation";
+                translationWatch.Start();
+                Logger.Info("Screenshot", "screenshot.translation_started", new
+                {
+                    session_id = sessionId,
+                    attempt_id = screenshotDiagnostics.AttemptId,
+                    ocr_generation = selectedOcrGeneration,
+                    unit_count = units.Count
+                });
                 await Dispatcher.InvokeAsync(() =>
                 {
                     if (ReferenceEquals(_screenshotProgressWindow, progressWindow) &&
@@ -884,6 +956,7 @@ public partial class App : Application
                         if (!completed.TryAdd(translated.UnitId, translated))
                             return;
                     }
+                    Interlocked.Increment(ref translationCompletedCount);
                     publishOverlayUnit(translated);
                 }
 
@@ -1107,9 +1180,8 @@ public partial class App : Application
                             standardOcrWatch.Elapsed,
                             cancellationToken,
                             prepareOverlay,
-                            shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
-                                .Evaluate(unit.SourceText, settings.TargetLanguage)
-                                .ShouldTranslate).ConfigureAwait(true);
+                            shouldTranslate: ShouldTranslate,
+                            onPrepared: RecordPrepared).ConfigureAwait(true);
                     }
                     else
                     {
@@ -1121,9 +1193,8 @@ public partial class App : Application
                             standardOcrWatch.Elapsed,
                             cancellationToken,
                             prepareOverlay,
-                            shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
-                                .Evaluate(unit.SourceText, settings.TargetLanguage)
-                                .ShouldTranslate).ConfigureAwait(true);
+                            shouldTranslate: ShouldTranslate,
+                            onPrepared: RecordPrepared).ConfigureAwait(true);
                     }
                 }
                 else
@@ -1135,9 +1206,8 @@ public partial class App : Application
                         standardOcrWatch.Elapsed,
                         cancellationToken,
                         prepareOverlay,
-                        shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
-                            .Evaluate(unit.SourceText, settings.TargetLanguage)
-                            .ShouldTranslate).ConfigureAwait(true);
+                        shouldTranslate: ShouldTranslate,
+                            onPrepared: RecordPrepared).ConfigureAwait(true);
                 }
             }
             else
@@ -1148,9 +1218,8 @@ public partial class App : Application
                     new OcrRecognitionOptions(LanguageHint: null, AllowLanguageFallback: true),
                     cancellationToken,
                     prepareOverlay,
-                    shouldTranslate: unit => ScreenshotTranslationEligibilityEvaluator
-                        .Evaluate(unit.SourceText, settings.TargetLanguage)
-                        .ShouldTranslate).ConfigureAwait(true);
+                    shouldTranslate: ShouldTranslate,
+                            onPrepared: RecordPrepared).ConfigureAwait(true);
             }
 
             pipelineTimings = pipeline.Timings;
@@ -1219,7 +1288,7 @@ public partial class App : Application
                 DescribeScreenshotFailure(failureKind.Value),
                 System.Windows.Forms.ToolTipIcon.Warning);
         }
-        catch (OperationCanceledException) when (userCancellation.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             pipelineStatus = "cancelled";
             failureType = nameof(OperationCanceledException);
@@ -1270,6 +1339,8 @@ public partial class App : Application
             }
             Logger.Warn("Screenshot", "screenshot.capture_failed", new
             {
+                session_id = sessionId,
+                attempt_id = screenshotDiagnostics.AttemptId,
                 exception_type = ex.GetType().Name,
                 inner_exception_type = ex.InnerException?.GetType().Name,
                 hresult = ex.HResult,
@@ -1291,8 +1362,28 @@ public partial class App : Application
         finally
         {
             pipelineWatch.Stop();
+            translationWatch.Stop();
+            closingProgressForCompletion = true;
+            if (translationWatch.Elapsed > TimeSpan.Zero)
+            {
+                pipelineTimings = pipelineTimings with { TranslationElapsed = translationWatch.Elapsed };
+                Logger.Info("Screenshot", "screenshot.translation_ended", new
+                {
+                    session_id = sessionId,
+                    attempt_id = screenshotDiagnostics.AttemptId,
+                    status = pipelineStatus,
+                    ocr_generation = selectedOcrGeneration,
+                    cancellation_reason = screenshotDiagnostics.CancellationReason.ToString(),
+                    completed_unit_count = Volatile.Read(ref translationCompletedCount),
+                    request_count = Volatile.Read(ref translationRequestCount),
+                    duration_ms = Math.Round(translationWatch.Elapsed.TotalMilliseconds, 2)
+                });
+            }
+            var diagnosticsSnapshot = screenshotDiagnostics.Snapshot();
             Logger.Info("Screenshot", "screenshot.pipeline_completed", new
             {
+                session_id = sessionId,
+                attempt_id = screenshotDiagnostics.AttemptId,
                 status = pipelineStatus,
                 terminal_stage = stage,
                 failure_type = failureType,
@@ -1309,13 +1400,25 @@ public partial class App : Application
                 overlay_skipped_count = overlaySkippedCount,
                 total_elapsed_ms = Math.Round(pipelineWatch.Elapsed.TotalMilliseconds, 2),
                 ocr_block_count = pipelineTimings.OcrBlockCount,
+                raw_block_count = pipelineTimings.RawBlockCount,
+                normalized_block_count = pipelineTimings.NormalizedBlockCount,
+                aggregated_paragraph_count = pipelineTimings.AggregatedParagraphCount,
                 translation_unit_count = pipelineTimings.TranslationUnitCount,
                 translation_request_count = Volatile.Read(ref translationRequestCount),
                 translation_streaming_used = translationStreamingUsed,
                 translation_streaming_fallback = translationStreamingFallback,
                 first_translation_presented_ms = firstTranslationPresentedMs,
                 translation_completed_unit_count = overlayWindow?.CompletedCount ?? 0,
-                cancelled = userCancellation.IsCancellationRequested
+                cancelled = cancellationToken.IsCancellationRequested,
+                cancellation_reason = screenshotDiagnostics.CancellationReason.ToString(),
+                ocr_generation = selectedOcrGeneration,
+                active_ocr_generation = Volatile.Read(ref _activeOcrEngineGeneration),
+                requested_ocr_generation = Volatile.Read(ref _ocrEngineSwitchGeneration),
+                eligibility_evaluated_count = diagnosticsSnapshot.EvaluatedCount,
+                eligibility_translate_count = diagnosticsSnapshot.TranslateCount,
+                eligibility_preserve_count = diagnosticsSnapshot.PreserveCount,
+                eligibility_skip_count = diagnosticsSnapshot.SkipCount,
+                eligibility_reason_counts = diagnosticsSnapshot.ReasonCounts
             });
             if (ReferenceEquals(_screenshotProgressWindow, progressWindow) &&
                 progressWindow is { } progress)
@@ -1328,6 +1431,8 @@ public partial class App : Application
             var isCurrentSession = ScreenshotTranslationSessionState.TryRelease(
                 ref _screenshotTranslationCts,
                 translationCts);
+            if (ReferenceEquals(_activeScreenshotDiagnostics, screenshotDiagnostics))
+                _activeScreenshotDiagnostics = null;
             if (mangaResult is not null)
             {
                 MangaSceneRoutingService.CleanupTemporaryImage(mangaResult.TemporaryImagePath);
@@ -1372,7 +1477,8 @@ public partial class App : Application
         ScreenshotTranslationOverlayWindow overlay,
         IReadOnlyList<ScreenshotTranslationUnit> missing,
         OpenAITranslationService translationService,
-        AppSettings settings)
+        AppSettings settings,
+        string sessionId)
     {
         if (missing.Count == 0 || _isExiting ||
             ScreenshotTranslationSessionState.BlocksNewSession(_screenshotTranslationCts) ||
@@ -1385,7 +1491,11 @@ public partial class App : Application
         using var retryCts = CancellationTokenSource.CreateLinkedTokenSource(
             retryUserCancellation.Token,
             retryDeadline.Token);
+        var retryDiagnostics = new ScreenshotTranslationDiagnostics(sessionId);
+        _activeScreenshotDiagnostics = retryDiagnostics;
         _screenshotTranslationCts = retryCts;
+        using var deadlineRegistration = retryDeadline.Token.Register(() =>
+            RecordScreenshotCancellation(retryDiagnostics, ScreenshotTranslationCancellationReason.PipelineTimeout));
         var token = retryCts.Token;
         var retryRequestCount = 0;
         var pendingUnitIds = new HashSet<string>(
@@ -1396,6 +1506,8 @@ public partial class App : Application
         overlay.MarkPartial($"正在重试未完成项（{missing.Count} 个）…", canRetry: false);
         Logger.Info("Screenshot", "screenshot.retry_started", new
         {
+            session_id = sessionId,
+            attempt_id = retryDiagnostics.AttemptId,
             missing_unit_count = missing.Count
         });
         try
@@ -1532,6 +1644,8 @@ public partial class App : Application
             }, DispatcherPriority.ApplicationIdle);
             Logger.Info("Screenshot", "screenshot.retry_completed", new
             {
+                session_id = sessionId,
+                attempt_id = retryDiagnostics.AttemptId,
                 missing_unit_count = missing.Count,
                 request_count = Volatile.Read(ref retryRequestCount),
                 completed_unit_count = overlay.CompletedCount,
@@ -1547,6 +1661,8 @@ public partial class App : Application
                     canRetry: true);
             Logger.Warn("Screenshot", "screenshot.retry_failed", new
             {
+                session_id = sessionId,
+                attempt_id = retryDiagnostics.AttemptId,
                 request_count = Volatile.Read(ref retryRequestCount),
                 exception_type = nameof(ScreenshotTranslationTimeoutException),
                 failure_kind = ScreenshotTranslationFailureKind.ProviderTimeout.ToString()
@@ -1566,8 +1682,11 @@ public partial class App : Application
             }
             Logger.Info("Screenshot", "screenshot.retry_cancelled", new
             {
+                session_id = sessionId,
+                attempt_id = retryDiagnostics.AttemptId,
                 request_count = Volatile.Read(ref retryRequestCount),
                 exception_type = ex.GetType().Name,
+                cancellation_reason = retryDiagnostics.CancellationReason.ToString(),
                 failure_kind = kind.ToString()
             });
         }
@@ -1583,20 +1702,26 @@ public partial class App : Application
                     canRetry: true);
             Logger.Warn("Screenshot", "screenshot.retry_failed", new
             {
+                session_id = sessionId,
+                attempt_id = retryDiagnostics.AttemptId,
                 request_count = Volatile.Read(ref retryRequestCount),
                 exception_type = ex.GetType().Name,
+                cancellation_reason = retryDiagnostics.CancellationReason.ToString(),
                 failure_kind = kind.ToString()
             });
         }
         finally
         {
             overlay.Closed -= CancelRetry;
+            if (ReferenceEquals(_activeScreenshotDiagnostics, retryDiagnostics))
+                _activeScreenshotDiagnostics = null;
             if (ReferenceEquals(_screenshotTranslationCts, retryCts))
                 _screenshotTranslationCts = null;
         }
 
         void CancelRetry(object? sender, EventArgs args)
         {
+            RecordScreenshotCancellation(retryDiagnostics, ScreenshotTranslationCancellationReason.OverlayClosed);
             retryUserCancellation.Cancel();
             ScreenshotTranslationSessionState.TryRelease(
                 ref _screenshotTranslationCts,
@@ -3464,6 +3589,15 @@ public partial class App : Application
         var previousSwitch = Interlocked.Exchange(ref _ocrEngineSwitchCts, switchCts);
         previousSwitch?.Cancel();
         var generation = Interlocked.Increment(ref _ocrEngineSwitchGeneration);
+        Logger.Info("Screenshot", "screenshot.ocr_engine_switch_started", new
+        {
+            session_id = _activeScreenshotDiagnostics?.SessionId,
+            attempt_id = _activeScreenshotDiagnostics?.AttemptId,
+            engine = requestedEngine,
+            model_id = OcrModelCatalog.Find(requestedModelId)?.Id,
+            switch_generation = generation,
+            active_ocr_generation = Volatile.Read(ref _activeOcrEngineGeneration)
+        });
         var token = switchCts.Token;
         var manager = _ocrModelManager;
         var model = OcrModelCatalog.Find(requestedModelId);
@@ -3477,7 +3611,7 @@ public partial class App : Application
                 {
                     if (IsCurrent())
                     {
-                        ReplaceScreenshotOcrService(new WindowsMediaOcrService());
+                        ReplaceScreenshotOcrService(new WindowsMediaOcrService(), generation: generation);
                         Logger.Info("Screenshot", "screenshot.ocr_engine_switched", new
                         {
                             engine = "windows",
@@ -3503,7 +3637,7 @@ public partial class App : Application
             {
                 if (!IsCurrent())
                     return;
-                ReplaceScreenshotOcrService(readyCandidate, candidateUsage, model.Id);
+                ReplaceScreenshotOcrService(readyCandidate, candidateUsage, model.Id, generation);
                 applied = true;
                 candidate = null;
                 candidateUsage = null;
@@ -3535,7 +3669,7 @@ public partial class App : Application
             {
                 if (!IsCurrent())
                     return;
-                ReplaceScreenshotOcrService(new WindowsMediaOcrService());
+                ReplaceScreenshotOcrService(new WindowsMediaOcrService(), generation: generation);
                 if (ReferenceEquals(_settings, settings))
                 {
                     settings.ScreenshotOcrEngine = "windows";
@@ -3564,10 +3698,12 @@ public partial class App : Application
     private void ReplaceScreenshotOcrService(
         IOcrService service,
         IDisposable? modelUsage = null,
-        string? activeModelId = null)
+        string? activeModelId = null,
+        long generation = 0)
     {
         if (ReferenceEquals(_screenshotOcrService, service))
         {
+            Volatile.Write(ref _activeOcrEngineGeneration, generation);
             modelUsage?.Dispose();
             return;
         }
@@ -3575,6 +3711,7 @@ public partial class App : Application
         var previous = _screenshotOcrService;
         var previousUsage = _ocrModelUsage;
         _screenshotOcrService = service;
+        Volatile.Write(ref _activeOcrEngineGeneration, generation);
         _ocrModelUsage = modelUsage;
         _ocrModelManager?.SetActiveModel(activeModelId);
         _screenshotTranslationCoordinator = new ScreenshotTranslationCoordinator(service);
@@ -3583,10 +3720,29 @@ public partial class App : Application
         previousUsage?.Dispose();
     }
 
-    private void CancelActiveScreenshotTranslation()
+    private void RecordScreenshotCancellation(
+        ScreenshotTranslationDiagnostics diagnostics,
+        ScreenshotTranslationCancellationReason reason)
+    {
+        if (!diagnostics.TryRecordCancellation(reason))
+            return;
+        Logger.Info("Screenshot", "screenshot.session_cancelled", new
+        {
+            session_id = diagnostics.SessionId,
+            attempt_id = diagnostics.AttemptId,
+            cancellation_reason = reason.ToString(),
+            requested_ocr_generation = Volatile.Read(ref _ocrEngineSwitchGeneration),
+            active_ocr_generation = Volatile.Read(ref _activeOcrEngineGeneration)
+        });
+    }
+
+    private void CancelActiveScreenshotTranslation(
+        ScreenshotTranslationCancellationReason reason = ScreenshotTranslationCancellationReason.OcrEngineSwitch)
     {
         var active = _screenshotTranslationCts;
         _screenshotTranslationCts = null;
+        if (active is not null && !active.IsCancellationRequested && _activeScreenshotDiagnostics is { } diagnostics)
+            RecordScreenshotCancellation(diagnostics, reason);
         active?.Cancel();
         if (_screenshotProgressWindow is { } progress)
         {
@@ -3749,9 +3905,7 @@ public partial class App : Application
         _lookupDeactivationTimer.Stop();
         _screenshotWindow?.CancelSelection();
         _screenshotWindow = null;
-        _screenshotTranslationCts?.Cancel();
-        _screenshotTranslationCts?.Dispose();
-        _screenshotTranslationCts = null;
+        CancelActiveScreenshotTranslation(ScreenshotTranslationCancellationReason.ApplicationExit);
         _ocrEngineSwitchCts?.Cancel();
         _ocrEngineSwitchCts?.Dispose();
         _ocrEngineSwitchCts = null;
