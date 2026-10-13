@@ -166,9 +166,11 @@ public sealed class OpenAIScreenshotBatchTranslationTests
     [Fact]
     public async Task TranslateScreenshotBatchStreamingAsync_ReportsFirstChunkTimeout()
     {
+        // 数据行延迟 60s：确保 20ms 首块超时恒定先于数据到达；
+        // CI 重负载下定时器回调可能延迟 >100ms，毫秒级余量会引入竞态。
         var handler = new DelayedStreamingHandler(
             new[] { SseLine("{\"id\":\"u0001\",\"translation\":\"第一\"}") },
-            new[] { TimeSpan.FromMilliseconds(150) });
+            new[] { TimeSpan.FromSeconds(60) });
         using var service = CreateService(handler);
 
         var exception = await Assert.ThrowsAsync<ScreenshotTranslationTimeoutException>(() =>
@@ -187,7 +189,8 @@ public sealed class OpenAIScreenshotBatchTranslationTests
     [Fact]
     public async Task TranslateScreenshotBatchStreamingAsync_ReportsConnectTimeoutBeforeHeaders()
     {
-        using var service = CreateService(new DelayedResponseHandler(TimeSpan.FromMilliseconds(150)));
+        // 响应头延迟 60s：确保 20ms 连接超时恒定先于响应到达（消除 CI 调度竞态）。
+        using var service = CreateService(new DelayedResponseHandler(TimeSpan.FromSeconds(60)));
 
         var exception = await Assert.ThrowsAsync<ScreenshotTranslationTimeoutException>(() =>
             service.TranslateScreenshotBatchStreamingAsync(
@@ -205,13 +208,14 @@ public sealed class OpenAIScreenshotBatchTranslationTests
     [Fact]
     public async Task TranslateScreenshotBatchStreamingAsync_ReportsIdleTimeoutAfterPartialCompletion()
     {
+        // 第二块延迟 60s：确保 20ms 空闲超时恒定先于下一块到达（消除 CI 调度竞态）。
         var handler = new DelayedStreamingHandler(
             new[]
             {
                 SseLine("{\"id\":\"u0001\",\"translation\":\"第一\"}"),
                 SseLine("{\"id\":\"u0002\",\"translation\":\"第二\"}") + "data: [DONE]\n"
             },
-            new[] { TimeSpan.Zero, TimeSpan.FromMilliseconds(150) });
+            new[] { TimeSpan.Zero, TimeSpan.FromSeconds(60) });
         using var service = CreateService(handler);
         var received = new List<TranslatedTextUnit>();
 
@@ -243,7 +247,8 @@ public sealed class OpenAIScreenshotBatchTranslationTests
             {
                 TimeSpan.FromMilliseconds(10),
                 TimeSpan.FromMilliseconds(10),
-                TimeSpan.FromMilliseconds(10)
+                // 数据行延迟 60s：keep-alive 不延长 20ms 首块截止期，且超时恒定先于数据到达。
+                TimeSpan.FromSeconds(60)
             });
         using var service = CreateService(handler);
 
@@ -276,7 +281,8 @@ public sealed class OpenAIScreenshotBatchTranslationTests
                 TimeSpan.Zero,
                 TimeSpan.FromMilliseconds(10),
                 TimeSpan.FromMilliseconds(10),
-                TimeSpan.FromMilliseconds(10)
+                // 数据行延迟 60s：keep-alive 不延长 20ms 空闲截止期，且超时恒定先于数据到达。
+                TimeSpan.FromSeconds(60)
             });
         using var service = CreateService(handler);
         var received = new List<TranslatedTextUnit>();
@@ -298,9 +304,10 @@ public sealed class OpenAIScreenshotBatchTranslationTests
     [Fact]
     public async Task TranslateScreenshotBatchStreamingAsync_ReportsOverallTimeoutWhenOverallBudgetExpiresFirst()
     {
+        // 数据行延迟 60s：确保 20ms 总预算超时恒定先于数据到达（消除 CI 调度竞态）。
         var handler = new DelayedStreamingHandler(
             new[] { SseLine("{\"id\":\"u0001\",\"translation\":\"第一\"}") },
-            new[] { TimeSpan.FromMilliseconds(150) });
+            new[] { TimeSpan.FromSeconds(60) });
         using var service = CreateService(handler);
 
         var exception = await Assert.ThrowsAsync<ScreenshotTranslationTimeoutException>(() =>
