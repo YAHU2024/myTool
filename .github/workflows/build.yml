@@ -1,22 +1,13 @@
 name: build
 
 on:
+  # 注意：不使用 paths-ignore。纯文档改动也必须触发本工作流，
+  # 让 build-and-test 检查始终被报告（分支保护必需检查依赖此行为）；
+  # 是否跳过重活由 changes job 的 docs_only 输出决定。
   push:
     branches: [ main ]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - 'CONTRIBUTING.md'
-      - '.github/ISSUE_TEMPLATE/**'
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - 'CONTRIBUTING.md'
-      - '.github/ISSUE_TEMPLATE/**'
   workflow_dispatch:
     inputs:
       version:
@@ -34,9 +25,58 @@ permissions:
   pull-requests: write
 
 jobs:
-  # ── CI: build + test on every push/PR (skipped for manual release) ─
-  build-and-test:
+  # ── Docs-only detection ───────────────────────────────────────────
+  # 判断本次改动是否只涉及文档（.md、docs/**、LICENSE、issue 模板）。
+  # 纯文档改动跳过 build/test，但 build-and-test 检查仍会以 skipped
+  # 状态报告（分支保护的必需检查将 skipped 视为通过），避免死锁。
+  changes:
     if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.diff.outputs.docs_only }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect docs-only changes
+        id: diff
+        shell: bash
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            range="origin/${GITHUB_BASE_REF}...HEAD"
+          else
+            range="${GITHUB_EVENT_BEFORE}...HEAD"
+          fi
+          if ! git cat-file -e "${range%%...*}" 2>/dev/null; then
+            # 基线不可用（如仓库首个提交）：保守按含代码处理，跑全量
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          non_docs=$(git diff --name-only "$range" -- \
+            . ':(exclude)*.md' ':(exclude)docs/**' \
+            ':(exclude)LICENSE' ':(exclude).github/ISSUE_TEMPLATE/**')
+          if [[ -n "$non_docs" ]]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "Code changes detected:"
+            echo "$non_docs"
+          else
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+            echo "Docs-only changes; build/test will be skipped."
+          fi
+
+  # ── CI: build + test on every push/PR (skipped for manual release
+  #    and docs-only changes) ─
+  build-and-test:
+    needs: changes
+    if: >-
+      github.event_name != 'workflow_dispatch' &&
+      needs.changes.outputs.docs_only != 'true'
     runs-on: windows-latest
     steps:
       - name: Checkout
