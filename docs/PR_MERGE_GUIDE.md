@@ -41,6 +41,10 @@
 - 提交 `settings.json`、密钥、数据库、日志、`bin/`、`obj/`、`publish/`。
 
 > 一句话：**AI 可以把 PR 准备到"只差按合并按钮"，但"按合并按钮"这步属于人工。**
+>
+> 2026-10-13 起，上表的直推、force push、删除分支等禁令已由 `main` 的 Ruleset
+> 「PR合并前ci必须全绿」平台化强制；维护者在 bypass 名单内，应急直推可用但非常规，
+> 详见[合并前置条件](#合并前置条件仓库流程政策)。
 
 ---
 
@@ -195,7 +199,7 @@ git push --force-with-lease
 
    | 转正条件 | 说明 |
    |:---------|:-----|
-   | **CI 状态明确** | 已触发的 `build-and-test` 检查全部通过。若因 `paths-ignore`（如纯文档改动）未触发，必须明确报告“未运行”，执行适用的文档/差异检查，并由人工判断是否足够。 |
+   | **CI 状态明确** | 必需检查（`build-and-test`、`verify`）全部通过或明确 skipped。纯文档改动（`changes` job 判定 docs_only）时 `build-and-test` 以 skipped 报告并视为通过；汇报必须如实写明「skipped（纯文档）」，由人工判断文档/差异检查是否足够。 |
    | **自测完成** | AI 已完成所有自动化验证；手动验证项（如有）已记录在 PR 正文。 |
    | **正文完整** | PR 正文所有板块已填写，截图（如有）已附上。 |
 
@@ -313,20 +317,36 @@ if (git branch --list <已合并分支>) { git branch -D <已合并分支> }
 
 ## 合并前置条件（仓库流程政策）
 
-截至 2026-08-17，GitHub 上的 `main` 没有 Branch Protection 或 Ruleset；下列要求是
-仓库流程政策，而不是平台自动拦截。AI 必须主动遵守，不能因为 GitHub 允许点击合并就
-视为已经获得授权。以后若启用或调整分支保护，应重新核对并同步本文档。
+**平台强制（2026-10-13 起）**：`main` 启用了 Ruleset「PR合并前ci必须全绿」
+（active，目标为默认分支）。以下项由 GitHub 技术强制，不再依赖自觉：
+
+| 平台强制项 | 规则集配置 |
+|:-----|:-----|
+| 禁止直推 / force push / 删除 `main` | `pull_request`、`deletion`、`non_fast_forward` 规则 |
+| 必须通过 PR 合并（approvals = 0） | 单人维护者口径：不要求他人审批，但必须有 PR |
+| Required status checks | `build-and-test` + `verify`；未报告或失败时合并按钮禁用 |
+| Review 讨论须 Resolved | `required_review_thread_resolution` 已开启 |
+
+**纯文档改动的特殊语义**：`build.yml` 的 `changes` job 判定 docs-only 后，
+`build-and-test` 以 **skipped** 报告，GitHub 将 skipped 的必需检查视为通过。
+汇报与 PR 正文必须如实写明「skipped（纯文档）」，不得写成「已通过」。
+
+**逃生通道**：Ruleset 的 bypass 名单含 Repository admin。维护者可应急直推
+`main`，但这是紧急通道而非常规工作流；使用后应补一条说明（issue 或下一次
+PR 的描述），交代改动内容与原因。AI 不得自行使用 bypass 直推。
+
+**仍是仓库流程政策（平台未强制，依赖执行者遵守）**：
 
 | 检查项 | 说明 |
 |:-------|:-----|
-| **验证状态明确** | 已触发的检查全部通过；未触发或未执行的检查必须如实说明原因、替代检查和剩余风险。 |
-| **人工确认** | 维护者明确批准合并。独立 Approving Review 是推荐留痕方式，但单人维护时不作为虚假的硬性前提。 |
-| **分支保持最新** | PR 分支与 `main` 同步（无冲突）。 |
-| **对话已解决** | 所有 Review 讨论已标记 Resolved。 |
+| **人工确认** | 维护者明确批准合并。approvals = 0 是有意选择，不能把"CI 通过"解释为合并授权。 |
+| **分支保持最新** | PR 分支与 `main` 同步（无冲突）；平台未强制 up-to-date。 |
+| **合并方式** | merge / squash / rebase 均允许（2026-10-13 决定暂不强制 squash）；release PR 不享有例外。 |
 | **发布附加门禁** | release PR 还必须满足 `docs/RELEASE.md` 中的合并前确认、squash 文件树校验和 Draft Release 发布确认。 |
+| **PR 默认草稿** | 所有 PR 默认以草稿创建，转正需人工确认。 |
 
-> 在 GitHub 尚未配置技术强制前，这些规则完全依赖执行者遵守。启用 Branch Protection
-> 或 Ruleset 应作为独立的仓库管理任务评估，不能只修改文档后宣称已经受保护。
+> 调整 Ruleset（bypass 名单、必需检查、合并方式、thread resolution）时，
+> 必须同步本节，保持"平台强制 / 政策约束"的边界描述准确。
 
 ---
 
@@ -369,6 +389,13 @@ if (git branch --list <已合并分支>) { git branch -D <已合并分支> }
 - 现象：`--hostname required when not running interactively`。
 - 处理：确认当前目录属于目标仓库；必要时显式传入 `--repo YAHU2024/myTool` 或
   `--hostname github.com`，不要盲目重试或改变认证状态。
+
+### 5. 直推 `main` 被拒（分支保护生效）
+
+- 现象：push 被拒，提示需要通过 pull request（或 force push / 删除被拒）。
+- 处理：这是 Ruleset 正常工作（见[合并前置条件](#合并前置条件仓库流程政策)），
+  改走 PR 流程。维护者应急确需直推时，使用 bypass（Repository admin）直推，
+  并事后补一条说明（issue 或下一次 PR 的描述）。AI 不得自行使用 bypass。
 
 ---
 
